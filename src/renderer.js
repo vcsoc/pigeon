@@ -124,7 +124,7 @@ if (Number.isFinite(savedThumbnailSize) && savedThumbnailSize >= Number($('#zoom
 document.documentElement.style.setProperty('--justified-row-height', `${Math.max(95, Math.min(190, Number($('#zoom-slider').value) * .58))}px`);
 const savedSidebarWidth = Number(localStorage.getItem('pigeon.sidebarWidth'));
 const savedInspectorWidth = Number(localStorage.getItem('pigeon.inspectorWidth'));
-if (Number.isFinite(savedSidebarWidth) && savedSidebarWidth >= 180 && savedSidebarWidth <= 480) document.documentElement.style.setProperty('--sidebar-width', `${savedSidebarWidth}px`);
+if (Number.isFinite(savedSidebarWidth) && savedSidebarWidth >= 260 && savedSidebarWidth <= 480) document.documentElement.style.setProperty('--sidebar-width', `${savedSidebarWidth}px`);
 if (Number.isFinite(savedInspectorWidth) && savedInspectorWidth >= 220 && savedInspectorWidth <= 600) document.documentElement.style.setProperty('--inspector-width', `${savedInspectorWidth}px`);
 const savedWindowZoom = Number(localStorage.getItem('pigeon.windowZoom'));
 state.uiZoom = Number.isFinite(savedWindowZoom) ? Math.max(.6, Math.min(2, savedWindowZoom)) : 1;
@@ -338,7 +338,7 @@ async function editCollectionAutoTags(collection) {
 }
 function showCollectionContextMenu(event, collection) {
   const autoTags = state.library.settings?.collectionAutoTags?.[collection.id]?.tags || [], hasChildren = state.library.collections.some((item) => item.parentId === collection.id), collapseKey = collectionCollapseKey(collection.id);
-  elements.contextMenu.innerHTML = `<button data-folder-action="new-subfolder">${iconSvg('folder')}<span>New Subfolder…</span></button>${hasChildren ? `<button data-folder-action="expand">${iconSvg('folder-open')}<span>${isFolderCollapsed(collapseKey) ? 'Expand' : 'Collapse'} Folder</span></button>` : ''}<button data-folder-action="analytics">${iconSvg('analytics')}<span>View Folder Analytics</span></button><hr /><button data-folder-action="rename">${iconSvg('edit')}<span>Rename Collection</span></button><button data-folder-action="auto-tag">${iconSvg('tags')}<span>${autoTags.length ? 'Edit Auto-Tag…' : 'Set Auto-Tag…'}</span>${autoTags.length ? `<small>${autoTags.length}</small>` : ''}</button><button data-folder-action="change-icon">${iconSvg('palette')}<span>Change Icon…</span></button>${collection.lock ? (collection.locked ? '<button data-folder-action="unlock"><span>Unlock folder…</span></button>' : '<button data-folder-action="lock-now"><span>Lock folder now</span></button><button data-folder-action="remove-password"><span>Remove password…</span></button>') : '<button data-folder-action="password"><span>Password protect folder…</span></button>'}<hr /><button data-folder-action="delete"><span>Delete folder</span></button>`;
+  elements.contextMenu.innerHTML = `<button data-folder-action="new-subfolder">${iconSvg('folder')}<span>New Subfolder…</span></button>${hasChildren ? `<button data-folder-action="expand">${iconSvg('folder-open')}<span>${isFolderCollapsed(collapseKey) ? 'Expand' : 'Collapse'} Folder</span></button>` : ''}<button data-folder-action="analytics">${iconSvg('analytics')}<span>View Folder Analytics</span></button><button data-folder-action="transfer">${iconSvg('portfolio')}<span>Add to other portfolio…</span></button><hr /><button data-folder-action="rename">${iconSvg('edit')}<span>Rename Collection</span></button><button data-folder-action="auto-tag">${iconSvg('tags')}<span>${autoTags.length ? 'Edit Auto-Tag…' : 'Set Auto-Tag…'}</span>${autoTags.length ? `<small>${autoTags.length}</small>` : ''}</button><button data-folder-action="change-icon">${iconSvg('palette')}<span>Change Icon…</span></button>${collection.lock ? (collection.locked ? '<button data-folder-action="unlock"><span>Unlock folder…</span></button>' : '<button data-folder-action="lock-now"><span>Lock folder now</span></button><button data-folder-action="remove-password"><span>Remove password…</span></button>') : '<button data-folder-action="password"><span>Password protect folder…</span></button>'}<hr /><button data-folder-action="delete"><span>Delete folder</span></button>`;
   elements.contextMenu.classList.remove('hidden');
   positionMenu(elements.contextMenu, event.clientX, event.clientY);
   elements.contextMenu.querySelectorAll('[data-folder-action]').forEach((button) => button.addEventListener('click', async () => {
@@ -347,6 +347,7 @@ function showCollectionContextMenu(event, collection) {
       if (action === 'expand') { toggleFolderCollapsed(collapseKey); return; }
       if (action === 'new-subfolder') { setFolderCollapsed(collapseKey, false); await createCollectionPrompt(collection.id); renderSidebar(); return; }
       if (action === 'analytics') { openAnalytics({ type: 'collection', id: collection.id }); return; }
+      if (action === 'transfer') { openPortfolioTransfer({ type: 'collection', id: collection.id, name: collection.name }); return; }
       if (action === 'change-icon') { openIconPicker({ type: 'collection', id: collection.id, current: collection.icon, fallback: 'collection' }); return; }
       if (action === 'auto-tag') { await editCollectionAutoTags(collection); return; }
       if (action === 'rename') { const name = await requestText({ title: 'Rename Collection', label: 'Collection name', value: collection.name, confirmText: 'Rename' }); if (name?.trim()) await window.pigeon.renameCollection(collection.id, name.trim()); }
@@ -514,12 +515,13 @@ async function editFolderAutoTags(location, subfolder = '') {
 }
 function showLocationContextMenu(event, location, subfolder = '', row = null) {
   const rule = folderAutoTagRule(location.id, subfolder), iconKey = subfolder ? subfolderIconKey(location.id, subfolder) : location.id, currentIcon = subfolder ? state.library.settings?.itemIcons?.[iconKey] : location.icon, collapseKey = locationCollapseKey(location.id, subfolder);
-  elements.contextMenu.innerHTML = `<button data-location-action="rescan">${iconSvg('refresh')}<span>Rescan Folder</span></button><button data-location-action="analytics">${iconSvg('analytics')}<span>View Folder Analytics</span></button><button data-location-action="search">${iconSvg('search')}<span>Search in Folder</span></button>${subfolder ? `<button data-location-action="show">${iconSvg('eye')}<span>Show Subfolder Content</span></button>` : ''}<button data-location-action="expand">${iconSvg('folder-open')}<span>${isFolderCollapsed(collapseKey) ? 'Expand' : 'Collapse'} Folder</span></button><hr /><button data-location-action="copy">${iconSvg('link')}<span>Copy Folder Path</span></button><button data-location-action="auto-tag">${iconSvg('tags')}<span>${rule ? 'Edit Auto-Tag…' : 'Set Auto-Tag…'}</span>${rule ? `<small>${rule.tags.length}</small>` : ''}</button><hr /><button data-location-action="change-icon">${iconSvg('palette')}<span>Change Icon…</span></button>${subfolder ? '' : `<hr /><button data-location-action="remove">${iconSvg('trash')}<span>Remove Folder</span></button>`}`;
+  elements.contextMenu.innerHTML = `<button data-location-action="rescan">${iconSvg('refresh')}<span>Rescan Folder</span></button><button data-location-action="analytics">${iconSvg('analytics')}<span>View Folder Analytics</span></button><button data-location-action="transfer">${iconSvg('portfolio')}<span>Add to other portfolio…</span></button><button data-location-action="search">${iconSvg('search')}<span>Search in Folder</span></button>${subfolder ? `<button data-location-action="show">${iconSvg('eye')}<span>Show Subfolder Content</span></button>` : ''}<button data-location-action="expand">${iconSvg('folder-open')}<span>${isFolderCollapsed(collapseKey) ? 'Expand' : 'Collapse'} Folder</span></button><hr /><button data-location-action="copy">${iconSvg('link')}<span>Copy Folder Path</span></button><button data-location-action="auto-tag">${iconSvg('tags')}<span>${rule ? 'Edit Auto-Tag…' : 'Set Auto-Tag…'}</span>${rule ? `<small>${rule.tags.length}</small>` : ''}</button><hr /><button data-location-action="change-icon">${iconSvg('palette')}<span>Change Icon…</span></button>${subfolder ? '' : `<hr /><button data-location-action="remove">${iconSvg('trash')}<span>Remove Folder</span></button>`}`;
   elements.contextMenu.classList.remove('hidden'); positionMenu(elements.contextMenu, event.clientX, event.clientY);
   elements.contextMenu.querySelectorAll('[data-location-action]').forEach((button) => button.addEventListener('click', async () => {
     const action = button.dataset.locationAction; hideContextMenu();
     if (action === 'rescan') { showToast(`Rescanning ${subfolder ? subfolder.split('/').pop() : location.name}…`); await window.pigeon.rescan(location.id); showToast('Folder rescan complete'); }
     if (action === 'analytics') openAnalytics({ type: 'location', id: location.id, subfolder });
+    if (action === 'transfer') openPortfolioTransfer({ type: 'folder', id: location.id, subfolder, name: subfolder ? subfolder.split('/').pop() : location.name });
     if (action === 'search') { selectLocation(location.id, subfolder); elements.search.focus(); }
     if (action === 'show') selectLocation(location.id, subfolder);
     if (action === 'expand') toggleFolderCollapsed(collapseKey);
@@ -1162,6 +1164,18 @@ function finishTextEntry(confirmed) {
 async function openAboutDialog() {
   const dialog = $('#about-dialog'), info = await window.pigeon.getAppInfo(); $('#about-version').textContent = `Version ${info.version}`; $('#about-github-icon').innerHTML = iconSvg('github'); dialog.dataset.repository = info.repository; if (!dialog.open) dialog.showModal();
 }
+let portfolioTransferTarget = null, portfolioTransferDestination = null;
+function openPortfolioTransfer(target) {
+  portfolioTransferTarget = target; portfolioTransferDestination = null; hideInternalViewer();
+  const portfolios = (state.library.portfolios || []).filter((item) => item.id !== state.library.activePortfolioId); $('#portfolio-transfer-title').textContent = `Add “${target.name}” to another portfolio`; $('#portfolio-transfer-description').textContent = target.type === 'collection' ? 'Nested collections and all referenced items will be added to the destination.' : 'The indexed folder references will be added without moving original files.';
+  $('#portfolio-transfer-list').innerHTML = portfolios.map((portfolio) => `<button type="button" data-transfer-portfolio="${portfolio.id}" role="radio" aria-checked="false"><span class="portfolio-transfer-icon">${iconSvg('portfolio')}</span><span><strong>${escapeHtml(portfolio.name)}</strong><small>Available portfolio</small></span><i>${iconSvg('check')}</i></button>`).join('') || '<div class="portfolio-transfer-empty">Create another portfolio before transferring.</div>';
+  $('#portfolio-transfer-move').checked = false; $('#confirm-portfolio-transfer').disabled = true; $('#confirm-portfolio-transfer').textContent = 'Add to Portfolio'; $('#portfolio-transfer').classList.remove('hidden'); elements.grid.classList.add('hidden'); elements.empty.classList.add('hidden');
+  $$('[data-transfer-portfolio]').forEach((button) => button.addEventListener('click', () => { portfolioTransferDestination = button.dataset.transferPortfolio; $$('[data-transfer-portfolio]').forEach((item) => { item.classList.toggle('selected', item === button); item.setAttribute('aria-checked', String(item === button)); }); $('#confirm-portfolio-transfer').disabled = false; }));
+}
+function closePortfolioTransfer() { $('#portfolio-transfer').classList.add('hidden'); portfolioTransferTarget = null; portfolioTransferDestination = null; renderGrid(); }
+$('#close-portfolio-transfer').addEventListener('click', closePortfolioTransfer); $('#cancel-portfolio-transfer').addEventListener('click', closePortfolioTransfer);
+$('#portfolio-transfer-move').addEventListener('change', (event) => { $('#confirm-portfolio-transfer').textContent = event.target.checked ? 'Move to Portfolio' : 'Add to Portfolio'; });
+$('#confirm-portfolio-transfer').addEventListener('click', async () => { if (!portfolioTransferTarget || !portfolioTransferDestination) return; const button = $('#confirm-portfolio-transfer'); button.disabled = true; try { const result = await window.pigeon.transferToPortfolio({ ...portfolioTransferTarget, destinationId: portfolioTransferDestination, move: $('#portfolio-transfer-move').checked }); closePortfolioTransfer(); showToast(`${result.moved ? 'Moved' : 'Added'} ${result.assets} item${result.assets === 1 ? '' : 's'} to ${result.destination}`); } catch (error) { button.disabled = false; showToast(error.message); } });
 function showToast(message) {
   elements.toast.textContent = message; elements.toast.classList.remove('hidden');
   clearTimeout(showToast.timer); showToast.timer = setTimeout(() => elements.toast.classList.add('hidden'), 2400);
@@ -1171,7 +1185,7 @@ function panelWidth(name) {
 }
 function setPanelWidth(panel, value, persist = false) {
   const isSidebar = panel === 'sidebar';
-  const minimum = isSidebar ? 180 : 220;
+  const minimum = isSidebar ? 260 : 220;
   const maximum = Math.min(isSidebar ? 480 : 600, window.innerWidth - (isSidebar ? panelWidth('--inspector-width') : panelWidth('--sidebar-width')) - 340);
   const width = Math.round(Math.max(minimum, Math.min(Math.max(minimum, maximum), value)));
   const property = isSidebar ? '--sidebar-width' : '--inspector-width';
@@ -1611,7 +1625,7 @@ function showAssetContextMenu(event, id) {
 
 for (const panel of ['sidebar', 'inspector']) {
   const resizer = $(`#${panel}-resizer`);
-  resizer.setAttribute('aria-valuemin', panel === 'sidebar' ? '180' : '220');
+  resizer.setAttribute('aria-valuemin', panel === 'sidebar' ? '260' : '220');
   resizer.setAttribute('aria-valuemax', panel === 'sidebar' ? '480' : '600');
   resizer.setAttribute('aria-valuenow', String(Math.round(panelWidth(panel === 'sidebar' ? '--sidebar-width' : '--inspector-width'))));
   resizer.addEventListener('pointerdown', (event) => beginPanelResize(panel, event));
@@ -2112,11 +2126,14 @@ let diagnosticsEntries = [], diagnosticsLevel = 'all';
 function renderDiagnosticsConsole() {
   const entries = diagnosticsEntries.filter((entry) => diagnosticsLevel === 'all' || entry.level === diagnosticsLevel), list = $('#diagnostics-list');
   $('#diagnostics-summary').textContent = `${diagnosticsEntries.filter((entry)=>entry.level==='error').length} errors · ${diagnosticsEntries.filter((entry)=>entry.level==='warning').length} warnings · ${diagnosticsEntries.length} total`;
-  list.innerHTML = entries.length ? entries.slice().reverse().map((entry) => `<div class="diagnostic-row ${escapeHtml(entry.level)}"><span class="diagnostic-time">${new Date(entry.timestamp).toLocaleTimeString()}</span><span class="diagnostic-level">${escapeHtml(entry.level)}</span><span class="diagnostic-portfolio">${escapeHtml(entry.portfolioId || 'application')}</span><span class="diagnostic-message">${escapeHtml(entry.message)}${entry.context ? `<small class="diagnostic-context">${escapeHtml(entry.context)}</small>` : ''}</span></div>`).join('') : '<div class="diagnostics-empty">No diagnostics recorded for this filter.</div>';
+  list.innerHTML = entries.length ? entries.slice().reverse().map((entry) => `<div class="diagnostic-row ${escapeHtml(entry.level)}" data-diagnostic-id="${entry.id}"><span class="diagnostic-time">${new Date(entry.timestamp).toLocaleTimeString()}</span><span class="diagnostic-level">${escapeHtml(entry.level)}</span><span class="diagnostic-portfolio">${escapeHtml(entry.portfolioId || 'application')}</span><span class="diagnostic-message">${escapeHtml(entry.message)}${entry.context ? `<small class="diagnostic-context">${escapeHtml(entry.context)}</small>` : ''}</span><span class="diagnostic-row-actions"><button data-copy-diagnostic title="Copy log details" aria-label="Copy log details">${iconSvg('duplicate')}</button><button data-remove-diagnostic title="Remove log" aria-label="Remove log">×</button></span></div>`).join('') : '<div class="diagnostics-empty">No diagnostics recorded for this filter.</div>';
 }
+function diagnosticText(entry) { return `[${new Date(entry.timestamp).toISOString()}] [${entry.level.toUpperCase()}] [${entry.portfolioId || 'application'}] ${entry.message}${entry.context ? `\n${entry.context}` : ''}`; }
+$('#diagnostics-list').addEventListener('click', async (event) => { const row = event.target.closest('[data-diagnostic-id]'); if (!row) return; const entry = diagnosticsEntries.find((item) => item.id === row.dataset.diagnosticId); if (!entry) return; if (event.target.closest('[data-copy-diagnostic]')) { await window.pigeon.copyText(diagnosticText(entry)); showToast('Log details copied'); } if (event.target.closest('[data-remove-diagnostic]')) { await window.pigeon.removeDiagnostic(entry.id); diagnosticsEntries = diagnosticsEntries.filter((item) => item.id !== entry.id); renderDiagnosticsConsole(); } });
 async function openDiagnosticsConsole() { diagnosticsEntries = await window.pigeon.getDiagnostics(); renderDiagnosticsConsole(); $('#diagnostics-console').classList.remove('hidden'); }
 $('#diagnostics-close').addEventListener('click', () => $('#diagnostics-console').classList.add('hidden'));
 $('#diagnostics-clear').addEventListener('click', async () => { await window.pigeon.clearDiagnostics(); diagnosticsEntries = []; renderDiagnosticsConsole(); });
+$('#diagnostics-copy-all').addEventListener('click', async () => { const visible = diagnosticsEntries.filter((entry) => diagnosticsLevel === 'all' || entry.level === diagnosticsLevel); await window.pigeon.copyText(visible.map(diagnosticText).join('\n\n')); showToast(`${visible.length} visible log${visible.length === 1 ? '' : 's'} copied`); });
 $('#diagnostics-open-file').addEventListener('click', () => window.pigeon.openDiagnosticsFile());
 $$('[data-diagnostic-level]').forEach((button) => button.addEventListener('click', () => { diagnosticsLevel = button.dataset.diagnosticLevel; $$('[data-diagnostic-level]').forEach((item)=>item.classList.toggle('active',item===button)); renderDiagnosticsConsole(); }));
 window.pigeon.onDiagnostic((entry) => { diagnosticsEntries.push(entry); if (diagnosticsEntries.length > 1000) diagnosticsEntries.shift(); if (!$('#diagnostics-console').classList.contains('hidden')) renderDiagnosticsConsole(); });

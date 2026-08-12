@@ -17,6 +17,13 @@ test('SQLite store round-trips and incrementally deletes library records', () =>
   assert.equal(loaded.assets.length, 0); assert.equal(loaded.collections.length, 0); store.close();
 });
 
+test('separate portfolio databases can receive transferred records', () => {
+  const firstFile = temporary('first.db'), secondFile = path.join(path.dirname(firstFile), 'second.db'), first = createLibraryStore(firstFile), second = createLibraryStore(secondFile);
+  first.save(core.migrateLibrary({ assets: [{ id: 'shared', path: '/shared.jpg', collectionIds: ['c'] }], collections: [{ id: 'c', name: 'Shared' }] }));
+  const source = first.load(), destination = second.load() || core.migrateLibrary({}); destination.assets.push(source.assets[0]); destination.collections.push(source.collections[0]); second.save(destination);
+  assert.equal(second.load().assets[0].collectionIds[0], 'c'); first.close(); second.close();
+});
+
 test('legacy library.json imports once and is archived', () => {
   const databaseFile = temporary('library.db'), legacyFile = path.join(path.dirname(databaseFile), 'library.json');
   fs.writeFileSync(legacyFile, core.serializeLibrary(core.migrateLibrary({ assets: [{ id: 'legacy', path: 'legacy.jpg' }] })));

@@ -110,6 +110,9 @@
 
         <section class="content-area">
           <div id="grid-wrap" class="grid-wrap">
+            <section id="portfolio-transfer" class="portfolio-transfer hidden" aria-labelledby="portfolio-transfer-title">
+              <div class="portfolio-transfer-card"><header><div><span>Portfolio transfer</span><h2 id="portfolio-transfer-title">Add to another portfolio</h2></div><button id="close-portfolio-transfer" aria-label="Close">×</button></header><p id="portfolio-transfer-description"></p><div id="portfolio-transfer-list" class="portfolio-transfer-list" role="radiogroup" aria-label="Destination portfolio"></div><label class="portfolio-transfer-move"><input id="portfolio-transfer-move" type="checkbox" /><span><strong>Move to portfolio</strong><small>Remove this grouping from the current portfolio after it is added.</small></span></label><footer><button id="cancel-portfolio-transfer">Cancel</button><button id="confirm-portfolio-transfer" class="primary-button" disabled>Add to Portfolio</button></footer></div>
+            </section>
             <section id="locked-content" class="locked-content hidden" aria-live="polite">
               <div class="locked-art" aria-hidden="true"><span class="locked-shackle"></span><span class="locked-body"><i></i></span></div>
               <h2>Unlock to view contents</h2><p id="locked-hint">This collection is password protected.</p>
@@ -204,7 +207,7 @@
 
         <div id="background-progress" class="background-progress hidden" role="status" aria-live="polite"><div class="background-progress-copy"><strong id="background-progress-label">Working…</strong><span id="background-progress-detail"></span></div><div class="background-progress-track"><span id="background-progress-fill"></span></div></div>
         <section id="diagnostics-console" class="diagnostics-console hidden" aria-label="Diagnostics Console">
-          <header><div><strong>Diagnostics Console</strong><span id="diagnostics-summary">No recorded issues</span></div><div class="diagnostics-actions"><button id="diagnostics-open-file">Open Log File</button><button id="diagnostics-clear">Clear</button><button id="diagnostics-close" aria-label="Close">×</button></div></header>
+          <header><div><strong>Diagnostics Console</strong><span id="diagnostics-summary">No recorded issues</span></div><div class="diagnostics-actions"><button id="diagnostics-copy-all">Copy All</button><button id="diagnostics-open-file">Open Log File</button><button id="diagnostics-clear">Clear</button><button id="diagnostics-close" aria-label="Close">×</button></div></header>
           <nav><button class="active" data-diagnostic-level="all">All</button><button data-diagnostic-level="error">Errors</button><button data-diagnostic-level="warning">Warnings</button><button data-diagnostic-level="info">Info</button></nav>
           <div id="diagnostics-list" class="diagnostics-list" role="log" aria-live="polite"></div>
         </section>

@@ -372,6 +372,23 @@ test('indexed folders scroll on hover and preview failures terminate cleanly', (
   assert.match(renderer, /asset\.thumbnailPath \? asset\.previewUrl : asset\.mediaUrl/);
 });
 
+test('diagnostics controls and cross-portfolio grouping transfer are wired', () => {
+  for (const id of ['diagnostics-copy-all','portfolio-transfer','portfolio-transfer-list','portfolio-transfer-move','confirm-portfolio-transfer']) assert.match(html, new RegExp(`id="${id}"`));
+  assert.match(preload, /removeDiagnostic/);
+  assert.match(preload, /transferToPortfolio/);
+  assert.match(main, /diagnostics:remove/);
+  assert.match(main, /portfolio:transfer/);
+  assert.match(main, /excludedFolders/);
+  assert.match(renderer, /data-copy-diagnostic/);
+  assert.match(renderer, /data-remove-diagnostic/);
+  assert.match(renderer, /diagnostics-copy-all/);
+  assert.match(renderer, /Add to other portfolio/);
+  assert.match(renderer, /openPortfolioTransfer/);
+  assert.match(styles, /--tree-step: 18px/);
+  assert.match(styles, /--sidebar-width: 275px/);
+  assert.match(styles, /repeating-linear-gradient/);
+});
+
 test('SQLite persistence replaces library.json with automatic migration', () => {
   const database = fs.readFileSync(path.join(root, 'electron', 'database.js'), 'utf8');
   assert.match(database, /DatabaseSync/);
@@ -387,7 +404,7 @@ test('SQLite persistence replaces library.json with automatic migration', () => 
 });
 
 test('tree rows retain readable labels and diagnostics dock inline', () => {
-  assert.match(styles, /grid-template-columns:12px 18px minmax\(70px,1fr\) 30px/);
+  assert.match(styles, /grid-template-columns:12px 18px minmax\(110px,1fr\) 34px/);
   assert.match(styles, /text-overflow:ellipsis/);
   assert.match(styles, /font-variant-numeric:tabular-nums/);
   assert.match(styles, /\.diagnostics-console \{ grid-row:4; position:relative/);

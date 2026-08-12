@@ -6,6 +6,7 @@ const http = require('node:http');
 const crypto = require('node:crypto');
 const sharp = require('sharp');
 const libraryCore = require('./library-core');
+const { createLibraryStore } = require('./database');
 const ffmpegExecutable = require('ffmpeg-static').replace('app.asar', 'app.asar.unpacked');
 const os = require('node:os');
 const { execFile, spawn } = require('node:child_process');
@@ -441,6 +442,7 @@ function hashFile(filePath, timeout = 10000) {
 
 function normalizedSubfolder(value = '') { return String(value).replace(/\\/g, '/').replace(/^\/+|\/+$/g, '').replace(/\/{2,}/g, '/'); }
 function folderRuleKey(locationId, subfolder = '') { return `${locationId}:${normalizedSubfolder(subfolder).toLowerCase()}`; }
+function folderExcluded(locationId, subfolder = '') { const folder = normalizedSubfolder(subfolder).toLowerCase(); return (library.settings?.excludedFolders || []).some((value) => { const [id, ...parts] = String(value).split(':'); const excluded = parts.join(':'); return id === locationId && (folder === excluded || folder.startsWith(`${excluded}/`)); }); }
 function assetMatchesFolder(asset, location, subfolder = '') {
   if (!asset || !location || asset.locationId !== location.id) return false;
   const folder = normalizedSubfolder(subfolder).toLowerCase(); if (!folder) return true;
@@ -565,6 +567,7 @@ async function scanLocation(locationId, { notify = true } = {}) {
     if (!location.online) { reportBackgroundProgress(progressId, { label: `Scanning ${location.name}`, detail: 'Location is offline', done: true }); scheduleSave(); if (notify) broadcast(); return; }
     const previousAssets = jobLibrary.assets.filter((asset) => asset.locationId === location.id), previous = new Map(previousAssets.map((asset) => [asset.path, asset])), found = []; let scanComplete = true, completedSinceYield = 0;
     const addFile = async (filePath) => {
+      const relativeFolder = normalizedSubfolder(path.dirname(path.relative(location.path, filePath))); if (folderExcluded(location.id, relativeFolder)) return;
       if (!backgroundRunActive(run)) return; const result = await retryBackground(() => inspectFile(filePath, location, previous.get(path.resolve(filePath)), { deferHash: location.unstable }), run, { attempts: 2, timeout: location.unstable ? 5000 : 10000, baseDelay: 80, label: `Inspect ${path.basename(filePath)}` });
       const asset = result?.ok === false ? null : result; location.scanProgress.inspected += 1; if (asset) found.push(asset); completedSinceYield += 1;
       if (completedSinceYield >= 20) { completedSinceYield = 0; reportBackgroundProgress(progressId, { label: `Adding files from ${location.name}`, detail: `${location.scanProgress.inspected.toLocaleString()} of ${location.scanProgress.discovered.toLocaleString()} files`, completed: location.scanProgress.inspected, total: location.scanProgress.discovered }); if (notify) broadcastLocations(); await new Promise((resolve) => setImmediate(resolve)); }
@@ -1416,6 +1419,7 @@ ipcMain.handle('app:info', () => ({ name: 'Pigeon', version: app.getVersion(), r
 ipcMain.handle('diagnostics:get', () => diagnosticEntries.slice(-1000));
 ipcMain.handle('diagnostics:log', (_event, { level = 'error', message, context }) => recordDiagnostic(['info','warning','error'].includes(level) ? level : 'error', message, context));
 ipcMain.handle('diagnostics:clear', async () => { diagnosticEntries = []; if (diagnosticsFile) await fsp.writeFile(diagnosticsFile, ''); return true; });
+ipcMain.handle('diagnostics:remove', async (_event, id) => { diagnosticEntries = diagnosticEntries.filter((entry) => entry.id !== id); if (diagnosticsFile) await fsp.writeFile(diagnosticsFile, diagnosticEntries.map((entry) => JSON.stringify(entry)).join('\n') + (diagnosticEntries.length ? '\n' : '')); return true; });
 ipcMain.handle('diagnostics:open-file', async () => { if (!diagnosticsFile) return false; await fsp.appendFile(diagnosticsFile, ''); return shell.showItemInFolder(diagnosticsFile); });
 ipcMain.handle('app:open-external', (_event, value) => { const url = new URL(String(value || '')); if (url.protocol !== 'https:' || url.hostname !== 'github.com') throw new Error('Only the Pigeon GitHub link can be opened'); return shell.openExternal(url.toString()); });
 ipcMain.handle('map:search', async (_event, query) => {
@@ -1466,6 +1470,25 @@ ipcMain.handle('portfolio:switch', async (_event, id) => {
   await savePortfolioRegistry(); broadcast(); await loadLibraryInWorker(); broadcast();
   refreshSourcesInBackground().then(() => { schedulePortfolioBackground(warmThumbnailCache, 500); schedulePortfolioBackground(warmContentHashes, 300); }).catch((error) => recordDiagnostic('error', 'Portfolio background resume failed', error));
   return publicLibrarySummary();
+});
+ipcMain.handle('portfolio:transfer', async (_event, { type, id, subfolder = '', destinationId, move = false }) => {
+  const destination = portfolios.find((item) => item.id === destinationId); if (!destination || destination.id === activePortfolioId) throw new Error('Choose another portfolio');
+  await saveLibraryNow(); const store = createLibraryStore(destination.database || portfolioDatabasePath(destination.id)), target = store.load() || libraryCore.migrateLibrary({});
+  let assetIds = new Set(), transferAssets = [], transferredName = '';
+  if (type === 'collection') {
+    const root = library.collections.find((item) => item.id === id); if (!root) throw new Error('Collection does not exist'); transferredName = root.name;
+    const collectionIds = collectionDescendants(id), copies = library.collections.filter((item) => collectionIds.has(item.id)).map((item) => ({ ...item, parentId: item.id === id ? null : item.parentId, lock: null }));
+    for (const item of copies) { const existing = target.collections.find((entry) => entry.id === item.id); if (existing) Object.assign(existing, item); else target.collections.push(item); }
+    transferAssets = library.assets.filter((asset) => (asset.collectionIds || []).some((collectionId) => collectionIds.has(collectionId))).map((asset) => JSON.parse(JSON.stringify(asset))); assetIds = new Set(transferAssets.map((asset) => asset.id));
+    if (move) libraryCore.removeCollection(library, id);
+  } else if (type === 'folder') {
+    const location = library.locations.find((item) => item.id === id); if (!location) throw new Error('Indexed folder does not exist'); const folder = normalizedSubfolder(subfolder), prefix = folder ? `${folder.toLowerCase()}/` : '';
+    transferredName = folder ? folder.split('/').pop() : location.name; transferAssets = library.assets.filter((asset) => { if (asset.locationId !== id) return false; if (!folder) return true; const relative = normalizedSubfolder(path.relative(location.path, asset.path)).toLowerCase(); return relative.startsWith(prefix); }).map((asset) => JSON.parse(JSON.stringify(asset))); assetIds = new Set(transferAssets.map((asset) => asset.id));
+    if (!target.locations.some((item) => item.id === location.id)) target.locations.push({ ...location, scanning: false, checking: false, transferredFrom: activePortfolioId });
+    if (move) { if (!folder) library.locations = library.locations.filter((item) => item.id !== id); else { library.settings.excludedFolders = [...new Set([...(library.settings.excludedFolders || []), `${id}:${folder.toLowerCase()}`])]; } }
+  } else throw new Error('Unsupported transfer type');
+  for (const copy of transferAssets) { const existing = target.assets.find((item) => item.id === copy.id); if (existing) Object.assign(existing, copy); else target.assets.push(copy); }
+  store.save(target); store.close(); if (move) await saveLibraryNow(); broadcast(); return { name: transferredName, assets: assetIds.size, moved: Boolean(move), destination: destination.name };
 });
 ipcMain.handle('portfolio:remove', async (_event, id) => {
   if (portfolios.length <= 1) throw new Error('At least one portfolio is required');
