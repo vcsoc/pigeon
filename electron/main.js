@@ -1752,13 +1752,13 @@ ipcMain.handle('tags:delete', (_event, tag) => {
   for (const asset of library.assets) asset.tags = (asset.tags || []).filter((item) => item.toLowerCase() !== target);
   scheduleSave(); broadcast();
 });
-ipcMain.handle('trash:empty', async (_event, requestedMode = 'permanent') => {
-  const mode = requestedMode === 'recycle' ? 'recycle' : 'permanent', trashed = library.assets.filter((asset) => asset.deletedAt), removed = new Set(), failures = [];
+ipcMain.handle('trash:empty', async (_event, request = {}) => {
+  const requestedMode=typeof request==='string'?request:request.mode,selectedIds=Array.isArray(request.ids)?new Set(request.ids):null,mode=requestedMode === 'recycle' ? 'recycle' : 'permanent', trashed = library.assets.filter((asset) => asset.deletedAt&&(!selectedIds||selectedIds.has(asset.id))), removed = new Set(), failures = [];
   for (const asset of trashed) {
     try { if (await pathAvailable(asset.path)) { if (mode === 'recycle') await shell.trashItem(asset.path); else await fsp.rm(asset.path, { force: true }); } removed.add(asset.id); }
     catch (error) { failures.push({ id: asset.id, filename: asset.filename, error: error.message }); recordDiagnostic('error', 'Trash source deletion failed', { assetId: asset.id, path: asset.path, mode, error: error.message }); }
   }
-  library.assets = library.assets.filter((asset) => !removed.has(asset.id)); scheduleSave(); broadcast(); return { deleted: removed.size, failed: failures.length, failures };
+  library.assets = library.assets.filter((asset) => !removed.has(asset.id)); scheduleSave(); broadcast(); return { deleted: removed.size, deletedIds: [...removed], failed: failures.length, failures };
 });
 ipcMain.handle('library:import-url', async (_event, url) => importUrl(url));
 ipcMain.handle('clipboard:write-text', (_event, value) => { clipboard.writeText(String(value || '').slice(0, 32768)); return true; });

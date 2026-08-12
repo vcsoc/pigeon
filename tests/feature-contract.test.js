@@ -334,7 +334,7 @@ test('collection assignment and multi-selection context actions preserve batch i
   assert.match(renderer, /addAssetsToCollectionWithoutGridRefresh\(ids,target\)/);
   assert.match(renderer, /removeSelectedFromCurrentCollection/);
   assert.match(renderer, /data-context-action="remove-from-collection"/);
-  assert.match(renderer, /event\.key === 'Delete' && state\.collectionId/);
+  assert.match(renderer, /event\.key === 'Delete' && !isInternalViewerOpen\(\)/);
   assert.match(renderer, /\{ removeCollectionId: collectionId \}/);
   assert.match(renderer, /if \(!state\.selectedIds\.has\(id\)\) state\.selectedIds/);
   assert.match(renderer, /batchUpdateAssets\(selectedIds/);
@@ -718,10 +718,21 @@ test('Trash context menu deletes source files permanently or through the operati
   assert.match(renderer,/showTrashContextMenu/);
   assert.match(renderer,/data-trash-action="clear"/);
   assert.match(renderer,/showPrimarySidebarContextMenu\(event,\{trash:Boolean\(event\.target\.closest\('\[data-view="trash"\]'\)\)\}\)/);
-  assert.match(preload,/emptyTrash: \(mode = 'permanent'\)/);
+  assert.match(preload,/emptyTrash: \(mode = 'permanent', ids = null\)/);
   assert.match(main,/shell\.trashItem\(asset\.path\)/);
   assert.match(main,/fsp\.rm\(asset\.path, \{ force: true \}\)/);
   assert.match(main,/failures\.push/);
+});
+
+test('Delete moves selections to Trash and deletes selected Trash source files',()=>{
+  assert.match(renderer,/async function handleDeleteSelection/);
+  assert.match(renderer,/if\(state\.view==='trash'\)\{await deleteTrashItems\(ids\);return;\}/);
+  assert.match(renderer,/batchUpdateAssets\(ids,\{trash:true\}\)/);
+  assert.match(renderer,/emptyTrash\(preferences\.trashDeletionMode,ids\)/);
+  assert.match(renderer,/result\.deletedIds/);
+  assert.match(main,/selectedIds=Array\.isArray\(request\.ids\)\?new Set\(request\.ids\):null/);
+  assert.match(main,/!selectedIds\|\|selectedIds\.has\(asset\.id\)/);
+  assert.match(main,/deletedIds: \[\.\.\.removed\]/);
 });
 
 test('Analytics and All Tags preserve the previous library position for back and forward navigation',()=>{
