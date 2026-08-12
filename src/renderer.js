@@ -380,7 +380,7 @@ function showCollectionContextMenu(event, collection) {
       if (action === 'unlock') await selectCollection(collection.id);
       if (action === 'lock-now') { await window.pigeon.lockCollectionNow(collection.id); if (state.collectionId === collection.id) selectView('all'); }
       if (action === 'remove-password') { const password = await requestText({ title: 'Remove Collection Password', label: 'Current password', type: 'password', confirmText: 'Remove Password' }); if (password !== null && !(await window.pigeon.removeCollectionPassword(collection.id, password))) showToast('Incorrect password'); }
-      if (action === 'delete' && await requestConfirmation({ title: 'Delete Collection', message: 'Delete this collection and its nested collections? Assets remain indexed.', confirmText: 'Delete' })) await window.pigeon.removeCollection(collection.id);
+      if (action === 'delete' && await requestConfirmation({ title: `Delete “${collection.name}”?`, message: `Delete the collection “${collection.name}”${hasChildren ? ' and all of its nested collections' : ''}? Assets remain indexed.`, confirmText: 'Delete' })) await window.pigeon.removeCollection(collection.id);
     } catch (error) { showToast(error.message); }
   }));
 }
@@ -554,7 +554,7 @@ function showLocationContextMenu(event, location, subfolder = '', row = null) {
     if(action==='unlock'){if(await ensureFolderUnlocked(location,subfolder))render();}
     if(action==='lock-now'){await window.pigeon.lockFolderNow(location.id,subfolder);if(state.locationId===location.id&&(!subfolder||state.locationSubfolder===subfolder||state.locationSubfolder.startsWith(`${subfolder}/`)))selectView('all','All');}
     if(action==='remove-password'){const password=await requestText({title:'Remove Folder Password',label:'Current password',type:'password',confirmText:'Remove Password'});if(password!==null&&!(await window.pigeon.removeFolderPassword(location.id,subfolder,password)))showToast('Incorrect password');}
-    if (action === 'remove' && await requestConfirmation({ title: 'Remove Indexed Location', message: `Remove “${location.name}” from Pigeon? Your original files will not be changed.`, confirmText: 'Remove' })) await window.pigeon.removeLocation(location.id);
+    if (action === 'remove' && await requestConfirmation({ title: `Remove “${location.name}”?`, message: `Remove the indexed folder “${location.name}” from Pigeon?\n\n${location.path}\n\nYour original files will not be changed.`, confirmText: 'Remove' })) await window.pigeon.removeLocation(location.id);
   }));
 }
 
@@ -637,7 +637,7 @@ function renderSidebar(rebuildFolderTree = false) {
         if (action === 'export') { const result = await window.pigeon.exportGroup('smart-folder', folder.id); if (result) showToast(`Exported ${result.files} file${result.files === 1 ? '' : 's'}`); }
         if (action === 'rename') { const name = await requestText({ title: 'Rename Smart Folder', label: 'Smart folder name', value: folder.name, confirmText: 'Rename' }); if (name?.trim()) await window.pigeon.renameSmartFolder(folder.id, name.trim()); }
         if (action === 'change-icon') openIconPicker({ type: 'smart-folder', id: folder.id, current: folder.icon, fallback: 'smart' });
-        if (action === 'delete' && await requestConfirmation({ title: 'Delete Smart Folder', message: 'Delete this smart folder and its nested smart folders?', confirmText: 'Delete' })) await window.pigeon.removeSmartFolder(folder.id);
+        if (action === 'delete' && await requestConfirmation({ title: `Delete “${folder.name}”?`, message: `Delete the Smart Folder “${folder.name}”${state.library.smartFolders.some((item)=>item.parentId===folder.id) ? ' and all of its nested Smart Folders' : ''}?`, confirmText: 'Delete' })) await window.pigeon.removeSmartFolder(folder.id);
       }));
     });
   });
@@ -668,7 +668,7 @@ function renderSidebar(rebuildFolderTree = false) {
     row.querySelector('.location-remove').addEventListener('click', async (event) => {
       event.stopPropagation();
       const location = state.library.locations.find((item) => item.id === row.dataset.locationId);
-      if (!(await requestConfirmation({ title: 'Remove Indexed Location', message: `Remove “${location.name}” from Pigeon? Your original files will not be changed.`, confirmText: 'Remove' }))) return;
+      if (!(await requestConfirmation({ title: `Remove “${location.name}”?`, message: `Remove the indexed folder “${location.name}” from Pigeon?\n\n${location.path}\n\nYour original files will not be changed.`, confirmText: 'Remove' }))) return;
       await window.pigeon.removeLocation(location.id);
       if (state.locationId === location.id) { state.locationId = null; state.locationSubfolder = ''; state.view = 'all'; }
     });
