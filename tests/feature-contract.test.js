@@ -23,6 +23,11 @@ test('UI exposes collection, smart-folder, batch, trash, media, metadata and edi
   }
 });
 
+test('modified thumbnail clicks bypass marquee and all heavy background work uses laptop-safe limits',()=>{
+  assert.match(renderer,/event\.target\.closest\('\.asset-card,button,input,textarea,select,a,\.stack-badge'\)/);assert.match(renderer,/event\.ctrlKey \|\| event\.metaKey/);assert.match(renderer,/event\.shiftKey && state\.selectionAnchorId/);
+  assert.match(main,/const INDEX_CPU_LIMIT = 20/);assert.match(main,/const MAX_BACKGROUND_THREADS = 4/);assert.match(main,/const THUMBNAIL_WORKER_COUNT = 2/);assert.match(main,/const BACKGROUND_HASH_WORKERS = 2/);assert.match(main,/const PDF_WORKER_LIMIT = 1/);assert.match(main,/const LARGE_SCAN_WORKER_LIMIT = 2/);assert.match(main,/Background work yielding to your laptop/);
+});
+
 test('thumbnail marquee selection auto-scrolls while background scans remain consolidated and responsive',()=>{
   assert.match(html,/id="selection-marquee"/);assert.match(styles,/\.selection-marquee/);assert.match(renderer,/function updateMarqueeSelection/);assert.match(renderer,/function runMarqueeAutoScroll/);assert.match(renderer,/setPointerCapture/);assert.match(renderer,/scrollSpeed/);assert.match(renderer,/paintChangedSelectionCards\(changed\)/);
   assert.match(main,/\['database','thumbnail','index-scan','fingerprint'\]/);assert.match(main,/offset\+=100/);assert.match(main,/const scanBroadcastQueues=new Map/);assert.match(main,/setTimeout\(drain,16\)/);assert.match(renderer,/collectionCounts=new Map/);
@@ -563,8 +568,8 @@ test('all catchable unhandled exceptions are persisted across Electron processes
 });
 
 test('large indexing applies system-stability backpressure and crash recovery', () => {
-  assert.match(main,/PDF_WORKER_LIMIT = 2/);
-  assert.match(main,/LARGE_SCAN_WORKER_LIMIT = 4/);
+  assert.match(main,/PDF_WORKER_LIMIT = 1/);
+  assert.match(main,/LARGE_SCAN_WORKER_LIMIT = 2/);
   assert.match(main,/MIN_FREE_MEMORY_BYTES/);
   assert.match(main,/os\.freemem\(\)/);
   assert.match(main,/await worker\.terminate\(\)/);
@@ -617,12 +622,12 @@ test('indexing keeps main and renderer interaction paths responsive', () => {
   assert.match(main,/scheduleBroadcast\(250\)/);
 });
 
-test('huge folder trees are worker-built and bounded, console resizes/fullscreens, and twelve threads are allowed', () => {
+test('huge folder trees are worker-built and bounded, console resizes/fullscreens, and laptop-safe threads are enforced', () => {
   assert.match(html, /class="nav-item" data-view="untagged"/);
   for (const id of ['diagnostics-resizer','diagnostics-fullscreen']) assert.match(html,new RegExp(`id="${id}"`));
   assert.match(preload,/buildFolderTree/);
   assert.match(main,/folder-tree:build/);
-  assert.match(main,/MAX_BACKGROUND_THREADS = 12/);
+  assert.match(main,/MAX_BACKGROUND_THREADS = 4/);
   assert.match(renderer,/folderTreeLimits/);
   assert.match(renderer,/Show \$\{Math\.min\(500/);
   assert.match(renderer,/pigeon\.consoleHeight/);
@@ -678,7 +683,7 @@ test('telemetry console and resumable CPU-limited parallel indexing are wired', 
   assert.match(html, /data-console-tab="telemetry"/);
   assert.match(preload, /getTelemetry/);
   assert.match(main, /telemetry:get/);
-  assert.match(main, /INDEX_CPU_LIMIT = 30/);
+  assert.match(main, /INDEX_CPU_LIMIT = 20/);
   assert.match(main, /INDEX_WORKER_COUNT/);
   assert.match(main, /scan-worker\.js/);
   assert.match(main, /scanCheckpoint/);

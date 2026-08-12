@@ -58,14 +58,14 @@ const portfolioBackgroundTimers = new Set();
 const backgroundHashWorkers = new Set();
 const workerTelemetry = new Map();
 let backgroundEpoch = 0;
-const INDEX_CPU_LIMIT = 30;
+const INDEX_CPU_LIMIT = 20;
 const INDEX_BATCH_SIZE = 24;
-const MAX_BACKGROUND_THREADS = 12;
-const INDEX_WORKER_COUNT = Math.max(2, Math.min(MAX_BACKGROUND_THREADS, Math.max(2, os.cpus().length - 1)));
-const THUMBNAIL_WORKER_COUNT = Math.max(2, Math.min(MAX_BACKGROUND_THREADS, Math.max(1, os.cpus().length - 1)));
-const BACKGROUND_HASH_WORKERS = Math.max(2, Math.min(MAX_BACKGROUND_THREADS, Math.max(1, os.cpus().length - 1)));
-const PDF_WORKER_LIMIT = 2;
-const LARGE_SCAN_WORKER_LIMIT = 4;
+const MAX_BACKGROUND_THREADS = 4;
+const INDEX_WORKER_COUNT = Math.max(1,Math.min(MAX_BACKGROUND_THREADS,Math.max(1,Math.floor(os.cpus().length/3))));
+const THUMBNAIL_WORKER_COUNT = 2;
+const BACKGROUND_HASH_WORKERS = 2;
+const PDF_WORKER_LIMIT = 1;
+const LARGE_SCAN_WORKER_LIMIT = 2;
 const MIN_FREE_MEMORY_BYTES = 2 * 1024 * 1024 * 1024;
 let activePdfWorkers = 0;
 const pdfWorkerWaiters = [];
@@ -127,7 +127,7 @@ async function telemetrySnapshot() {
   const threads = await Promise.all([...workerTelemetry.values()].map(async (entry) => { const resource = await workerResourceTelemetry(entry); return { id: entry.id, threadId: entry.threadId, type: entry.type, portfolioId: entry.portfolioId, status: entry.status, startedAt: entry.startedAt, filesCompleted: entry.filesCompleted, filesTotal: entry.filesTotal, currentFile: entry.currentFile, batch: entry.batch, ...resource }; }));
   return { timestamp: Date.now(), collective: { cpu, memoryBytes, gpuCpu: gpuProcesses.reduce((sum, item) => sum + (item.cpu?.percentCPUUsage || 0), 0), gpuMemoryBytes: gpuProcesses.reduce((sum, item) => sum + (item.memory?.workingSetSize || 0) * 1024, 0), filesCompleted: threads.reduce((sum, item) => sum + item.filesCompleted, 0), filesTotal: threads.reduce((sum, item) => sum + item.filesTotal, 0), activeThreads: threads.length, logicalCpus: os.cpus().length, cpuLimit: INDEX_CPU_LIMIT }, threads, processes: metrics.map((item) => ({ pid: item.pid, type: item.type, cpu: item.cpu?.percentCPUUsage || 0, memoryBytes: (item.memory?.workingSetSize || 0) * 1024 })) };
 }
-async function waitForIndexCpuBudget(run) { while (backgroundRunActive(run)) { const snapshot = await telemetrySnapshot(),freeMemory=os.freemem(); if (snapshot.collective.cpu < INDEX_CPU_LIMIT && freeMemory>=MIN_FREE_MEMORY_BYTES) return true; if(freeMemory<MIN_FREE_MEMORY_BYTES)reportBackgroundProgress(run.progressId,{label:'Indexing paused for system stability',detail:`Waiting for available memory · ${Math.round(freeMemory/1024/1024)} MB free`,status:'paused'}); await new Promise((resolve) => setTimeout(resolve, freeMemory<MIN_FREE_MEMORY_BYTES?1000:180)); } return false; }
+async function waitForIndexCpuBudget(run) { while (backgroundRunActive(run)) { const snapshot = await telemetrySnapshot(),freeMemory=os.freemem(); if (snapshot.collective.cpu < INDEX_CPU_LIMIT && freeMemory>=MIN_FREE_MEMORY_BYTES) return true; reportBackgroundProgress(run.progressId,{label:freeMemory<MIN_FREE_MEMORY_BYTES?'Background work paused for memory':'Background work yielding to your laptop',detail:freeMemory<MIN_FREE_MEMORY_BYTES?`Waiting for available memory · ${Math.round(freeMemory/1024/1024)} MB free`:`CPU ${Math.round(snapshot.collective.cpu)}% · limit ${INDEX_CPU_LIMIT}%`,status:'paused'}); await new Promise((resolve) => setTimeout(resolve, freeMemory<MIN_FREE_MEMORY_BYTES?1200:500)); } return false; }
 function scanWorkActive(){return [...backgroundRuns.values()].some((run)=>run.type==='scan'&&backgroundRunActive(run));}
 async function waitForScanIdle(run){while(backgroundRunActive(run)&&scanWorkActive())await backgroundDelay(500,run);return backgroundRunActive(run);}
 
@@ -717,6 +717,7 @@ async function warmContentHashes() {
     if(scanWorkActive()&&!(await waitForScanIdle(run)))return;
     const workers = Array.from({ length: Math.min(BACKGROUND_HASH_WORKERS, pending.length) }, async () => { while (pending.length && backgroundRunActive(run)) {
       if(scanWorkActive()&&!(await waitForScanIdle(run)))break;
+      if(!(await waitForIndexCpuBudget(run)))break;
       const asset = pending.shift(), result = await retryBackground(async () => { const hash = await hashFile(asset.path, 8000); if (!hash) throw new Error('Fingerprint unavailable'); return hash; }, run, { attempts: 3, timeout: 9000, baseDelay: 100, label: `Fingerprint ${asset.filename}` });
       if (!backgroundRunActive(run)) break; if (typeof result === 'string'){asset.contentHash = result;changedAssets.push(asset);} else failed += 1; completed += 1;
       if (completed % 10 === 0 || completed === total) reportBackgroundProgress(progressId, { label: 'Analyzing file fingerprints', detail: `${completed.toLocaleString()} of ${total.toLocaleString()}${failed ? ` · ${failed} failed` : ''}`, completed, total });
@@ -756,6 +757,7 @@ async function warmThumbnailCache() {
   const workers = Array.from({ length: Math.min(THUMBNAIL_WORKER_COUNT, pending.length) }, async () => {
     while (pending.length && backgroundRunActive(run)) {
       if(scanWorkActive()&&!(await waitForScanIdle(run)))break;
+      if(!(await waitForIndexCpuBudget(run)))break;
       const asset = pending.shift();
       const thumbnail = await retryBackground(async () => { const value = asset.kind === 'video' ? await prepareVideoFiles(asset) : await createThumbnail(asset); if (!value?.ok) throw new Error(value?.message || 'Preview unavailable'); return value; }, run, { attempts: 3, timeout: asset.extension==='PDF'?35000:11000, baseDelay: 120, label: `Preview ${asset.filename}` });
       if (!backgroundRunActive(run)) break; completed += 1; if (completed % 5 === 0 || completed === total) reportBackgroundProgress(progressId, { label: 'Building media previews', detail: `${completed.toLocaleString()} of ${total.toLocaleString()}`, completed, total });
