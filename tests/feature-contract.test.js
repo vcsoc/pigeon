@@ -372,6 +372,17 @@ test('indexed folders scroll on hover and preview failures terminate cleanly', (
   assert.match(renderer, /asset\.thumbnailPath \? asset\.previewUrl : asset\.mediaUrl/);
 });
 
+test('tree rows retain readable labels and diagnostics dock inline', () => {
+  assert.match(styles, /grid-template-columns:12px 18px minmax\(70px,1fr\) 30px/);
+  assert.match(styles, /text-overflow:ellipsis/);
+  assert.match(styles, /font-variant-numeric:tabular-nums/);
+  assert.match(styles, /\.diagnostics-console \{ grid-row:4; position:relative/);
+  assert.match(styles, /\.statusbar \{ grid-row: 5/);
+  assert.doesNotMatch(styles, /\.diagnostics-console \{ position:fixed/);
+  const mainStart = html.indexOf('<main class="main-panel">'), mainEnd = html.indexOf('</main>', mainStart), diagnosticsPosition = html.indexOf('id="diagnostics-console"');
+  assert(diagnosticsPosition > mainStart && diagnosticsPosition < mainEnd);
+});
+
 test('portfolio-scoped threaded background work and diagnostics are wired', () => {
   assert.match(main, /async function cancelPortfolioBackground/);
   assert.match(main, /backgroundEpoch \+= 1/);

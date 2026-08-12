@@ -203,6 +203,11 @@
         </section>
 
         <div id="background-progress" class="background-progress hidden" role="status" aria-live="polite"><div class="background-progress-copy"><strong id="background-progress-label">Working…</strong><span id="background-progress-detail"></span></div><div class="background-progress-track"><span id="background-progress-fill"></span></div></div>
+        <section id="diagnostics-console" class="diagnostics-console hidden" aria-label="Diagnostics Console">
+          <header><div><strong>Diagnostics Console</strong><span id="diagnostics-summary">No recorded issues</span></div><div class="diagnostics-actions"><button id="diagnostics-open-file">Open Log File</button><button id="diagnostics-clear">Clear</button><button id="diagnostics-close" aria-label="Close">×</button></div></header>
+          <nav><button class="active" data-diagnostic-level="all">All</button><button data-diagnostic-level="error">Errors</button><button data-diagnostic-level="warning">Warnings</button><button data-diagnostic-level="info">Info</button></nav>
+          <div id="diagnostics-list" class="diagnostics-list" role="log" aria-live="polite"></div>
+        </section>
         <footer class="statusbar">
           <span id="status-text">Ready</span>
         </footer>
@@ -282,11 +287,6 @@
       <div id="annotation-stage" class="annotation-stage"></div>
       <footer><button id="save-annotations" class="secondary-button">Save metadata</button><button id="export-annotations" class="primary-button">Export derivative</button></footer>
     </dialog>
-    <section id="diagnostics-console" class="diagnostics-console hidden" aria-label="Diagnostics Console">
-      <header><div><strong>Diagnostics Console</strong><span id="diagnostics-summary">No recorded issues</span></div><div class="diagnostics-actions"><button id="diagnostics-open-file">Open Log File</button><button id="diagnostics-clear">Clear</button><button id="diagnostics-close" aria-label="Close">×</button></div></header>
-      <nav><button class="active" data-diagnostic-level="all">All</button><button data-diagnostic-level="error">Errors</button><button data-diagnostic-level="warning">Warnings</button><button data-diagnostic-level="info">Info</button></nav>
-      <div id="diagnostics-list" class="diagnostics-list" role="log" aria-live="polite"></div>
-    </section>
     <div id="toast" class="toast hidden"></div>
     <script src="icons.js"></script>
     <script src="world-land.js"></script>
