@@ -426,10 +426,12 @@ test('refresh, robust facets, folder drops, media hover scrubbing, and expanded 
   assert.match(styles, /thumbnail-hover-media/);
 });
 
-test('indexed folders scroll on hover and preview failures terminate cleanly', () => {
-  assert.match(styles, /#sidebar-section-indexed-locations \{[^}]*flex: 1 1 auto/);
-  assert.match(styles, /\.location-list:hover::?-webkit-scrollbar-thumb|\.location-list:hover::-webkit-scrollbar-thumb/);
-  assert.match(styles, /scrollbar-color: transparent transparent/);
+test('sidebar trees share one scroller and preview failures terminate cleanly', () => {
+  assert.match(html,/id="sidebar-tree-scroll"/);
+  assert.match(styles,/\.sidebar-tree-scroll \{[^}]*overflow-y:auto/);
+  assert.match(styles,/\.collection-list, #smart-folder-list \{ max-height:none; overflow:visible/);
+  assert.match(styles,/\.location-list \{[^}]*overflow:visible/);
+  assert.match(styles, /scrollbar-color:transparent transparent/);
   assert.match(styles, /\.asset-preview-failed/);
   assert.match(main, /thumbnailPreparationJobs/);
   assert.match(main, /Preview generation timed out/);
@@ -532,6 +534,18 @@ test('huge folder trees are worker-built and bounded, console resizes/fullscreen
   assert.match(renderer,/pigeon\.consoleHeight/);
   assert.match(styles,/diagnostics-console\.fullscreen/);
   assert.match(styles,/cursor:ns-resize/);
+});
+
+test('left panel item visibility context menu and inspector preview collapse are wired',()=>{
+  for(const id of ['primary-library-nav','inspector-preview-section','toggle-inspector-preview','asset-palette'])assert.match(html,new RegExp(`id="${id}"`));
+  assert.match(renderer,/primarySidebarItems/);
+  assert.match(renderer,/showPrimarySidebarContextMenu/);
+  assert.match(renderer,/data-toggle-sidebar-item/);
+  assert.match(renderer,/showUntagged: true/);
+  assert.match(renderer,/showAnalytics: true/);
+  assert.match(renderer,/pigeon\.inspectorPreviewCollapsed/);
+  assert.match(styles,/\.inspector-preview-section\.collapsed \.preview-card \{ display:none/);
+  assert.doesNotMatch(styles,/\.inspector-preview-section\.collapsed \.color-row/);
 });
 
 test('appearance typography, unclipped portfolio switcher, and PDF previews are wired', () => {
@@ -698,7 +712,7 @@ test('Trash context menu deletes source files permanently or through the operati
   assert.match(renderer,/trashDeletionMode: 'permanent'/);
   assert.match(renderer,/showTrashContextMenu/);
   assert.match(renderer,/data-trash-action="clear"/);
-  assert.match(renderer,/data-view="trash"\]'\)\.addEventListener\('contextmenu',showTrashContextMenu\)/);
+  assert.match(renderer,/event\.target\.closest\('\[data-view="trash"\]'\)\)showTrashContextMenu\(event\)/);
   assert.match(preload,/emptyTrash: \(mode = 'permanent'\)/);
   assert.match(main,/shell\.trashItem\(asset\.path\)/);
   assert.match(main,/fsp\.rm\(asset\.path, \{ force: true \}\)/);

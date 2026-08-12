@@ -30,7 +30,7 @@
           </div>
         </div>
 
-        <nav class="library-nav" aria-label="Portfolio">
+        <nav id="primary-library-nav" class="library-nav" aria-label="Portfolio">
           <button class="nav-item active" data-view="all"><span class="nav-icon">▣</span><span>All</span><small id="all-count">0</small></button>
           <button class="nav-item" data-view="uncategorized"><span class="nav-icon">◇</span><span>Uncategorized</span><small id="uncategorized-count">0</small></button>
           <button class="nav-item" data-view="untagged"><span class="nav-icon">⌑</span><span>Untagged</span><small id="untagged-count">0</small></button>
@@ -41,6 +41,7 @@
           <button class="nav-item" data-view="analytics"><span class="nav-icon">▥</span><span>Analytics</span></button>
         </nav>
 
+        <div id="sidebar-tree-scroll" class="sidebar-tree-scroll">
         <div class="section-label collapsible-section-label" data-section-toggle="smart-folders" role="button" tabindex="0" aria-expanded="true"><span>Smart folders</span><button id="save-smart-folder" class="tiny-button" title="Save current filters">＋</button></div>
         <div id="sidebar-section-smart-folders" class="sidebar-section-content">
           <nav id="smart-folder-list" class="library-nav compact"></nav>
@@ -56,6 +57,7 @@
 
         <div class="section-label collapsible-section-label" data-section-toggle="indexed-locations" role="button" tabindex="0" aria-expanded="true"><span>Indexed locations</span><button id="add-folder-mini" class="tiny-button" title="Index a folder">＋</button></div>
         <div id="sidebar-section-indexed-locations" class="sidebar-section-content"><div id="location-list" class="location-list"></div></div>
+        </div>
 
         <div class="sidebar-footer">
           <div class="index-note"><span class="pulse-dot"></span><span>Files stay in their original locations</span></div>
@@ -165,14 +167,14 @@
               <p>Select an item to inspect it</p>
             </div>
             <div id="inspector-content" class="inspector-content hidden">
-              <div class="preview-card">
+              <div id="inspector-preview-section" class="inspector-preview-section"><button id="toggle-inspector-preview" type="button" aria-expanded="true" title="Hide preview"><span>Preview</span><i>▾</i></button><div class="preview-card">
                 <img id="inspector-image" alt="Selected asset preview" />
                 <video id="inspector-video" class="hidden" controls preload="auto" muted playsinline></video>
                 <audio id="inspector-audio" class="hidden" controls preload="metadata"></audio>
                 <div id="inspector-file-icon" class="inspector-file-icon hidden"></div>
                 <span id="inspector-format" class="format-badge"></span>
                 <span id="inspector-offline" class="offline-badge hidden">Source offline</span>
-              </div>
+              </div></div>
               <div id="asset-palette" class="color-row"></div>
               <div id="asset-histogram" class="asset-histogram" title="Luminance histogram"></div>
               <input id="asset-name" class="title-input" aria-label="Filename without extension" title="Rename source file (extension is preserved)" spellcheck="false" autocomplete="off" />
