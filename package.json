@@ -1,6 +1,6 @@
 {
   "name": "pigeon",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "A reference-first visual asset library for files that stay where they are.",
   "main": "electron/main.js",
   "author": "Pigeon",
@@ -13,7 +13,7 @@
     "smoke": "electron . --smoke-test",
     "smoke:seeded": "electron . --smoke-test --smoke-seeded",
     "smoke:large": "electron . --smoke-test --smoke-large",
-    "check": "node --check electron/main.js && node --check electron/preload.js && node --check electron/database.js && node --check electron/database-worker.js && node --check electron/library-worker.js && node --check electron/library-core.js && node --check electron/plugin-worker.js && node --check src/renderer.js",
+    "check": "node --check electron/main.js && node --check electron/preload.js && node --check electron/database.js && node --check electron/database-worker.js && node --check electron/library-worker.js && node --check electron/scan-worker.js && node --check electron/library-core.js && node --check electron/plugin-worker.js && node --check src/renderer.js",
     "test": "node --test --test-timeout=19000 tests/*.test.js",
     "verify": "npm run check && npm test && npm run smoke:seeded",
     "dist": "electron-builder",
@@ -27,6 +27,7 @@
   },
   "dependencies": {
     "chokidar": "^4.0.3",
+    "electron-updater": "^6.8.9",
     "exif-reader": "^2.0.3",
     "ffmpeg-static": "^5.3.0",
     "sharp": "^0.35.3"
@@ -35,6 +36,7 @@
     "appId": "cool.pigeon.app",
     "productName": "Pigeon",
     "asar": true,
+    "publish": [{ "provider": "github", "owner": "vcsoc", "repo": "pigeon" }],
     "asarUnpack": [
       "node_modules/ffmpeg-static/**/*"
     ],

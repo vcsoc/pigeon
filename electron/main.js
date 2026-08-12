@@ -12,6 +12,7 @@ const os = require('node:os');
 const { execFile, spawn } = require('node:child_process');
 const { Worker } = require('node:worker_threads');
 const chokidar = require('chokidar');
+const { autoUpdater } = require('electron-updater');
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'pigeon-asset', privileges: { secure: true, standard: true, supportFetchAPI: true, stream: true } },
@@ -53,7 +54,11 @@ const watcherIgnoreUntil = new Map();
 const backgroundRuns = new Map();
 const portfolioBackgroundTimers = new Set();
 const backgroundHashWorkers = new Set();
+const workerTelemetry = new Map();
 let backgroundEpoch = 0;
+const INDEX_CPU_LIMIT = 30;
+const INDEX_BATCH_SIZE = 24;
+const INDEX_WORKER_COUNT = Math.max(2, Math.min(6, Math.max(2, Math.floor(os.cpus().length * 0.3))));
 const THUMBNAIL_WORKER_COUNT = Math.max(2, Math.min(4, Math.max(1, os.cpus().length - 1)));
 const BACKGROUND_HASH_WORKERS = Math.max(2, Math.min(4, Math.max(1, os.cpus().length - 1)));
 let diagnosticsFile;
@@ -95,6 +100,17 @@ if (!hasInstanceLock) app.quit();
 function makeId(value) {
   return crypto.createHash('sha1').update(value).digest('hex').slice(0, 16);
 }
+function trackWorker(worker, type, detail = {}) {
+  const id = `${type}:${worker.threadId}:${Date.now()}`; workerTelemetry.set(id, { id, worker, threadId: worker.threadId, type, portfolioId: detail.portfolioId || activePortfolioId, status: 'running', startedAt: Date.now(), filesTotal: detail.filesTotal || 0, filesCompleted: 0, currentFile: '', batch: detail.batch || 0 });
+  worker.once('exit', () => workerTelemetry.delete(id)); return workerTelemetry.get(id);
+}
+async function workerResourceTelemetry(entry) { try { const [cpuUsage, heap] = await Promise.all([typeof entry.worker.cpuUsage === 'function' ? entry.worker.cpuUsage(entry.lastCpuUsage).catch(() => null) : null, typeof entry.worker.getHeapStatistics === 'function' ? entry.worker.getHeapStatistics().catch(() => null) : null]); const elapsed = Math.max(1, Date.now() - (entry.lastSampleAt || entry.startedAt)); entry.lastSampleAt = Date.now(); if (cpuUsage) entry.lastCpuUsage = cpuUsage; return { cpu: cpuUsage ? Math.min(100, ((cpuUsage.user + cpuUsage.system) / 1000 / elapsed) * 100) : (entry.worker.performance?.eventLoopUtilization()?.utilization || 0) * 100, memoryBytes: heap?.usedHeapSize || entry.memoryBytes || 0 }; } catch { return { cpu: 0, memoryBytes: entry.memoryBytes || 0 }; } }
+async function telemetrySnapshot() {
+  const metrics = app.getAppMetrics(), cpu = metrics.reduce((sum, item) => sum + (item.cpu?.percentCPUUsage || 0), 0), memoryBytes = metrics.reduce((sum, item) => sum + (item.memory?.workingSetSize || 0) * 1024, 0), gpuProcesses = metrics.filter((item) => String(item.type).toLowerCase().includes('gpu'));
+  const threads = await Promise.all([...workerTelemetry.values()].map(async (entry) => { const resource = await workerResourceTelemetry(entry); return { id: entry.id, threadId: entry.threadId, type: entry.type, portfolioId: entry.portfolioId, status: entry.status, startedAt: entry.startedAt, filesCompleted: entry.filesCompleted, filesTotal: entry.filesTotal, currentFile: entry.currentFile, batch: entry.batch, ...resource }; }));
+  return { timestamp: Date.now(), collective: { cpu, memoryBytes, gpuCpu: gpuProcesses.reduce((sum, item) => sum + (item.cpu?.percentCPUUsage || 0), 0), gpuMemoryBytes: gpuProcesses.reduce((sum, item) => sum + (item.memory?.workingSetSize || 0) * 1024, 0), filesCompleted: threads.reduce((sum, item) => sum + item.filesCompleted, 0), filesTotal: threads.reduce((sum, item) => sum + item.filesTotal, 0), activeThreads: threads.length, logicalCpus: os.cpus().length, cpuLimit: INDEX_CPU_LIMIT }, threads, processes: metrics.map((item) => ({ pid: item.pid, type: item.type, cpu: item.cpu?.percentCPUUsage || 0, memoryBytes: (item.memory?.workingSetSize || 0) * 1024 })) };
+}
+async function waitForIndexCpuBudget(run) { while (backgroundRunActive(run)) { const snapshot = await telemetrySnapshot(); if (snapshot.collective.cpu < INDEX_CPU_LIMIT) return true; await new Promise((resolve) => setTimeout(resolve, 180)); } return false; }
 
 function kindFor(extension) {
   if (IMAGE_EXTENSIONS.has(extension)) return 'image';
@@ -233,7 +249,7 @@ async function writeBackup(reason = 'automatic') {
 
 function startDatabaseWorker() {
   if (databaseWorker) databaseWorker.terminate().catch(() => {});
-  databaseWorker = new Worker(path.join(__dirname, 'database-worker.js'), { workerData: { databaseFile } });
+  databaseWorker = new Worker(path.join(__dirname, 'database-worker.js'), { workerData: { databaseFile } }); trackWorker(databaseWorker, 'database');
   databaseWorker.on('message', ({ id, ok, message }) => { const request = databaseRequests.get(id); if (!request) return; databaseRequests.delete(id); ok ? request.resolve(true) : request.reject(new Error(message)); });
   databaseWorker.on('error', (error) => { recordDiagnostic('error', 'Database worker failed', error); for (const request of databaseRequests.values()) request.reject(error); databaseRequests.clear(); databaseWorker = null; });
 }
@@ -284,7 +300,7 @@ async function saveLibraryNow() {
 async function loadLibraryInWorker() {
   await fsp.mkdir(thumbnailDir, { recursive: true });
   return new Promise((resolve) => {
-    const worker = new Worker(path.join(__dirname, 'library-worker.js'), { workerData: { databaseFile, legacyJsonFile } });
+    const worker = new Worker(path.join(__dirname, 'library-worker.js'), { workerData: { databaseFile, legacyJsonFile } }); trackWorker(worker, 'library-load');
     worker.once('message', (result) => {
       if (smokeTest) console.log('[smoke] library worker returned');
       if (result.library && Array.isArray(result.library.locations) && Array.isArray(result.library.assets)) {
@@ -335,12 +351,12 @@ async function pathAvailable(targetPath, timeout = 1800) {
 
 function finishThumbnailWorkerJob(worker, result, retire = false) {
   const job = worker.currentJob; if (!job) { if (retire) { const index = thumbnailWorkers.indexOf(worker); if (index >= 0) thumbnailWorkers.splice(index, 1); worker.terminate().catch(() => {}); dispatchThumbnailJobs(); } return; }
-  clearTimeout(worker.jobTimer); worker.jobTimer = null; worker.busy = false; worker.currentJob = null; job.resolve(result);
+  clearTimeout(worker.jobTimer); worker.jobTimer = null; worker.busy = false; worker.currentJob = null; if (worker.telemetry) { worker.telemetry.filesCompleted += result?.ok ? 1 : 0; worker.telemetry.currentFile = ''; worker.telemetry.status = 'idle'; } job.resolve(result);
   if (retire) { const index = thumbnailWorkers.indexOf(worker); if (index >= 0) thumbnailWorkers.splice(index, 1); worker.terminate().catch(() => {}); }
   dispatchThumbnailJobs();
 }
 function startThumbnailWorker() {
-  const worker = new Worker(path.join(__dirname, 'thumbnail-worker.js'));
+  const worker = new Worker(path.join(__dirname, 'thumbnail-worker.js')); worker.telemetry = trackWorker(worker, 'thumbnail');
   worker.busy = false; worker.currentJob = null; worker.jobTimer = null;
   worker.on('message', (result) => finishThumbnailWorkerJob(worker, result));
   worker.on('error', (error) => { console.error('Thumbnail worker failed:', error); finishThumbnailWorkerJob(worker, { ok: false, message: error.message || 'Preview worker failed' }, true); });
@@ -351,7 +367,7 @@ function dispatchThumbnailJobs() {
   while (thumbnailWorkers.length < THUMBNAIL_WORKER_COUNT) startThumbnailWorker();
   for (const worker of [...thumbnailWorkers]) {
     if (worker.busy || !thumbnailQueue.length) continue;
-    const job = thumbnailQueue.shift(); worker.busy = true; worker.currentJob = job;
+    const job = thumbnailQueue.shift(); worker.busy = true; worker.currentJob = job; if (worker.telemetry) { worker.telemetry.filesTotal += 1; worker.telemetry.currentFile = job.source; worker.telemetry.status = 'running'; }
     worker.jobTimer = setTimeout(() => { recordDiagnostic('warning', 'Preview worker timed out', { source: job.source, timeout: 10000 }); finishThumbnailWorkerJob(worker, { ok: false, message: 'Preview generation timed out' }, true); }, 10000);
     worker.postMessage({ source: job.source, target: job.target });
   }
@@ -433,8 +449,8 @@ function prepareVideoFiles(asset, includeProxy = false) {
 
 function hashFile(filePath, timeout = 10000) {
   return new Promise((resolve) => {
-    const worker = new Worker(path.join(__dirname, 'hash-worker.js'), { workerData: { source: filePath } }); backgroundHashWorkers.add(worker); let settled = false;
-    const finish = (value) => { if (settled) return; settled = true; clearTimeout(timer); backgroundHashWorkers.delete(worker); worker.terminate().catch(() => {}); resolve(value); };
+    const worker = new Worker(path.join(__dirname, 'hash-worker.js'), { workerData: { source: filePath } }); backgroundHashWorkers.add(worker); const telemetry = trackWorker(worker, 'fingerprint', { filesTotal: 1 }); telemetry.currentFile = filePath; let settled = false;
+    const finish = (value) => { if (settled) return; settled = true; telemetry.filesCompleted = value ? 1 : 0; telemetry.status = value ? 'completed' : 'failed'; clearTimeout(timer); backgroundHashWorkers.delete(worker); worker.terminate().catch(() => {}); resolve(value); };
     const timer = setTimeout(() => { recordDiagnostic('warning', 'File fingerprint timed out', { filePath, timeout }); finish(null); }, timeout);
     worker.once('message', (result) => finish(result.ok ? result.hash : null)); worker.once('error', (error) => { recordDiagnostic('error', 'Fingerprint worker failed', error); finish(null); }); worker.once('exit', () => finish(null));
   });
@@ -468,13 +484,13 @@ function canonicalTags(tags) {
   return [...new Map((tags || []).map((tag) => String(tag).trim()).filter(Boolean).slice(0, 64).map((tag) => [tag.toLowerCase(), known.get(tag.toLowerCase()) || tag])).values()];
 }
 
-async function inspectFile(filePath, location, existing, { deferHash = false } = {}) {
+async function inspectFile(filePath, location, existing, { deferHash = false, inspection = null } = {}) {
   try {
-    const stat = await withTimeout(fsp.stat(filePath), location.unstable ? 2500 : 8000, 'File metadata timed out');
-    if (!stat.isFile()) return null;
+    const stat = inspection || await withTimeout(fsp.stat(filePath), location.unstable ? 2500 : 8000, 'File metadata timed out');
+    if (!inspection && !stat.isFile()) return null;
     const extension = path.extname(filePath).toLowerCase();
-    const unchanged = existing && existing.size === stat.size && existing.modified === stat.mtimeMs;
-    const contentHash = unchanged && existing.contentHash ? existing.contentHash : deferHash ? existing?.contentHash || null : await hashFile(filePath, location.unstable ? 8000 : 30000);
+    const unchanged = existing && existing.size === stat.size && existing.modified === (stat.mtimeMs ?? stat.modified);
+    const contentHash = inspection ? inspection.contentHash : unchanged && existing.contentHash ? existing.contentHash : deferHash ? existing?.contentHash || null : await hashFile(filePath, location.unstable ? 8000 : 30000);
     const asset = {
       id: makeId(path.resolve(filePath).toLowerCase()),
       locationId: location.id,
@@ -484,8 +500,8 @@ async function inspectFile(filePath, location, existing, { deferHash = false } =
       extension: extension.slice(1).toUpperCase() || 'FILE',
       kind: kindFor(extension),
       size: stat.size,
-      created: stat.birthtimeMs,
-      modified: stat.mtimeMs,
+      created: stat.birthtimeMs ?? stat.created,
+      modified: stat.mtimeMs ?? stat.modified,
       indexedAt: existing?.indexedAt || Date.now(),
       tags: existing?.tags || [],
       note: existing?.note || '',
@@ -535,6 +551,16 @@ async function inspectFile(filePath, location, existing, { deferHash = false } =
   }
 }
 
+function inspectScanBatch(batch, location, previous, run, batchNumber) {
+  return new Promise((resolve) => {
+    const worker = new Worker(path.join(__dirname, 'scan-worker.js'), { workerData: { batch: batch.map((filePath) => ({ filePath, existing: previous.get(path.resolve(filePath)) ? { size: previous.get(path.resolve(filePath)).size, modified: previous.get(path.resolve(filePath)).modified, contentHash: previous.get(path.resolve(filePath)).contentHash } : null })), deferHash: location.unstable, dutyCycle: Math.max(0.08, (INDEX_CPU_LIMIT / 100) / INDEX_WORKER_COUNT) } });
+    const telemetry = trackWorker(worker, 'index-scan', { portfolioId: run.portfolioId, filesTotal: batch.length, batch: batchNumber }); telemetry.currentFile = batch[0] || '';
+    let settled = false; const finish = (result) => { if (settled) return; settled = true; clearTimeout(timer); telemetry.filesCompleted = result?.results?.length || 0; telemetry.status = result?.error ? 'failed' : 'completed'; try { telemetry.memoryBytes = worker.resourceLimits?.maxOldGenerationSizeMb ? worker.resourceLimits.maxOldGenerationSizeMb * 1024 * 1024 : 0; } catch { /* unavailable */ } worker.terminate().catch(() => {}); resolve(result?.results || []); };
+    const timer = setTimeout(() => { recordDiagnostic('warning', 'Index worker timed out', { location: location.path, batch: batchNumber }); finish({ error: 'timeout' }); }, location.unstable ? 15000 : 45000);
+    worker.once('message', finish); worker.once('error', (error) => { recordDiagnostic('error', 'Index worker failed', error); finish({ error: error.message }); }); worker.once('exit', () => finish({ error: 'exited' }));
+  });
+}
+
 async function walkFolder(folderPath, callback, timeout = 8000) {
   const queue = [folderPath]; let complete = true;
   while (queue.length) {
@@ -555,36 +581,48 @@ async function walkFolder(folderPath, callback, timeout = 8000) {
   return { complete };
 }
 
-async function scanLocation(locationId, { notify = true } = {}) {
+async function scanLocation(locationId, { notify = true, resume = false } = {}) {
   const location = library.locations.find((item) => item.id === locationId); if (!location) return;
   if (location.scanning) { location.rescanRequested = true; return; }
   const run = beginBackgroundRun('scan', location.id); if (!run) { location.rescanRequested = true; return; }
   const jobLibrary = run.library, progressId = run.progressId; location.unstable = Boolean(location.unstable || location.removable || /[\\/]OneDrive[\\/]|[\\/]Dropbox[\\/]|[\\/]Google Drive[\\/]/i.test(location.path));
-  location.scanning = true; location.scanProgress = { discovered: 0, inspected: 0 }; reportBackgroundProgress(progressId, { label: `Scanning ${location.name}`, detail: 'Discovering files…' }); location.checking = true; if (notify) broadcast();
+  if (!resume) location.scanCheckpoint = null;
+  const checkpoint = resume && location.scanCheckpoint?.root === location.path ? location.scanCheckpoint : null;
+  location.scanning = true; location.scanProgress = { discovered: checkpoint?.filePaths?.length || 0, inspected: checkpoint?.nextIndex || 0, resumed: Boolean(checkpoint) }; reportBackgroundProgress(progressId, { label: `Scanning ${location.name}`, detail: checkpoint ? `Resuming at file ${(checkpoint.nextIndex || 0).toLocaleString()}…` : 'Discovering files…' }); location.checking = true; if (notify) broadcast();
   try {
     location.online = await pathAvailable(location.path); location.checking = false;
     if (!backgroundRunActive(run)) return;
     if (!location.online) { reportBackgroundProgress(progressId, { label: `Scanning ${location.name}`, detail: 'Location is offline', done: true }); scheduleSave(); if (notify) broadcast(); return; }
-    const previousAssets = jobLibrary.assets.filter((asset) => asset.locationId === location.id), previous = new Map(previousAssets.map((asset) => [asset.path, asset])), found = []; let scanComplete = true, completedSinceYield = 0;
-    const addFile = async (filePath) => {
-      const relativeFolder = normalizedSubfolder(path.dirname(path.relative(location.path, filePath))); if (folderExcluded(location.id, relativeFolder)) return;
-      if (!backgroundRunActive(run)) return; const result = await retryBackground(() => inspectFile(filePath, location, previous.get(path.resolve(filePath)), { deferHash: location.unstable }), run, { attempts: 2, timeout: location.unstable ? 5000 : 10000, baseDelay: 80, label: `Inspect ${path.basename(filePath)}` });
-      const asset = result?.ok === false ? null : result; location.scanProgress.inspected += 1; if (asset) found.push(asset); completedSinceYield += 1;
-      if (completedSinceYield >= 20) { completedSinceYield = 0; reportBackgroundProgress(progressId, { label: `Adding files from ${location.name}`, detail: `${location.scanProgress.inspected.toLocaleString()} of ${location.scanProgress.discovered.toLocaleString()} files`, completed: location.scanProgress.inspected, total: location.scanProgress.discovered }); if (notify) broadcastLocations(); await new Promise((resolve) => setImmediate(resolve)); }
-    };
-    if (location.type === 'folder') {
-      const filePaths = [], walked = await walkFolder(location.path, (filePath) => { if (backgroundRunActive(run)) { filePaths.push(filePath); location.scanProgress.discovered += 1; } }, location.unstable ? 3500 : 8000); scanComplete = walked.complete;
-      if (!backgroundRunActive(run)) return; reportBackgroundProgress(progressId, { label: `Adding files from ${location.name}`, detail: `${location.scanProgress.discovered.toLocaleString()} files found`, total: location.scanProgress.discovered });
-      const pending = [...filePaths], concurrency = location.unstable ? 2 : Math.min(BACKGROUND_HASH_WORKERS, pending.length); await Promise.all(Array.from({ length: concurrency }, async () => { while (pending.length && backgroundRunActive(run)) await addFile(pending.shift()); }));
-    } else await addFile(location.path);
+    const previousAssets = jobLibrary.assets.filter((asset) => asset.locationId === location.id), previous = new Map(previousAssets.map((asset) => [asset.path, asset])); let scanComplete = checkpoint?.complete !== false;
+    let filePaths = checkpoint?.filePaths;
+    if (!filePaths) {
+      filePaths = [];
+      if (location.type === 'folder') { const walked = await walkFolder(location.path, (filePath) => { if (backgroundRunActive(run)) { const relativeFolder = normalizedSubfolder(path.dirname(path.relative(location.path, filePath))); if (!folderExcluded(location.id, relativeFolder)) { filePaths.push(filePath); location.scanProgress.discovered += 1; } } }, location.unstable ? 3500 : 8000); scanComplete = walked.complete; }
+      else filePaths.push(location.path);
+      if (!backgroundRunActive(run)) return;
+      location.scanCheckpoint = { root: location.path, filePaths, nextIndex: 0, complete: scanComplete, startedAt: Date.now() }; await persistLibrary(jobLibrary);
+    }
+    const workerCount = location.unstable ? 2 : Math.min(INDEX_WORKER_COUNT, Math.ceil(Math.max(1, filePaths.length - location.scanCheckpoint.nextIndex) / INDEX_BATCH_SIZE));
+    reportBackgroundProgress(progressId, { label: `Adding files from ${location.name}`, detail: `${filePaths.length.toLocaleString()} files · ${workerCount} index threads · ${INDEX_CPU_LIMIT}% CPU ceiling`, completed: location.scanCheckpoint.nextIndex, total: filePaths.length });
+    while (location.scanCheckpoint.nextIndex < filePaths.length && backgroundRunActive(run)) {
+      if (!(await waitForIndexCpuBudget(run))) break;
+      const waveStart = location.scanCheckpoint.nextIndex, batches = [];
+      for (let slot = 0; slot < workerCount; slot += 1) { const start = waveStart + slot * INDEX_BATCH_SIZE; if (start >= filePaths.length) break; batches.push(filePaths.slice(start, start + INDEX_BATCH_SIZE)); }
+      const inspectedBatches = await Promise.all(batches.map((batch, index) => inspectScanBatch(batch, location, previous, run, Math.floor(waveStart / INDEX_BATCH_SIZE) + index + 1)));
+      if (!backgroundRunActive(run)) break;
+      for (const result of inspectedBatches.flat()) { if (result.error) continue; const existing = previous.get(path.resolve(result.filePath)), asset = await inspectFile(result.filePath, location, existing, { deferHash: location.unstable, inspection: result }); if (!asset) continue; const index = jobLibrary.assets.findIndex((item) => item.id === asset.id); if (index >= 0) jobLibrary.assets[index] = asset; else jobLibrary.assets.push(asset); previous.set(asset.path, asset); }
+      location.scanCheckpoint.nextIndex = Math.min(filePaths.length, waveStart + batches.reduce((sum, batch) => sum + batch.length, 0)); location.scanProgress.inspected = location.scanCheckpoint.nextIndex; location.assetCount = jobLibrary.assets.filter((asset) => asset.locationId === location.id).length;
+      await persistLibrary(jobLibrary); reportBackgroundProgress(progressId, { label: `Adding files from ${location.name}`, detail: `${location.scanProgress.inspected.toLocaleString()} of ${filePaths.length.toLocaleString()} · ${workerCount} threads`, completed: location.scanProgress.inspected, total: filePaths.length }); if (notify) broadcastLocations(); await new Promise((resolve) => setImmediate(resolve));
+    }
     if (!backgroundRunActive(run)) return;
-    const foundPaths = new Set(found.map((asset) => asset.path)), retained = previousAssets.filter((asset) => !foundPaths.has(asset.path)).map((asset) => scanComplete ? ({ ...asset, sourceMissing: true, sourcePending: false, missingSince: asset.missingSince || Date.now() }) : ({ ...asset, sourcePending: true, sourceMissing: false }));
-    jobLibrary.assets = jobLibrary.assets.filter((asset) => asset.locationId !== location.id).concat(found, retained); location.partialScan = !scanComplete; location.assetCount = found.length + retained.length; location.lastScanned = Date.now(); location.scanProgress.done = true;
-    reportBackgroundProgress(progressId, { label: `${location.name} scan complete`, detail: `${found.length.toLocaleString()} files indexed`, completed: location.scanProgress.inspected, total: Math.max(location.scanProgress.discovered, location.scanProgress.inspected), done: true });
-    const rerun = location.rescanRequested; location.rescanRequested = false; scheduleSave(); if (notify) broadcast(); schedulePortfolioBackground(warmThumbnailCache, 0); if (rerun) schedulePortfolioBackground(() => scanLocation(location.id), location.unstable ? 1200 : 250);
+    const foundPaths = new Set(filePaths.map((filePath) => path.resolve(filePath))), currentAssets = jobLibrary.assets.filter((asset) => asset.locationId === location.id), retained = currentAssets.map((asset) => foundPaths.has(asset.path) ? asset : scanComplete ? ({ ...asset, sourceMissing: true, sourcePending: false, missingSince: asset.missingSince || Date.now() }) : ({ ...asset, sourcePending: true, sourceMissing: false }));
+    jobLibrary.assets = jobLibrary.assets.filter((asset) => asset.locationId !== location.id).concat(retained); location.partialScan = !scanComplete; location.assetCount = retained.length; location.lastScanned = Date.now(); location.scanProgress.done = true; location.scanCheckpoint = null;
+    reportBackgroundProgress(progressId, { label: `${location.name} scan complete`, detail: `${foundPaths.size.toLocaleString()} files indexed`, completed: filePaths.length, total: filePaths.length, done: true });
+    const rerun = location.rescanRequested; location.rescanRequested = false; await persistLibrary(jobLibrary); if (notify) broadcast(); schedulePortfolioBackground(warmThumbnailCache, 0); if (rerun) schedulePortfolioBackground(() => scanLocation(location.id), location.unstable ? 1200 : 250);
   } catch (error) { recordDiagnostic('error', `Scan failed for ${location.name}`, error); reportBackgroundProgress(progressId, { label: `Scan failed: ${location.name}`, detail: error.message, done: true, status: 'failed' }); }
   finally { location.scanning = false; location.checking = false; finishBackgroundRun(run); }
 }
+function resumePendingScans() { for (const location of library.locations.filter((item) => item.scanCheckpoint?.filePaths?.length)) schedulePortfolioBackground(() => scanLocation(location.id, { notify: true, resume: true }), 150); }
 
 function watchLocation(location) {
   watchers.get(location.id)?.close();
@@ -1003,12 +1041,28 @@ async function exportAnnotatedAsset(id, annotations = [], edits = {}) {
   return result.filePath;
 }
 
+function safeExportName(value, fallback = 'Export') { const cleaned = String(value || '').replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/[. ]+$/g, '').trim(); return cleaned || fallback; }
+async function copyExportAsset(asset, target) { if (asset.sourceMissing || !(await pathAvailable(asset.path))) return false; await fsp.mkdir(path.dirname(target), { recursive: true }); await fsp.copyFile(asset.path, target); return true; }
+async function exportLibraryGroup(type, id) {
+  let name, assets, paths = new Map();
+  if (type === 'collection') {
+    const root = library.collections.find((item) => item.id === id); if (!root) throw new Error('Collection does not exist'); name = root.name; const ids = collectionDescendants(id), byId = new Map(library.collections.map((item) => [item.id, item])); assets = library.assets.filter((asset) => !asset.deletedAt && !isAssetLocked(asset) && (asset.collectionIds || []).some((collectionId) => ids.has(collectionId)));
+    for (const asset of assets) { const assigned = (asset.collectionIds || []).filter((collectionId) => ids.has(collectionId)); let collection = byId.get(assigned[0]), parts = []; while (collection && collection.id !== root.id) { parts.unshift(safeExportName(collection.name)); collection = byId.get(collection.parentId); } paths.set(asset.id, parts); }
+  } else if (type === 'smart-folder') {
+    const root = library.smartFolders.find((item) => item.id === id); if (!root) throw new Error('Smart folder does not exist'); name = root.name; assets = library.assets.filter((asset) => !asset.deletedAt && !isAssetLocked(asset) && libraryCore.matchesFilters(asset, root.filters));
+    for (const asset of assets) { const location = library.locations.find((item) => item.id === asset.locationId), relative = location?.type === 'folder' ? path.relative(location.path, path.dirname(asset.path)) : ''; paths.set(asset.id, relative && !relative.startsWith('..') ? relative.split(path.sep).map((part) => safeExportName(part)) : []); }
+  } else throw new Error('Unsupported export type');
+  const result = await dialog.showOpenDialog(mainWindow, { title: `Export ${name}`, properties: ['openDirectory', 'createDirectory'] }); if (result.canceled || !result.filePaths[0]) return null; const rootTarget = path.join(result.filePaths[0], safeExportName(name)); let copied = 0, skipped = 0;
+  for (const asset of assets) { let target = path.join(rootTarget, ...(paths.get(asset.id) || []), safeExportName(asset.filename, `${asset.id}.${String(asset.extension || 'file').toLowerCase()}`)); if (await pathAvailable(target)) target = path.join(path.dirname(target), `${path.basename(target, path.extname(target))}-${asset.id.slice(0,6)}${path.extname(target)}`); if (await copyExportAsset(asset, target)) copied += 1; else skipped += 1; }
+  return { path: rootTarget, files: copied, skipped };
+}
+
 async function runPlugin(pluginName) {
   const safeName = path.basename(pluginName);
   const file = path.join(pluginsDir, safeName);
   if (!file.endsWith('.js')) throw new Error('Plugins must be JavaScript files');
   return new Promise((resolve) => {
-    const worker = new Worker(path.join(__dirname, 'plugin-worker.js'), { workerData: { file, assets: library.assets.filter((asset) => !asset.deletedAt) } });
+    const worker = new Worker(path.join(__dirname, 'plugin-worker.js'), { workerData: { file, assets: library.assets.filter((asset) => !asset.deletedAt) } }); trackWorker(worker, 'plugin');
     const timer = setTimeout(() => { worker.terminate(); resolve({ error: 'Plugin timed out' }); }, 2000);
     worker.on('message', (message) => {
       if (!message.done) return;
@@ -1417,10 +1471,18 @@ function createWindow() {
 
 ipcMain.handle('app:info', () => ({ name: 'Pigeon', version: app.getVersion(), repository: 'https://github.com/vcsoc/pigeon' }));
 ipcMain.handle('diagnostics:get', () => diagnosticEntries.slice(-1000));
+ipcMain.handle('telemetry:get', () => telemetrySnapshot());
 ipcMain.handle('diagnostics:log', (_event, { level = 'error', message, context }) => recordDiagnostic(['info','warning','error'].includes(level) ? level : 'error', message, context));
 ipcMain.handle('diagnostics:clear', async () => { diagnosticEntries = []; if (diagnosticsFile) await fsp.writeFile(diagnosticsFile, ''); return true; });
 ipcMain.handle('diagnostics:remove', async (_event, id) => { diagnosticEntries = diagnosticEntries.filter((entry) => entry.id !== id); if (diagnosticsFile) await fsp.writeFile(diagnosticsFile, diagnosticEntries.map((entry) => JSON.stringify(entry)).join('\n') + (diagnosticEntries.length ? '\n' : '')); return true; });
 ipcMain.handle('diagnostics:open-file', async () => { if (!diagnosticsFile) return false; await fsp.appendFile(diagnosticsFile, ''); return shell.showItemInFolder(diagnosticsFile); });
+ipcMain.handle('app:check-for-updates', async () => {
+  if (!app.isPackaged) return { status: 'development', currentVersion: app.getVersion() };
+  autoUpdater.autoDownload = false; autoUpdater.autoInstallOnAppQuit = true;
+  const update = await autoUpdater.checkForUpdates(); const version = update?.updateInfo?.version; if (!version || version === app.getVersion()) return { status: 'current', currentVersion: app.getVersion() };
+  const choice = await dialog.showMessageBox(mainWindow, { type: 'info', title: 'Pigeon Update Available', message: `Pigeon ${version} is available`, detail: `You are using ${app.getVersion()}. Download and install the update for ${process.platform}?`, buttons: ['Download and Install', 'Later'], defaultId: 0, cancelId: 1 }); if (choice.response !== 0) return { status: 'available', version };
+  await autoUpdater.downloadUpdate(); const install = await dialog.showMessageBox(mainWindow, { type: 'info', title: 'Update Ready', message: `Pigeon ${version} is ready to install`, detail: 'Pigeon will restart to finish the update.', buttons: ['Restart and Install', 'Install on Quit'], defaultId: 0, cancelId: 1 }); if (install.response === 0) setImmediate(() => autoUpdater.quitAndInstall(false, true)); return { status: 'downloaded', version };
+});
 ipcMain.handle('app:open-external', (_event, value) => { const url = new URL(String(value || '')); if (url.protocol !== 'https:' || url.hostname !== 'github.com') throw new Error('Only the Pigeon GitHub link can be opened'); return shell.openExternal(url.toString()); });
 ipcMain.handle('map:search', async (_event, query) => {
   const value = String(query || '').trim().slice(0, 300); if (!value) return [];
@@ -1446,7 +1508,7 @@ ipcMain.handle('portfolio:create', async (_event, name) => {
   const id = crypto.randomUUID();
   const database = portfolioDatabasePath(id);
   await fsp.mkdir(path.dirname(database), { recursive: true });
-  const worker = new Worker(path.join(__dirname, 'database-worker.js'), { workerData: { databaseFile: database } });
+  const worker = new Worker(path.join(__dirname, 'database-worker.js'), { workerData: { databaseFile: database } }); trackWorker(worker, 'portfolio-create');
   await new Promise((resolve, reject) => { worker.once('online', resolve); worker.once('error', reject); }); worker.postMessage({ id: 1, action: 'save', library: libraryCore.migrateLibrary({ loading: false }) }); await new Promise((resolve) => worker.once('message', resolve)); await worker.terminate();
   portfolios.push({ id, name: trimmed, database, legacyFile: null }); await savePortfolioRegistry();
   return { id, name: trimmed };
@@ -1467,7 +1529,7 @@ ipcMain.handle('portfolio:switch', async (_event, id) => {
   if (databaseWorker) { await databaseWorker.terminate(); databaseWorker = null; }
   for (const watcher of watchers.values()) watcher.close(); watchers.clear(); for (const timer of watcherRefreshTimers.values()) clearTimeout(timer); watcherRefreshTimers.clear(); unlockedCollections.clear();
   activePortfolioId = id; databaseFile = portfolio.database || portfolioDatabasePath(id); legacyJsonFile = portfolio.legacyFile || null; library = libraryCore.migrateLibrary({ loading: true });
-  await savePortfolioRegistry(); broadcast(); await loadLibraryInWorker(); broadcast();
+  await savePortfolioRegistry(); broadcast(); await loadLibraryInWorker(); broadcast(); resumePendingScans();
   refreshSourcesInBackground().then(() => { schedulePortfolioBackground(warmThumbnailCache, 500); schedulePortfolioBackground(warmContentHashes, 300); }).catch((error) => recordDiagnostic('error', 'Portfolio background resume failed', error));
   return publicLibrarySummary();
 });
@@ -1632,7 +1694,7 @@ ipcMain.handle('assets:similar', (_event, id) => {
   return asset ? libraryCore.similarAssets(library.assets, asset).map((item) => item.id) : [];
 });
 ipcMain.handle('assets:similar-groups', (_event, { accuracy = 78, sourceId = null } = {}) => new Promise((resolve) => {
-  const worker = new Worker(path.join(__dirname, 'similarity-worker.js'), { workerData: { assets: library.assets.map(({ id, kind, deletedAt, locked, contentHash, perceptualHash, dominantColor, width, height }) => ({ id, kind, deletedAt, locked, contentHash, perceptualHash, dominantColor, width, height })), accuracy: Math.max(35, Math.min(100, Number(accuracy) || 78)), sourceId } });
+  const worker = new Worker(path.join(__dirname, 'similarity-worker.js'), { workerData: { assets: library.assets.map(({ id, kind, deletedAt, locked, contentHash, perceptualHash, dominantColor, width, height }) => ({ id, kind, deletedAt, locked, contentHash, perceptualHash, dominantColor, width, height })), accuracy: Math.max(35, Math.min(100, Number(accuracy) || 78)), sourceId } }); trackWorker(worker, 'similarity', { filesTotal: library.assets.length });
   worker.once('message', (message) => resolve(message.groups || [])); worker.once('error', () => resolve([]));
 }));
 ipcMain.handle('assets:auto-tag', (_event, ids) => {
@@ -1728,6 +1790,7 @@ ipcMain.handle('asset:rename-file', async (_event, { id, name }) => {
 ipcMain.handle('asset:reset-inline-edits', (_event, id) => resetInlineEdits(id));
 ipcMain.handle('asset:duplicate', (_event, id) => duplicateAsset(id));
 ipcMain.handle('asset:export-annotated', (_event, { id, annotations, edits }) => exportAnnotatedAsset(id, annotations, edits));
+ipcMain.handle('library:export-group', (_event, { type, id }) => exportLibraryGroup(type, id));
 ipcMain.handle('extension:open-folder', () => shell.openPath(app.isPackaged ? path.join(process.resourcesPath, 'browser-extension') : path.join(process.cwd(), 'browser-extension')));
 ipcMain.handle('plugins:list', async () => {
   await fsp.mkdir(pluginsDir, { recursive: true });

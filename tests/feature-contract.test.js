@@ -372,6 +372,37 @@ test('indexed folders scroll on hover and preview failures terminate cleanly', (
   assert.match(renderer, /asset\.thumbnailPath \? asset\.previewUrl : asset\.mediaUrl/);
 });
 
+test('sidebar keyboard navigation, recursive exports, and update checks are wired', () => {
+  assert.match(styles, /overflow-x:hidden; overflow-y:auto/);
+  assert.match(styles, /height:0/);
+  assert.match(renderer, /handleSidebarTreeKeys/);
+  assert.match(renderer, /ArrowDown/);
+  assert.match(renderer, /Export Collection/);
+  assert.match(renderer, /Export Smart Folder/);
+  assert.match(renderer, /Check for Updates/);
+  assert.match(preload, /exportGroup/);
+  assert.match(preload, /checkForUpdates/);
+  assert.match(main, /library:export-group/);
+  assert.match(main, /app:check-for-updates/);
+  assert.match(main, /autoUpdater\.downloadUpdate/);
+});
+
+test('telemetry console and resumable CPU-limited parallel indexing are wired', () => {
+  for (const id of ['telemetry-panel','telemetry-summary','telemetry-list']) assert.match(html, new RegExp(`id="${id}"`));
+  assert.match(html, /data-console-tab="telemetry"/);
+  assert.match(preload, /getTelemetry/);
+  assert.match(main, /telemetry:get/);
+  assert.match(main, /INDEX_CPU_LIMIT = 30/);
+  assert.match(main, /INDEX_WORKER_COUNT/);
+  assert.match(main, /scan-worker\.js/);
+  assert.match(main, /scanCheckpoint/);
+  assert.match(main, /resumePendingScans/);
+  assert.match(main, /waitForIndexCpuBudget/);
+  assert.match(renderer, /renderTelemetry/);
+  assert.match(renderer, /setInterval\(refreshTelemetry, 1000\)/);
+  assert.match(styles, /telemetry-summary/);
+});
+
 test('diagnostics controls and cross-portfolio grouping transfer are wired', () => {
   for (const id of ['diagnostics-copy-all','portfolio-transfer','portfolio-transfer-list','portfolio-transfer-move','confirm-portfolio-transfer']) assert.match(html, new RegExp(`id="${id}"`));
   assert.match(preload, /removeDiagnostic/);

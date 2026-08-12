@@ -208,8 +208,9 @@
         <div id="background-progress" class="background-progress hidden" role="status" aria-live="polite"><div class="background-progress-copy"><strong id="background-progress-label">Working…</strong><span id="background-progress-detail"></span></div><div class="background-progress-track"><span id="background-progress-fill"></span></div></div>
         <section id="diagnostics-console" class="diagnostics-console hidden" aria-label="Diagnostics Console">
           <header><div><strong>Diagnostics Console</strong><span id="diagnostics-summary">No recorded issues</span></div><div class="diagnostics-actions"><button id="diagnostics-copy-all">Copy All</button><button id="diagnostics-open-file">Open Log File</button><button id="diagnostics-clear">Clear</button><button id="diagnostics-close" aria-label="Close">×</button></div></header>
-          <nav><button class="active" data-diagnostic-level="all">All</button><button data-diagnostic-level="error">Errors</button><button data-diagnostic-level="warning">Warnings</button><button data-diagnostic-level="info">Info</button></nav>
+          <nav><button class="active" data-console-tab="logs">Logs</button><button data-console-tab="telemetry">Telemetry</button><span class="console-filter-divider"></span><span id="diagnostic-level-filters"><button class="active" data-diagnostic-level="all">All</button><button data-diagnostic-level="error">Errors</button><button data-diagnostic-level="warning">Warnings</button><button data-diagnostic-level="info">Info</button></span></nav>
           <div id="diagnostics-list" class="diagnostics-list" role="log" aria-live="polite"></div>
+          <div id="telemetry-panel" class="telemetry-panel hidden"><div id="telemetry-summary" class="telemetry-summary"></div><div class="telemetry-table"><div class="telemetry-head"><span>Thread / process</span><span>Files</span><span>CPU</span><span>GPU</span><span>Memory</span><span>Runtime</span></div><div id="telemetry-list"></div></div></div>
         </section>
         <footer class="statusbar">
           <span id="status-text">Ready</span>

@@ -7,7 +7,12 @@ For removable and external locations, Pigeon stores a small 256px JPEG thumbnail
 ## Included
 
 - Reference-only indexing for folders and individual files
+- CPU-capped parallel background indexing with durable per-portfolio resume checkpoints
 - Background watching and manual rescans
+- Inline diagnostics and live thread/process telemetry for CPU, GPU, memory, file counts, and runtime
+- Keyboard-accessible sidebar trees with vertical-only scrolling
+- Recursive collection and smart-folder exports that preserve folder structure
+- User-confirmed GitHub release update checks and automatic installation
 - Offline/removable location detection on Windows, macOS, and Linux
 - Persistent tiny thumbnail cache for removable-source images
 - Masonry and compact list layouts
