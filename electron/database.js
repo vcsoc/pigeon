@@ -35,6 +35,8 @@ function rowValues(table, item, payload) {
   return [item.id, item.parentId || null, payload];
 }
 
+function sqliteString(value){return `'${String(value).replace(/'/g,"''")}'`;}
+
 function createLibraryStore(databaseFile) {
   const database = openLibraryDatabase(databaseFile);
   const caches = Object.fromEntries(TABLES.map((table) => [table, new Map(database.prepare(`SELECT id, payload FROM ${table}`).all().map((row) => [row.id, row.payload]))]));
@@ -68,13 +70,15 @@ function createLibraryStore(databaseFile) {
     } catch (error) { try { database.exec('ROLLBACK'); } catch {} throw error; }
   };
 
+  function backup(target){ fs.mkdirSync(path.dirname(target),{recursive:true}); try{fs.rmSync(target,{force:true});}catch{} database.exec(`VACUUM INTO ${sqliteString(target)}`); return target; }
+
   function load() {
     const row = database.prepare("SELECT value FROM library_metadata WHERE key='library'").get();
     if (!row) return null;
     const metadata = JSON.parse(row.value), read = (table) => database.prepare(`SELECT payload FROM ${table} ORDER BY rowid`).all().map((item) => JSON.parse(item.payload));
     return libraryCore.migrateLibrary({ ...metadata, locations: read('locations'), assets: read('assets'), collections: read('collections'), smartFolders: read('smart_folders') });
   }
-  return { database, load, save, saveBatch, close: () => database.close() };
+  return { database, load, save, saveBatch, backup, close: () => database.close() };
 }
 
 function importLegacyJson(store, legacyJsonFile) {

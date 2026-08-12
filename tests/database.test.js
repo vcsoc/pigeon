@@ -17,6 +17,8 @@ test('SQLite store round-trips and incrementally deletes library records', () =>
   assert.equal(loaded.assets.length, 0); assert.equal(loaded.collections.length, 0); store.close();
 });
 
+test('SQLite backups avoid materializing full-library JSON', () => { const file=temporary('source.db'),target=temporary('backup.db'),store=createLibraryStore(file); store.save(core.migrateLibrary({assets:Array.from({length:1000},(_,i)=>({id:`a${i}`,path:`/root/${i}.jpg`}))})); store.backup(target); const restored=createLibraryStore(target); assert.equal(restored.load().assets.length,1000); restored.close(); store.close(); });
+
 test('incremental scan batches persist without cloning a full library', () => { const file=temporary('batch.db'),store=createLibraryStore(file); store.save(core.migrateLibrary({locations:[{id:'l',path:'/root'}]})); store.saveBatch({location:{id:'l',path:'/root',scanCheckpoint:{nextIndex:2,discovered:4}},assets:[{id:'a',locationId:'l',path:'/root/a.jpg'},{id:'b',locationId:'l',path:'/root/b.jpg'}]}); const loaded=store.load(); assert.equal(loaded.assets.length,2); assert.equal(loaded.locations[0].scanCheckpoint.nextIndex,2); store.close(); });
 
 test('separate portfolio databases can receive transferred records', () => {
