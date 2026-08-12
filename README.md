@@ -41,4 +41,4 @@ The workflow in `.github/workflows/build-desktop.yml` builds Windows x64, a univ
 
 ## Local data
 
-Pigeon stores `library.json` and cached thumbnails in Electron's per-user application data directory. Removing a location from Pigeon only removes its references from the index; the original files are never changed.
+Pigeon stores each portfolio in an embedded SQLite database (`library.db`) using WAL mode, plus cached thumbnails in Electron's per-user application data directory. Existing `library.json` data is imported automatically once and archived as `library.json.migrated`. JSON remains available for portable backups and folder-based sync. Removing a location from Pigeon only removes its references from the index; the original files are never changed.

@@ -372,6 +372,20 @@ test('indexed folders scroll on hover and preview failures terminate cleanly', (
   assert.match(renderer, /asset\.thumbnailPath \? asset\.previewUrl : asset\.mediaUrl/);
 });
 
+test('SQLite persistence replaces library.json with automatic migration', () => {
+  const database = fs.readFileSync(path.join(root, 'electron', 'database.js'), 'utf8');
+  assert.match(database, /DatabaseSync/);
+  assert.match(database, /PRAGMA journal_mode = WAL/);
+  assert.match(database, /BEGIN IMMEDIATE/);
+  assert.match(database, /CREATE TABLE IF NOT EXISTS assets/);
+  assert.match(database, /importLegacyJson/);
+  assert.match(main, /database-worker\.js/);
+  assert.match(main, /library\.db/);
+  assert.doesNotMatch(main, /saveDataFile/);
+  assert.doesNotMatch(main, /fsp\.writeFile\(saveDataFile/);
+  assert.match(fs.readFileSync(path.join(root, 'README.md'), 'utf8'), /embedded SQLite database/);
+});
+
 test('tree rows retain readable labels and diagnostics dock inline', () => {
   assert.match(styles, /grid-template-columns:12px 18px minmax\(70px,1fr\) 30px/);
   assert.match(styles, /text-overflow:ellipsis/);

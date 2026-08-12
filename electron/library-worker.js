@@ -1,12 +1,12 @@
 const { parentPort, workerData } = require('node:worker_threads');
-const fsp = require('node:fs/promises');
+const { createLibraryStore, importLegacyJson } = require('./database');
 
-(async () => {
-  try {
-    const contents = await fsp.readFile(workerData.dataFile, 'utf8');
-    const library = JSON.parse(contents);
-    parentPort.postMessage({ library });
-  } catch (error) {
-    parentPort.postMessage({ error: { code: error.code, message: error.message } });
-  }
-})();
+try {
+  const store = createLibraryStore(workerData.databaseFile);
+  let library = store.load();
+  if (!library) library = importLegacyJson(store, workerData.legacyJsonFile);
+  store.close();
+  parentPort.postMessage({ library });
+} catch (error) {
+  parentPort.postMessage({ error: { code: error.code, message: error.message, stack: error.stack } });
+}

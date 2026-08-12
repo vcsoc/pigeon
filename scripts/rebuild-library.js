@@ -2,7 +2,8 @@ const fs = require('node:fs/promises');
 const fileSystem = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { migrateLibrary, serializeLibrary } = require('../electron/library-core');
+const { migrateLibrary } = require('../electron/library-core');
+const { createLibraryStore } = require('../electron/database');
 
 const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.ico', '.avif', '.tif', '.tiff', '.svg']);
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.m4v', '.webm', '.avi', '.mkv']);
@@ -60,7 +61,7 @@ async function mapConcurrent(items, concurrency, mapper) {
 
 (async () => {
   const [target, ...roots] = process.argv.slice(2);
-  if (!target || !roots.length) throw new Error('Usage: node rebuild-library.js <library.json> <folder> [...]');
+  if (!target || !roots.length) throw new Error('Usage: node rebuild-library.js <library.db> <folder> [...]');
   const library = migrateLibrary({ locations: [], assets: [], loading: false });
   for (const root of roots) {
     const resolvedRoot = path.resolve(root);
@@ -88,8 +89,7 @@ async function mapConcurrent(items, concurrency, mapper) {
     library.assets.push(...assets);
     console.log(`${resolvedRoot}: ${assets.length} references`);
   }
-  const temporary = `${target}.recovery.tmp`;
-  await fs.writeFile(temporary, serializeLibrary(library));
-  await fs.rename(temporary, target);
-  console.log(`Restored ${library.assets.length} references to ${target}`);
+  const store = createLibraryStore(path.resolve(target));
+  store.save(library); store.close();
+  console.log(`Restored ${library.assets.length} references to SQLite database ${target}`);
 })().catch((error) => { console.error(error); process.exitCode = 1; });

@@ -32,8 +32,11 @@ const unlockedCollections = new Map();
 let mainWindow;
 let mediaServer = null, mediaServerPort = 0;
 const mediaServerToken = crypto.randomBytes(24).toString('hex');
-let dataFile;
-let saveDataFile;
+let databaseFile;
+let legacyJsonFile;
+let databaseWorker;
+let databaseRequestId = 0;
+const databaseRequests = new Map();
 let thumbnailDir;
 let importsDir;
 let backupDir;
@@ -227,23 +230,29 @@ async function writeBackup(reason = 'automatic') {
   return target;
 }
 
+function startDatabaseWorker() {
+  if (databaseWorker) databaseWorker.terminate().catch(() => {});
+  databaseWorker = new Worker(path.join(__dirname, 'database-worker.js'), { workerData: { databaseFile } });
+  databaseWorker.on('message', ({ id, ok, message }) => { const request = databaseRequests.get(id); if (!request) return; databaseRequests.delete(id); ok ? request.resolve(true) : request.reject(new Error(message)); });
+  databaseWorker.on('error', (error) => { recordDiagnostic('error', 'Database worker failed', error); for (const request of databaseRequests.values()) request.reject(error); databaseRequests.clear(); databaseWorker = null; });
+}
+function persistLibrary(snapshot = library) {
+  if (!databaseWorker) startDatabaseWorker();
+  return new Promise((resolve, reject) => { const id = ++databaseRequestId; databaseRequests.set(id, { resolve, reject }); databaseWorker.postMessage({ id, action: 'save', library: snapshot }); });
+}
 function scheduleSave() {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(async () => {
-    const tempFile = `${saveDataFile}.tmp`;
-    await fsp.writeFile(tempFile, libraryCore.serializeLibrary(library));
-    await fsp.rename(tempFile, saveDataFile);
-    if (Date.now() - lastBackupAt > 60 * 60 * 1000) await writeBackup();
-  }, 120);
+  saveTimer = setTimeout(async () => { try { await persistLibrary(library); if (Date.now() - lastBackupAt > 60 * 60 * 1000) await writeBackup(); } catch (error) { recordDiagnostic('error', 'Could not save SQLite library', error); } }, 120);
 }
 
+function portfolioDatabasePath(id) { return id === 'default' ? path.join(app.getPath('userData'), 'library.db') : path.join(app.getPath('userData'), 'portfolios', `${id}.db`); }
+function portfolioLegacyJsonPath(portfolio) { return portfolio?.legacyFile || (portfolio?.file?.toLowerCase().endsWith('.json') ? portfolio.file : null); }
 function initializeStoragePaths() {
   const legacyFile = path.join(app.getPath('userData'), 'library.json');
   portfolioRegistryFile = path.join(app.getPath('userData'), 'portfolios.json');
-  portfolios = [{ id: 'default', name: 'My Portfolio', file: legacyFile }];
+  portfolios = [{ id: 'default', name: 'My Portfolio', database: portfolioDatabasePath('default'), legacyFile }];
   activePortfolioId = 'default';
-  saveDataFile = legacyFile;
-  dataFile = smokeTest && process.env.PIGEON_SMOKE_LIBRARY ? process.env.PIGEON_SMOKE_LIBRARY : saveDataFile;
+  databaseFile = portfolioDatabasePath('default'); legacyJsonFile = smokeTest && process.env.PIGEON_SMOKE_LIBRARY ? process.env.PIGEON_SMOKE_LIBRARY : legacyFile;
   thumbnailDir = path.join(app.getPath('userData'), 'thumbnails');
   importsDir = path.join(app.getPath('userData'), 'imports');
   backupDir = path.join(app.getPath('userData'), 'backups');
@@ -259,31 +268,31 @@ async function savePortfolioRegistry() {
 async function loadPortfolioRegistry() {
   try {
     const parsed = JSON.parse(await fsp.readFile(portfolioRegistryFile, 'utf8'));
-    if (Array.isArray(parsed.portfolios) && parsed.portfolios.length) portfolios = parsed.portfolios.filter((item) => item.id && item.name && item.file);
+    if (Array.isArray(parsed.portfolios) && parsed.portfolios.length) portfolios = parsed.portfolios.filter((item) => item.id && item.name).map((item) => ({ id: item.id, name: item.name, database: item.database || portfolioDatabasePath(item.id), legacyFile: portfolioLegacyJsonPath(item) }));
     if (portfolios.some((item) => item.id === parsed.activePortfolioId)) activePortfolioId = parsed.activePortfolioId;
   } catch (error) { if (error.code !== 'ENOENT') console.error('Could not load portfolios:', error); }
   const active = portfolios.find((item) => item.id === activePortfolioId) || portfolios[0];
-  activePortfolioId = active.id; saveDataFile = active.file; dataFile = saveDataFile;
+  activePortfolioId = active.id; databaseFile = active.database || portfolioDatabasePath(active.id); legacyJsonFile = active.legacyFile || null;
   await savePortfolioRegistry();
 }
 async function saveLibraryNow() {
-  clearTimeout(saveTimer);
-  await fsp.mkdir(path.dirname(saveDataFile), { recursive: true });
-  await fsp.writeFile(saveDataFile, libraryCore.serializeLibrary(library));
+  clearTimeout(saveTimer); saveTimer = null;
+  await persistLibrary(library);
 }
 
 async function loadLibraryInWorker() {
   await fsp.mkdir(thumbnailDir, { recursive: true });
   return new Promise((resolve) => {
-    const worker = new Worker(path.join(__dirname, 'library-worker.js'), { workerData: { dataFile } });
+    const worker = new Worker(path.join(__dirname, 'library-worker.js'), { workerData: { databaseFile, legacyJsonFile } });
     worker.once('message', (result) => {
       if (smokeTest) console.log('[smoke] library worker returned');
       if (result.library && Array.isArray(result.library.locations) && Array.isArray(result.library.assets)) {
         library = { ...libraryCore.migrateLibrary(result.library), loading: false }; for (const location of library.locations) { location.scanning = false; location.checking = false; location.rescanRequested = false; }
         let autoTagsReconciled = false; for (const asset of library.assets) { const before = (asset.tags || []).length; applyConfiguredCollectionTags(asset); if (asset.tags.length !== before) autoTagsReconciled = true; } if (autoTagsReconciled) scheduleSave();
-      } else {
-        library = { version: 1, locations: [], assets: [], loading: false, loadError: result.error?.message || null };
-        if (result.error?.code !== 'ENOENT') console.error('Could not load library:', result.error);
+      } else if (!result.error) library = { ...libraryCore.migrateLibrary({}), loading: false };
+      else {
+        library = { ...libraryCore.migrateLibrary({}), loading: false, loadError: result.error.message || null };
+        console.error('Could not load SQLite library:', result.error);
       }
       resolve();
     });
@@ -1431,10 +1440,11 @@ ipcMain.handle('portfolio:create', async (_event, name) => {
   if (!trimmed) throw new Error('Portfolio name is required');
   if (portfolios.some((item) => item.name.toLowerCase() === trimmed.toLowerCase())) throw new Error('A portfolio with that name already exists');
   const id = crypto.randomUUID();
-  const file = path.join(app.getPath('userData'), 'portfolios', `${id}.json`);
-  await fsp.mkdir(path.dirname(file), { recursive: true });
-  await fsp.writeFile(file, libraryCore.serializeLibrary(libraryCore.migrateLibrary({ loading: false })));
-  portfolios.push({ id, name: trimmed, file }); await savePortfolioRegistry();
+  const database = portfolioDatabasePath(id);
+  await fsp.mkdir(path.dirname(database), { recursive: true });
+  const worker = new Worker(path.join(__dirname, 'database-worker.js'), { workerData: { databaseFile: database } });
+  await new Promise((resolve, reject) => { worker.once('online', resolve); worker.once('error', reject); }); worker.postMessage({ id: 1, action: 'save', library: libraryCore.migrateLibrary({ loading: false }) }); await new Promise((resolve) => worker.once('message', resolve)); await worker.terminate();
+  portfolios.push({ id, name: trimmed, database, legacyFile: null }); await savePortfolioRegistry();
   return { id, name: trimmed };
 });
 ipcMain.handle('portfolio:rename', async (_event, { id, name }) => {
@@ -1449,9 +1459,10 @@ ipcMain.handle('portfolio:switch', async (_event, id) => {
   if (!portfolio) throw new Error('Portfolio does not exist');
   if (id === activePortfolioId) return publicLibrarySummary();
   await cancelPortfolioBackground(`Paused while viewing ${portfolio.name}`);
-  if (saveTimer) await saveLibraryNow();
+  await saveLibraryNow();
+  if (databaseWorker) { await databaseWorker.terminate(); databaseWorker = null; }
   for (const watcher of watchers.values()) watcher.close(); watchers.clear(); for (const timer of watcherRefreshTimers.values()) clearTimeout(timer); watcherRefreshTimers.clear(); unlockedCollections.clear();
-  activePortfolioId = id; saveDataFile = portfolio.file; dataFile = saveDataFile; library = libraryCore.migrateLibrary({ loading: true });
+  activePortfolioId = id; databaseFile = portfolio.database || portfolioDatabasePath(id); legacyJsonFile = portfolio.legacyFile || null; library = libraryCore.migrateLibrary({ loading: true });
   await savePortfolioRegistry(); broadcast(); await loadLibraryInWorker(); broadcast();
   refreshSourcesInBackground().then(() => { schedulePortfolioBackground(warmThumbnailCache, 500); schedulePortfolioBackground(warmContentHashes, 300); }).catch((error) => recordDiagnostic('error', 'Portfolio background resume failed', error));
   return publicLibrarySummary();
@@ -1461,7 +1472,7 @@ ipcMain.handle('portfolio:remove', async (_event, id) => {
   if (id === activePortfolioId) throw new Error('Switch to another portfolio before deleting this one');
   const portfolio = portfolios.find((item) => item.id === id);
   if (!portfolio) return false;
-  portfolios = portfolios.filter((item) => item.id !== id); await savePortfolioRegistry(); await fsp.rm(portfolio.file, { force: true }); broadcast(); return true;
+  portfolios = portfolios.filter((item) => item.id !== id); await savePortfolioRegistry(); await Promise.all([fsp.rm(portfolio.database || portfolioDatabasePath(id), { force: true }), fsp.rm(`${portfolio.database || portfolioDatabasePath(id)}-wal`, { force: true }), fsp.rm(`${portfolio.database || portfolioDatabasePath(id)}-shm`, { force: true })]); broadcast(); return true;
 });
 ipcMain.handle('library:get', () => publicLibrarySummary());
 ipcMain.handle('library:add-folder', async () => {
@@ -1848,6 +1859,7 @@ app.on('before-quit', () => {
   for (const timer of portfolioBackgroundTimers) clearTimeout(timer);
   for (const worker of thumbnailWorkers) worker.terminate();
   for (const worker of backgroundHashWorkers) worker.terminate();
+  databaseWorker?.terminate(); databaseWorker = null;
   for (const child of activeFfmpegChildren) child.kill();
   mediaServer?.closeAllConnections?.(); mediaServer?.close(); mediaServer = null; mediaServerPort = 0;
 });
