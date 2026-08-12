@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('pigeon', {
   getAppInfo: () => ipcRenderer.invoke('app:info'),
   getDiagnostics: () => ipcRenderer.invoke('diagnostics:get'),
   getTelemetry: () => ipcRenderer.invoke('telemetry:get'),
+  buildFolderTree: (payload) => ipcRenderer.invoke('folder-tree:build', payload),
   logDiagnostic: (level, message, context = '') => ipcRenderer.invoke('diagnostics:log', { level, message, context }),
   clearDiagnostics: () => ipcRenderer.invoke('diagnostics:clear'),
   removeDiagnostic: (id) => ipcRenderer.invoke('diagnostics:remove', id),

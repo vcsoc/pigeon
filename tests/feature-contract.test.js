@@ -223,7 +223,7 @@ test('included locations expose nested physical-folder filtering and recursive A
   assert.match(renderer, /parent === selectedFolder/);
   assert.match(renderer, /pigeon\.includeSubfolderContent/);
   assert.match(renderer, /folder-tree/);
-  assert.match(renderer, /directoryParts/);
+  assert.match(renderer, /buildFolderTree/);
   assert.match(renderer, /selectedFolder/);
 });
 
@@ -370,6 +370,19 @@ test('indexed folders scroll on hover and preview failures terminate cleanly', (
   assert.match(main, /failed: true/);
   assert.match(renderer, /Preview unavailable/);
   assert.match(renderer, /asset\.thumbnailPath \? asset\.previewUrl : asset\.mediaUrl/);
+});
+
+test('huge folder trees are worker-built and bounded, console resizes/fullscreens, and twelve threads are allowed', () => {
+  assert.match(html, /class="nav-item" data-view="untagged"/);
+  for (const id of ['diagnostics-resizer','diagnostics-fullscreen']) assert.match(html,new RegExp(`id="${id}"`));
+  assert.match(preload,/buildFolderTree/);
+  assert.match(main,/folder-tree:build/);
+  assert.match(main,/MAX_BACKGROUND_THREADS = 12/);
+  assert.match(renderer,/folderTreeLimits/);
+  assert.match(renderer,/Show \$\{Math\.min\(500/);
+  assert.match(renderer,/pigeon\.consoleHeight/);
+  assert.match(styles,/diagnostics-console\.fullscreen/);
+  assert.match(styles,/cursor:ns-resize/);
 });
 
 test('appearance typography, unclipped portfolio switcher, and PDF previews are wired', () => {
