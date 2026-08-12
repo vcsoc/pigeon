@@ -305,6 +305,17 @@ test('collection drag updates smart-folder thumbnails without a full grid refres
   assert.match(main,/if \(!options\.silent\) broadcast\(\)/);
 });
 
+test('thumbnail rotation patches affected cards without rebuilding the grid',()=>{
+  assert.match(renderer,/function patchRotatedThumbnail/);
+  assert.match(renderer,/preview\.classList\.toggle\('quarter-turned',quarterTurn\)/);
+  assert.match(renderer,/card\.style\.setProperty\('--asset-ratio',ratio\)/);
+  assert.match(renderer,/batchUpdateAssets\(ids,\{rotateBy:direction\},\{silent:true,returnAssets:true\}\)/);
+  assert.match(renderer,/patchRotatedThumbnail\(asset\)/);
+  const helper=renderer.match(/async function rotateThumbnailsWithoutGridRefresh[\s\S]*?\n\}/)?.[0]||'';
+  assert.doesNotMatch(helper,/renderGrid\(/);
+  assert.match(helper,/scheduleMasonry\(\)/);
+});
+
 test('Ctrl-click deselection clears stale borders and repaints only changed thumbnail cards',()=>{
   assert.match(renderer,/function paintCardSelection/);
   assert.match(renderer,/card\.setAttribute\('aria-selected',String\(selected\)\)/);
@@ -332,7 +343,7 @@ test('collection assignment and multi-selection context actions preserve batch i
   assert.match(renderer, /Rotate \$\{selectedImageIds\.length\} images/);
   assert.match(renderer, /rotationTargetLabel \+ ' left/);
   assert.match(renderer, /rotationTargetLabel \+ ' right/);
-  assert.match(renderer, /batchUpdateAssets\(selectedImageIds, \{ rotateBy: direction \}\)/);
+  assert.match(renderer, /rotateThumbnailsWithoutGridRefresh\(selectedImageIds/);
   assert.match(libraryCore, /Object\.hasOwn\(operation, 'rotateBy'\)/);
 });
 
@@ -663,8 +674,9 @@ test('availability refresh and inline About Pigeon view are wired', () => {
   assert.match(renderer,/\$\('#about-dialog'\)\.addEventListener\('click',closeAboutView\)/);
   assert.match(icons, /github:/);
   assert.match(styles, /\.about-dialog \{ position:fixed; inset:0/);
-  assert.match(html,/about-corner-logo/);
-  assert.match(styles,/\.about-corner-logo \{ position:absolute; left:28px; bottom:24px/);
+  assert.match(html,/startup-brand about-brand/);
+  assert.match(html,/id="about-title">pigeon<\/strong><span>sees all<\/span>/);
+  assert.match(styles,/\.about-brand/);
 });
 
 test('custom shortcut actions combine configurable steps for the current selection',()=>{

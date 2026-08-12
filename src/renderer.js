@@ -1089,6 +1089,8 @@ async function addAssetsToCollectionWithoutGridRefresh(ids,collection){
   for(const asset of state.library.assets)if(updates.has(asset.id)){Object.assign(asset,updates.get(asset.id));changed.push(asset.id);}
   reconcileThumbnailCards(changed);showToast(`${unique.length} item${unique.length===1?'':'s'} added to ${collection.name}`);
 }
+function patchRotatedThumbnail(asset){const card=elements.grid.querySelector(`[data-asset-id="${CSS.escape(asset.id)}"]`),preview=card?.querySelector('.asset-preview'),image=preview?.querySelector(':scope > img');if(!card||!preview||!image)return;const originalRatio=Math.max(.1,(asset.width||1)/(asset.height||1)),quarterTurn=Boolean((Number(asset.rotation)||0)%180),ratio=quarterTurn?1/originalRatio:originalRatio,justifiedHeight=Math.max(95,Math.min(190,Number($('#zoom-slider').value)*.58));card.style.setProperty('--asset-ratio',ratio);card.style.setProperty('--justified-basis',`${Math.round(justifiedHeight*ratio)}px`);preview.style.setProperty('--original-ratio',originalRatio);preview.style.setProperty('--preview-ratio',ratio);preview.classList.toggle('quarter-turned',quarterTurn);image.style.transform=rotationTransform(asset);if(quarterTurn){if(image.complete&&image.naturalWidth)fitRotatedThumbnail(image);else image.addEventListener('load',()=>fitRotatedThumbnail(image),{once:true});}else{preview.style.removeProperty('--rotated-image-width');preview.style.removeProperty('--rotated-image-height');}}
+async function rotateThumbnailsWithoutGridRefresh(ids,direction){const result=await window.pigeon.batchUpdateAssets(ids,{rotateBy:direction},{silent:true,returnAssets:true}),updates=new Map((result.assets||[]).map((asset)=>[asset.id,asset]));for(const asset of state.library.assets)if(updates.has(asset.id)){Object.assign(asset,updates.get(asset.id));patchRotatedThumbnail(asset);}scheduleMasonry();scheduleSelectionInspector();if(isInternalViewerOpen())renderInternalViewer();}
 function focusSelectedAsset() {
   requestAnimationFrame(() => {
     const card = elements.grid.querySelector(`[data-asset-id="${state.selectedId}"]`);
@@ -1649,12 +1651,7 @@ function showAssetContextMenu(event, id) {
     if (action === 'favorite') await window.pigeon.batchUpdateAssets(selectedIds, { favorite: !asset.favorite });
     if (action === 'five-stars') await window.pigeon.batchUpdateAssets(selectedIds, { rating: 5 });
     if (action === 'auto-tag') await window.pigeon.autoTag(selectedIds);
-    if (action === 'rotate-left' || action === 'rotate-right') {
-      const direction = action === 'rotate-left' ? -90 : 90, updates = selectedImageIds.map((assetId) => { const item = state.library.assets.find((entry) => entry.id === assetId); return { assetId, rotation: ((item?.rotation || 0) + direction + 360) % 360 }; });
-      await window.pigeon.batchUpdateAssets(selectedImageIds, { rotateBy: direction });
-      for (const { assetId, rotation } of updates) { const item = state.library.assets.find((entry) => entry.id === assetId); if (item) item.rotation = rotation; }
-      renderGrid(); renderInspector(); if (isInternalViewerOpen()) renderInternalViewer();
-    }
+    if (action === 'rotate-left' || action === 'rotate-right') await rotateThumbnailsWithoutGridRefresh(selectedImageIds,action === 'rotate-left' ? -90 : 90);
     if (action === 'duplicate') await Promise.all(selectedIds.map((assetId) => window.pigeon.duplicateAsset(assetId)));
     if (action === 'stack') await window.pigeon.stackAssets([...state.selectedIds]);
     if (action === 'unstack') await window.pigeon.unstackAssets([id]);
