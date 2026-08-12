@@ -70,7 +70,9 @@ let activePdfWorkers = 0;
 const pdfWorkerWaiters = [];
 let diagnosticsFile;
 let diagnosticEntries = [];
+const fatalDiagnosticsFile=path.join(app.getPath('userData'),'fatal-errors.jsonl');
 const originalConsoleError = console.error.bind(console), originalConsoleWarn = console.warn.bind(console);
+function writeFatalDiagnostic(source,error,context=''){try{fs.appendFileSync(fatalDiagnosticsFile,`${JSON.stringify({timestamp:Date.now(),source,message:diagnosticValue(error),context:diagnosticValue(context),portfolioId:activePortfolioId})}\n`);}catch{}}
 function diagnosticValue(value) { if (value instanceof Error) return value.stack || value.message; if (typeof value === 'string') return value; try { return JSON.stringify(value); } catch { return String(value); } }
 function recordDiagnostic(level, message, context = null) {
   const entry = { id: crypto.randomUUID(), timestamp: Date.now(), level, portfolioId: activePortfolioId, message: diagnosticValue(message), context: context ? diagnosticValue(context) : '' };
@@ -81,8 +83,11 @@ function recordDiagnostic(level, message, context = null) {
 }
 console.error = (...values) => { originalConsoleError(...values); recordDiagnostic('error', values.map(diagnosticValue).join(' ')); };
 console.warn = (...values) => { originalConsoleWarn(...values); recordDiagnostic('warning', values.map(diagnosticValue).join(' ')); };
-process.on('uncaughtException', (error) => { console.error('Uncaught application error:', error); });
-if (!process.argv.includes('--smoke-test')) process.on('unhandledRejection', (error) => { console.error('Unhandled promise rejection:', error); });
+process.on('uncaughtExceptionMonitor',(error,origin)=>writeFatalDiagnostic('main:uncaughtExceptionMonitor',error,origin));
+process.on('uncaughtException', (error,origin) => { writeFatalDiagnostic('main:uncaughtException',error,origin); console.error('Uncaught application error:', error); });
+if (!process.argv.includes('--smoke-test')) process.on('unhandledRejection', (error,promise) => { writeFatalDiagnostic('main:unhandledRejection',error,String(promise)); console.error('Unhandled promise rejection:', error); });
+process.on('warning',(warning)=>recordDiagnostic('warning',`Node warning: ${warning.name}`,warning.stack||warning.message));
+process.on('multipleResolves',(type,_promise,value)=>recordDiagnostic('warning',`Promise resolved more than once: ${type}`,value));
 let broadcastTimer;
 let libraryStreamGeneration = 0;
 let lastBackupAt = 0;
@@ -110,7 +115,9 @@ function makeId(value) {
 }
 function trackWorker(worker, type, detail = {}) {
   const id = `${type}:${worker.threadId}:${Date.now()}`; workerTelemetry.set(id, { id, worker, threadId: worker.threadId, type, portfolioId: detail.portfolioId || activePortfolioId, status: 'running', startedAt: Date.now(), filesTotal: detail.filesTotal || 0, filesCompleted: 0, currentFile: '', batch: detail.batch || 0 });
-  worker.once('exit', () => workerTelemetry.delete(id)); return workerTelemetry.get(id);
+  worker.on('error',(error)=>{writeFatalDiagnostic(`worker:${type}:error`,error,{id,threadId:worker.threadId});recordDiagnostic('error',`${type} worker exception`,error);});
+  worker.on('messageerror',(error)=>{writeFatalDiagnostic(`worker:${type}:messageerror`,error,{id,threadId:worker.threadId});recordDiagnostic('error',`${type} worker message could not be deserialized`,error);});
+  worker.once('exit', (code) => {workerTelemetry.delete(id);if(code!==0&&!app.isQuitting)recordDiagnostic('error',`${type} worker exited unexpectedly`,{id,code});}); return workerTelemetry.get(id);
 }
 async function workerResourceTelemetry(entry) { try { const [cpuUsage, heap] = await Promise.all([typeof entry.worker.cpuUsage === 'function' ? entry.worker.cpuUsage(entry.lastCpuUsage).catch(() => null) : null, typeof entry.worker.getHeapStatistics === 'function' ? entry.worker.getHeapStatistics().catch(() => null) : null]); const elapsed = Math.max(1, Date.now() - (entry.lastSampleAt || entry.startedAt)); entry.lastSampleAt = Date.now(); if (cpuUsage) entry.lastCpuUsage = cpuUsage; return { cpu: cpuUsage ? Math.min(100, ((cpuUsage.user + cpuUsage.system) / 1000 / elapsed) * 100) : (entry.worker.performance?.eventLoopUtilization()?.utilization || 0) * 100, memoryBytes: heap?.usedHeapSize || entry.memoryBytes || 0 }; } catch { return { cpu: 0, memoryBytes: entry.memoryBytes || 0 }; } }
 async function telemetrySnapshot() {
@@ -1122,7 +1129,10 @@ function createWindow() {
   });
   mainWindow.on('maximize', () => mainWindow.webContents.send('window:maximized', true));
   mainWindow.on('unmaximize', () => mainWindow.webContents.send('window:maximized', false));
-  mainWindow.webContents.on('render-process-gone', (_event, details) => { recordDiagnostic('error', 'Renderer process stopped', details); if(!app.isQuitting&&details.reason!=='clean-exit')setTimeout(()=>{if(mainWindow&&!mainWindow.isDestroyed())mainWindow.reload();else createWindow();},500); });
+  mainWindow.webContents.on('render-process-gone', (_event, details) => { writeFatalDiagnostic('electron:render-process-gone',details.reason,details); recordDiagnostic('error', 'Renderer process stopped', details); if(!app.isQuitting&&details.reason!=='clean-exit')setTimeout(()=>{if(mainWindow&&!mainWindow.isDestroyed())mainWindow.reload();else createWindow();},500); });
+  mainWindow.webContents.on('preload-error',(_event,preloadPath,error)=>{writeFatalDiagnostic('electron:preload-error',error,preloadPath);recordDiagnostic('error','Preload script failed',{preloadPath,error:diagnosticValue(error)});});
+  mainWindow.webContents.on('did-fail-load',(_event,code,description,url,isMainFrame)=>{if(isMainFrame){writeFatalDiagnostic('electron:did-fail-load',description,{code,url});recordDiagnostic('error','Renderer failed to load',{code,description,url});}});
+  mainWindow.on('unresponsive',()=>{writeFatalDiagnostic('electron:window-unresponsive','Main window stopped responding');recordDiagnostic('error','Application window is unresponsive');});
   mainWindow.webContents.on('console-message', (_event, details) => { if (details.level === 'warning' || details.level === 'error') recordDiagnostic(details.level, details.message, `${details.sourceId}:${details.lineNumber}`); });
   mainWindow.loadFile(path.join(__dirname, '..', 'src', 'index.html'));
   if (smokeTest) {
@@ -1496,6 +1506,9 @@ function createWindow() {
   }
 }
 
+const registerIpcHandler=ipcMain.handle.bind(ipcMain);
+ipcMain.handle=(channel,handler)=>registerIpcHandler(channel,async(event,...args)=>{try{return await handler(event,...args);}catch(error){const context={channel,senderId:event?.sender?.id,args:args.map((value)=>diagnosticValue(value).slice(0,2000))};writeFatalDiagnostic('ipc:handler',error,context);recordDiagnostic('error',`Unhandled IPC exception in ${channel}`,{error:diagnosticValue(error),...context});throw error;}});
+ipcMain.on('diagnostics:fatal',(_event,payload)=>{writeFatalDiagnostic(payload?.source||'preload',payload?.message||'Unknown fatal error',payload?.context||'');recordDiagnostic('error',payload?.message||'Preload exception',payload?.context||'');});
 ipcMain.handle('app:info', () => ({ name: 'Pigeon', version: app.getVersion(), repository: 'https://github.com/vcsoc/pigeon' }));
 ipcMain.handle('diagnostics:get', () => diagnosticEntries.slice(-1000));
 ipcMain.handle('telemetry:get', () => telemetrySnapshot());
@@ -1945,7 +1958,7 @@ app.whenReady().then(async () => {
       assets: Array.from({ length: 25000 }, (_, index) => ({ id: `asset-${index}`, locationId: 'large', path: `virtual/${index}.dat`, name: `Reference ${index + 1}`, filename: `${index}.dat`, extension: 'DAT', kind: 'file', size: index, created: Date.now(), modified: Date.now() - index, indexedAt: Date.now(), tags: [], note: '', rating: 0, favorite: false, thumbnailPath: null }))
     });
   }
-  app.on('child-process-gone',(_event,details)=>recordDiagnostic('error','Electron child process stopped',details));
+  app.on('child-process-gone',(_event,details)=>{writeFatalDiagnostic('electron:child-process-gone',details.reason,details);recordDiagnostic('error','Electron child process stopped',details);});
   createWindow();
   for (const value of pendingProtocolUrls.splice(0)) handleProtocolUrl(value);
   const startupUrl = process.argv.find((argument) => argument.startsWith('pigeon://'));

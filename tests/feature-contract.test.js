@@ -382,6 +382,25 @@ test('indexed folders scroll on hover and preview failures terminate cleanly', (
   assert.match(renderer, /asset\.thumbnailPath \? asset\.previewUrl : asset\.mediaUrl/);
 });
 
+test('all catchable unhandled exceptions are persisted across Electron processes',()=>{
+  assert.match(main,/uncaughtExceptionMonitor/);
+  assert.match(main,/main:unhandledRejection/);
+  assert.match(main,/fatal-errors\.jsonl/);
+  assert.match(main,/writeFatalDiagnostic/);
+  assert.match(main,/ipcMain\.handle=\(channel,handler\)/);
+  assert.match(main,/Unhandled IPC exception/);
+  assert.match(main,/messageerror/);
+  assert.match(main,/preload-error/);
+  assert.match(main,/did-fail-load/);
+  assert.match(main,/window-unresponsive/);
+  assert.match(preload,/preload:uncaughtException/);
+  assert.match(preload,/preload:unhandledRejection/);
+  assert.match(preload,/reportFatal:/);
+  assert.match(renderer,/renderer:unhandledrejection/);
+  assert.match(renderer,/renderer:error/);
+  assert.match(renderer,/securitypolicyviolation/);
+});
+
 test('large indexing applies system-stability backpressure and crash recovery', () => {
   assert.match(main,/PDF_WORKER_LIMIT = 2/);
   assert.match(main,/LARGE_SCAN_WORKER_LIMIT = 4/);

@@ -1,4 +1,8 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
+function reportFatal(source,error,context=''){try{ipcRenderer.send('diagnostics:fatal',{source,message:error?.stack||error?.message||String(error),context:String(context||'')});}catch{}}
+process.on('uncaughtException',(error,origin)=>reportFatal('preload:uncaughtException',error,origin));
+process.on('unhandledRejection',(error)=>reportFatal('preload:unhandledRejection',error));
+process.on('warning',(warning)=>reportFatal('preload:warning',warning));
 
 contextBridge.exposeInMainWorld('pigeon', {
   getLibrary: () => ipcRenderer.invoke('library:get'),
@@ -7,6 +11,7 @@ contextBridge.exposeInMainWorld('pigeon', {
   getTelemetry: () => ipcRenderer.invoke('telemetry:get'),
   buildFolderTree: (payload) => ipcRenderer.invoke('folder-tree:build', payload),
   logDiagnostic: (level, message, context = '') => ipcRenderer.invoke('diagnostics:log', { level, message, context }),
+  reportFatal: (source, message, context = '') => ipcRenderer.send('diagnostics:fatal', { source, message: String(message || 'Unknown fatal error'), context: String(context || '') }),
   clearDiagnostics: () => ipcRenderer.invoke('diagnostics:clear'),
   removeDiagnostic: (id) => ipcRenderer.invoke('diagnostics:remove', id),
   openDiagnosticsFile: () => ipcRenderer.invoke('diagnostics:open-file'),

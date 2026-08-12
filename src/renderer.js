@@ -2153,8 +2153,9 @@ $$('[data-diagnostic-level]').forEach((button) => button.addEventListener('click
 window.pigeon.onDiagnostic((entry) => { diagnosticsEntries.push(entry); if (diagnosticsEntries.length > 1000) diagnosticsEntries.shift(); if (!$('#diagnostics-console').classList.contains('hidden')) renderDiagnosticsConsole(); });
 window.pigeon.onError((message) => { showToast(message); window.pigeon.logDiagnostic('error', message, 'Main process error notification'); });
 window.addEventListener('beforeunload', saveNavigationState);
-window.addEventListener('unhandledrejection', (event) => { const message = event.reason?.message || 'Operation failed'; showToast(message); window.pigeon.logDiagnostic('error', message, event.reason?.stack || 'Unhandled renderer rejection'); event.preventDefault(); });
-window.addEventListener('error', (event) => { const message = event.message || 'Unexpected UI error'; showToast(message); window.pigeon.logDiagnostic('error', message, `${event.filename || 'renderer'}:${event.lineno || 0}:${event.colno || 0}`); });
+window.addEventListener('unhandledrejection', (event) => { const message = event.reason?.message || 'Operation failed'; showToast(message); window.pigeon.reportFatal('renderer:unhandledrejection',event.reason?.stack||message); event.preventDefault(); });
+window.addEventListener('error', (event) => { const message = event.message || 'Unexpected UI error'; showToast(message); window.pigeon.reportFatal('renderer:error',event.error?.stack||message,`${event.filename || 'renderer'}:${event.lineno || 0}:${event.colno || 0}`); },true);
+window.addEventListener('securitypolicyviolation',(event)=>window.pigeon.reportFatal('renderer:securitypolicyviolation',event.violatedDirective,`${event.blockedURI} · ${event.sourceFile}:${event.lineNumber}`));
 
 if (window.pigeon.platform === 'darwin') $('#window-controls').classList.add('hidden');
 else {
