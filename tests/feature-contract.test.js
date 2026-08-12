@@ -23,6 +23,16 @@ test('UI exposes collection, smart-folder, batch, trash, media, metadata and edi
   }
 });
 
+test('common interactions paint immediately and defer expensive renderer work',()=>{
+  assert.match(renderer,/function paintActiveNavigation/);
+  assert.match(renderer,/function renderNavigationDestination/);
+  assert.match(renderer,/requestAnimationFrame\(\(\)=>requestAnimationFrame/);
+  assert.match(renderer,/const heights=cards\.map/);
+  assert.match(renderer,/Object\.assign\(asset,patch\);patchCardMetadata\(asset,patch\);renderInspector\(\)/);
+  assert.match(renderer,/searchRenderFrame=requestAnimationFrame/);
+  assert.match(styles,/grid-wrap\.navigation-pending::after/);
+});
+
 test('empty portfolios offer one-click indexing of the default Pictures folder',()=>{
   assert.match(html,/id="empty-add-pictures"/);
   assert.match(html,/Click here to add your default Pictures folder to get started/);

@@ -192,6 +192,8 @@ html[data-theme="midnight"] { --bg: #151a25; --panel: #1d2230; --sidebar: #191e2
 .content-area.analytics-active { grid-template-columns: minmax(0,1fr); }
 .content-area.analytics-active .inspector { display: none; }
 .grid-wrap { min-width: 0; min-height: 0; height: 100%; position: relative; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding: 14px; background: #191a1c; }
+.grid-wrap.navigation-pending::after { content:""; position:absolute; z-index:8; left:14px; top:10px; width:32px; height:2px; border-radius:2px; background:#7197ff; box-shadow:0 0 10px rgba(113,151,255,.65); animation:navigation-response .45s ease-in-out infinite alternate; pointer-events:none; }
+@keyframes navigation-response { from { opacity:.38; transform:scaleX(.35); transform-origin:left; } to { opacity:1; transform:scaleX(1); transform-origin:left; } }
 .locked-content { min-height:calc(100% - 28px); display:grid; place-content:center; justify-items:center; text-align:center; color:#e5e7ec; }
 .locked-content h2 { margin:22px 0 6px; font-size:14px; }.locked-content > p { margin:0 0 16px; color:#777c86; font-size:10px; }
 .locked-art { width:108px; height:106px; position:relative; filter:drop-shadow(0 14px 20px rgba(0,0,0,.35)); }

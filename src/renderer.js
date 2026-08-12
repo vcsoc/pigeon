@@ -91,7 +91,7 @@ const elements = {
   sentinel: $('#grid-sentinel'), emptyTitle: $('#empty-title'), emptyDescription: $('#empty-description'), emptyActions: $('#empty-actions'),
   analyticsView: $('#analytics-view'), analyticsContent: $('#analytics-content'), backgroundProgress: $('#background-progress'), lockedContent: $('#locked-content')
 };
-let masonryFrame;
+let masonryFrame,navigationPaintFrame=null,navigationRenderGeneration=0,searchRenderFrame=null;
 const rotatedThumbnailObserver = new ResizeObserver((entries) => {
   for (const entry of entries) {
     const preview = entry.target, image = preview.querySelector(':scope > img'); if (!image) continue;
@@ -880,14 +880,10 @@ function scheduleMasonry() {
 
 function layoutMasonry() {
   if (state.layout !== 'grid' || elements.grid.classList.contains('hidden')) return;
-  const styles = getComputedStyle(elements.grid);
-  const rowHeight = parseFloat(styles.gridAutoRows) || 4;
-  const rowGap = parseFloat(styles.rowGap) || 4;
-  elements.grid.querySelectorAll('.asset-card').forEach((card) => {
-    card.style.gridRowEnd = 'auto';
-    const height = card.getBoundingClientRect().height;
-    card.style.gridRowEnd = `span ${Math.max(1, Math.ceil((height + rowGap) / (rowHeight + rowGap)))}`;
-  });
+  const styles=getComputedStyle(elements.grid),rowHeight=parseFloat(styles.gridAutoRows)||4,rowGap=parseFloat(styles.rowGap)||4,cards=[...elements.grid.querySelectorAll('.asset-card')];
+  for(const card of cards)card.style.gridRowEnd='auto';
+  const heights=cards.map((card)=>card.getBoundingClientRect().height);
+  for(let index=0;index<cards.length;index++)cards[index].style.gridRowEnd=`span ${Math.max(1,Math.ceil((heights[index]+rowGap)/(rowHeight+rowGap)))}`;
 }
 
 async function renameAssetFile(assetId, requestedName) {
@@ -1028,26 +1024,35 @@ function updateCardSelectionStyles() {
   $$('.asset-card').forEach(paintCardSelection);
   renderBatchBar();
 }
+function paintActiveNavigation(){
+  $$('.nav-item.active,.location-root-button.active').forEach((item)=>item.classList.remove('active'));
+  let target;if(state.collectionId)target=document.querySelector(`[data-collection-id="${CSS.escape(state.collectionId)}"]`);else if(state.smartFolderId)target=document.querySelector(`[data-smart-folder-id="${CSS.escape(state.smartFolderId)}"]`);else if(state.locationId){const row=elements.locationList.querySelector(`.location-item[data-location-id="${CSS.escape(state.locationId)}"]`);target=state.locationSubfolder?row?.querySelector(`[data-subfolder="${CSS.escape(encodeURIComponent(state.locationSubfolder))}"]`):row?.querySelector('.location-root-button');}else target=document.querySelector(`.nav-item[data-view="${CSS.escape(state.view)}"]`);target?.classList.add('active');
+}
+function renderNavigationDestination(){
+  const generation=++navigationRenderGeneration;paintActiveNavigation();updateSubfolderContentToggle();elements.gridWrap.classList.add('navigation-pending');
+  if(navigationPaintFrame)cancelAnimationFrame(navigationPaintFrame);
+  navigationPaintFrame=requestAnimationFrame(()=>requestAnimationFrame(()=>{if(generation!==navigationRenderGeneration)return;navigationPaintFrame=null;renderGrid();renderInspector();elements.gridWrap.classList.remove('navigation-pending');}));
+}
 function selectView(view, title, options = {}) {
   if(view==='tags')rememberTemporaryViewOrigin();else if(!['analytics','tags'].includes(view)){navigationReturnState=null;navigationForwardState=null;updateNavigationButtons();}
   hideInternalViewer();
   state.view = view; state.locationId = null; state.collectionId = null; state.smartFolderId = null; state.similarIds = null; state.selectedId = null; state.gridScrollTop = 0; clearSelection(); resetRenderLimit();
   state.duplicateSourceId = view === 'duplicates' ? options.sourceId || null : null;
-  elements.title.textContent = title; render();
+  elements.title.textContent = title; renderNavigationDestination();
   if (view === 'duplicates') refreshSimilarityGroups();
 }
 async function selectLocation(id, subfolder = '') {
   const location=state.library.locations.find((item)=>item.id===id);if(!location||!(await ensureFolderUnlocked(location,subfolder)))return;
   hideInternalViewer();
   state.locationId = id; state.locationSubfolder = subfolder; state.collectionId = null; state.smartFolderId = null; state.selectedId = null; state.gridScrollTop = 0; clearSelection(); resetRenderLimit();
-  elements.title.textContent = subfolder ? subfolder.split('/').pop() : location?.name || 'Location'; render();
+  elements.title.textContent = subfolder ? subfolder.split('/').pop() : location?.name || 'Location'; renderNavigationDestination();
 }
 async function selectCollection(id) {
   const collection = (state.library.collections || []).find((item) => item.id === id);
   if (!collection) return;
   hideInternalViewer();
   state.collectionId = id; state.locationId = null; state.smartFolderId = null; state.selectedId = null; state.gridScrollTop = 0; clearSelection(); resetRenderLimit();
-  elements.title.textContent = collection.name || 'Folder'; render();
+  elements.title.textContent = collection.name || 'Folder'; renderNavigationDestination();
 }
 $('#inline-unlock-form').addEventListener('submit', async (event) => {
   event.preventDefault(); const collection = state.library.collections.find((item) => item.id === state.collectionId); if (!collection?.locked) return;
@@ -1059,7 +1064,7 @@ $('#inline-unlock-form').addEventListener('submit', async (event) => {
 function selectSmartFolder(id) {
   hideInternalViewer();
   state.smartFolderId = id; state.collectionId = null; state.locationId = null; state.selectedId = null; state.gridScrollTop = 0; clearSelection(); resetRenderLimit();
-  elements.title.textContent = (state.library.smartFolders || []).find((item) => item.id === id)?.name || 'Smart folder'; render();
+  elements.title.textContent = (state.library.smartFolders || []).find((item) => item.id === id)?.name || 'Smart folder'; renderNavigationDestination();
 }
 function selectAsset(id) { state.selectedId = id; updateCardSelectionStyles(); renderInspector(); }
 function selectAssetWithEvent(id, event) {
@@ -1148,20 +1153,12 @@ function navigateAssets(key) {
   updateCardSelectionStyles(); renderInspector(); focusSelectedAsset();
 }
 async function updateSelected(patch) {
-  if (!state.selectedId) return null;
-  const updated = await window.pigeon.updateAsset(state.selectedId, patch);
-  if (!updated) return null;
-  const index = state.library.assets.findIndex((asset) => asset.id === updated.id);
-  if (index >= 0) Object.assign(state.library.assets[index], updated);
-  if (Object.hasOwn(patch, 'favorite')) {
-    const card = elements.grid.querySelector(`[data-asset-id="${updated.id}"]`);
-    const meta = card?.querySelector('.card-meta');
-    card?.querySelector('.card-favorite')?.remove();
-    if (updated.favorite && meta) meta.insertAdjacentHTML('beforeend', '<span class="card-favorite">★</span>');
-  }
-  renderInspector();
-  return updated;
+  const id=state.selectedId,asset=state.library.assets.find((item)=>item.id===id);if(!asset)return null;
+  const previous=Object.fromEntries(Object.keys(patch).map((key)=>[key,asset[key]])),revision=(updateSelected.revisions?.get(id)||0)+1;updateSelected.revisions??=new Map();updateSelected.revisions.set(id,revision);Object.assign(asset,patch);patchCardMetadata(asset,patch);renderInspector();
+  try{const updated=await window.pigeon.updateAsset(id,patch);if(!updated)return null;Object.assign(asset,updated);if(updateSelected.revisions.get(id)===revision){patchCardMetadata(asset,patch);renderInspector();}return updated;}
+  catch(error){if(updateSelected.revisions.get(id)===revision){Object.assign(asset,previous);patchCardMetadata(asset,patch);renderInspector();}showToast(error.message);return null;}
 }
+function patchCardMetadata(asset,patch){if(Object.hasOwn(patch,'favorite')){const card=elements.grid.querySelector(`[data-asset-id="${CSS.escape(asset.id)}"]`),meta=card?.querySelector('.card-meta');card?.querySelector('.card-favorite')?.remove();if(asset.favorite&&meta)meta.insertAdjacentHTML('beforeend','<span class="card-favorite">★</span>');}}
 function expandedTagTargetIds(seedIds = state.selectedIds) {
   const ids = new Set(seedIds?.size !== undefined ? [...seedIds] : [...(seedIds || [])]);
   if (!ids.size && state.selectedId) ids.add(state.selectedId);
@@ -1823,7 +1820,7 @@ const updateLayoutButton = () => { const labels = { grid: ['layout', 'Masonry th
 updateLayoutButton();
 $('#layout-button').addEventListener('click', () => { const layouts = ['grid', 'justified', 'list']; state.layout = layouts[(layouts.indexOf(state.layout) + 1) % layouts.length]; localStorage.setItem('pigeon.layout', state.layout); updateLayoutButton(); renderGrid(); });
 $('#inspector-toggle').addEventListener('click', (event) => { elements.inspector.classList.toggle('hidden-panel'); event.currentTarget.classList.toggle('selected'); });
-elements.search.addEventListener('input', () => { state.query = elements.search.value; state.gridScrollTop = 0; resetRenderLimit(); renderGrid(); });
+elements.search.addEventListener('input',()=>{state.query=elements.search.value;state.gridScrollTop=0;resetRenderLimit();if(searchRenderFrame)cancelAnimationFrame(searchRenderFrame);searchRenderFrame=requestAnimationFrame(()=>{searchRenderFrame=null;renderGrid();});});
 const acceptsManagedDrop = () => !state.locationId && !state.collectionId && !state.smartFolderId && ['all', 'uncategorized', 'tags'].includes(state.view);
 const hasExternalFiles = (event) => { const transfer = event.dataTransfer; return Boolean(transfer && (transfer.files?.length || [...(transfer.items || [])].some((item) => item.kind === 'file') || [...(transfer.types || [])].some((type) => String(type).toLowerCase() === 'files'))); };
 function droppedFilePaths(event) { return [...(event.dataTransfer?.files || [])].map((file) => window.pigeon.pathForDroppedFile(file)).filter(Boolean); }
