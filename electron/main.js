@@ -417,8 +417,9 @@ async function createAudioThumbnail(asset, target) {
   return ready ? { ok: true, target: asset.thumbnailPath || target, duration: asset.duration } : null;
 }
 async function createDocumentThumbnail(asset, target) {
-  const ready = asset.thumbnailPath || await runVideoFfmpeg(['-hide_banner', '-loglevel', 'error', '-i', asset.path, '-frames:v', '1', '-vf', 'scale=512:512:force_original_aspect_ratio=decrease', '-q:v', '5', '-y', target], 9000);
-  return ready ? { ok: true, target: asset.thumbnailPath || target } : null;
+  if (asset.thumbnailPath && await pathAvailable(asset.thumbnailPath)) return { ok: true, target: asset.thumbnailPath };
+  if (asset.extension !== 'PDF') { const ready = await runVideoFfmpeg(['-hide_banner', '-loglevel', 'error', '-i', asset.path, '-frames:v', '1', '-vf', 'scale=512:512:force_original_aspect_ratio=decrease', '-q:v', '5', '-y', target], 9000); return ready ? { ok: true, target } : null; }
+  return new Promise((resolve) => { const worker = new Worker(path.join(__dirname, 'pdf-thumbnail-worker.js'), { workerData: { source: asset.path, target } }), telemetry = trackWorker(worker, 'pdf-preview', { filesTotal: 1 }); telemetry.currentFile = asset.path; let settled = false; const finish = (result) => { if (settled) return; settled = true; clearTimeout(timer); telemetry.filesCompleted = result?.ok ? 1 : 0; telemetry.status = result?.ok ? 'completed' : 'failed'; worker.terminate().catch(() => {}); resolve(result?.ok ? result : null); }; const timer = setTimeout(() => { recordDiagnostic('warning', 'PDF preview timed out', { file: asset.path }); finish(null); }, 20000); worker.once('message', finish); worker.once('error', (error) => { recordDiagnostic('error', 'PDF preview worker failed', error); finish(null); }); worker.once('exit', () => finish(null)); });
 }
 async function createVideoProxy(asset) {
   if (asset.proxyVersion === 2 && asset.proxyPath && await pathAvailable(asset.proxyPath) && !(await fileContainsAtom(asset.proxyPath, 'moof'))) { asset.proxyVersion = 3; scheduleSave(); return asset.proxyPath; }

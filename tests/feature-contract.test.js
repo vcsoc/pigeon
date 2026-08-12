@@ -372,6 +372,17 @@ test('indexed folders scroll on hover and preview failures terminate cleanly', (
   assert.match(renderer, /asset\.thumbnailPath \? asset\.previewUrl : asset\.mediaUrl/);
 });
 
+test('appearance typography, unclipped portfolio switcher, and PDF previews are wired', () => {
+  assert.match(html, /data-preference-page="appearance"/);
+  for (const preference of ['appFontFamily','appFontSize','consoleFontFamily','consoleFontSize']) assert.match(html, new RegExp(`data-pref="${preference}"`));
+  assert.match(renderer, /applyTypographyPreferences/);
+  assert.match(styles, /--app-font-family/);
+  assert.match(styles, /--console-font-family/);
+  assert.match(styles, /\.portfolio-switcher \{ position: fixed/);
+  assert.match(main, /pdf-thumbnail-worker\.js/);
+  assert.match(main, /pdf-preview/);
+});
+
 test('sidebar keyboard navigation, recursive exports, and update checks are wired', () => {
   assert.match(styles, /overflow-x:hidden; overflow-y:auto/);
   assert.match(styles, /height:0/);
