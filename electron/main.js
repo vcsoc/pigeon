@@ -1719,7 +1719,7 @@ ipcMain.handle('folder:set-auto-tags', (_event, { locationId, subfolder = '', ta
 ipcMain.handle('assets:batch-update', (_event, { ids, operation, options = {} }) => {
   const count = libraryCore.batchUpdateAssets(library, ids, operation);
   if (operation.collectionId) for (const asset of library.assets) if (ids.includes(asset.id)) applyConfiguredCollectionTags(asset);
-  scheduleSave(); if (!options.silent) broadcast(); return count;
+  scheduleSave(); if (!options.silent) broadcast(); if(options.returnAssets)return{count,assets:library.assets.filter((asset)=>ids.includes(asset.id)).map(({encryptedMediaPaths,encryptedThumbnailPaths,...asset})=>asset)}; return count;
 });
 ipcMain.handle('assets:stack', (_event, ids) => {
   const result = libraryCore.stackAssets(library, ids);

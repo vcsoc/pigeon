@@ -597,7 +597,7 @@ function renderSidebar(rebuildFolderTree = false) {
       }
       const ids = JSON.parse(event.dataTransfer.getData('application/x-pigeon-assets') || '[]').filter((id) => state.library.assets.some((asset) => asset.id === id));
       if (!ids.length) return;
-      await window.pigeon.batchUpdateAssets(ids, { collectionId: target.id });
+      await addAssetsToCollectionWithoutGridRefresh(ids,target);
     });
   });
   $$('#smart-folder-list [data-smart-folder-id]').forEach((button) => {
@@ -1064,6 +1064,18 @@ async function removeSelectedFromCurrentCollection() {
 function renderBatchBar() {
   elements.batchBar.classList.toggle('hidden', state.selectedIds.size < 2);
   elements.batchCount.textContent = `${state.selectedIds.size} selected`;
+}
+function reconcileThumbnailCards(changedIds=[]){
+  const desired=filteredAssets(),desiredVisible=desired.slice(0,state.renderLimit),desiredSet=new Set(desiredVisible.map((asset)=>asset.id)),cards=new Map($$('.asset-card').map((card)=>[card.dataset.assetId,card]));
+  for(const [id,card] of cards)if(!desiredSet.has(id)){card.classList.add('asset-card-removing');card.remove();}
+  for(const asset of desiredVisible){const card=cards.get(asset.id);if(card&&card.isConnected)elements.grid.appendChild(card);}
+  for(const id of changedIds)if(!desiredSet.has(id)){state.selectedIds.delete(id);if(state.selectedId===id)state.selectedId=null;}
+  elements.count.textContent=`${desired.length} ${desired.length===1?'item':'items'}`;renderBatchBar();renderInspector();renderSidebar(false);scheduleMasonry();saveNavigationState();
+}
+async function addAssetsToCollectionWithoutGridRefresh(ids,collection){
+  const unique=[...new Set(ids)],changed=[],result=await window.pigeon.batchUpdateAssets(unique,{collectionId:collection.id},{silent:true,returnAssets:true}),updates=new Map((result.assets||[]).map((asset)=>[asset.id,asset]));
+  for(const asset of state.library.assets)if(updates.has(asset.id)){Object.assign(asset,updates.get(asset.id));changed.push(asset.id);}
+  reconcileThumbnailCards(changed);showToast(`${unique.length} item${unique.length===1?'':'s'} added to ${collection.name}`);
 }
 function focusSelectedAsset() {
   requestAnimationFrame(() => {
@@ -1726,7 +1738,7 @@ $('#batch-collection').addEventListener('click', async () => {
   const names = (state.library.collections || []).map((item) => item.name).join(', ');
   const name = await requestText({ title: 'Add to Collection', message: names ? `Available: ${names}` : 'Create a collection first.', label: 'Collection name', confirmText: 'Add' });
   const collection = (state.library.collections || []).find((item) => item.name.toLowerCase() === String(name).toLowerCase());
-  if (collection) await window.pigeon.batchUpdateAssets([...state.selectedIds], { collectionId: collection.id });
+  if (collection) await addAssetsToCollectionWithoutGridRefresh([...state.selectedIds],collection);
   else if (name) showToast('Collection not found');
 });
 $('#batch-auto-tag').addEventListener('click', () => window.pigeon.autoTag([...state.selectedIds]));

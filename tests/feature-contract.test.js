@@ -288,10 +288,22 @@ test('tag assignment snapshots multi-selection and expands complete stacks', () 
   assert.match(renderer, /const targets = expandedTagTargetIds\(\)/);
 });
 
+test('collection drag updates smart-folder thumbnails without a full grid refresh',()=>{
+  assert.match(renderer,/addAssetsToCollectionWithoutGridRefresh/);
+  assert.match(renderer,/batchUpdateAssets\(unique,\{collectionId:collection\.id\},\{silent:true,returnAssets:true\}\)/);
+  assert.match(renderer,/reconcileThumbnailCards\(changed\)/);
+  assert.match(renderer,/card\.remove\(\)/);
+  assert.match(renderer,/elements\.grid\.appendChild\(card\)/);
+  assert.match(renderer,/renderSidebar\(false\)/);
+  const helper=renderer.match(/async function addAssetsToCollectionWithoutGridRefresh[\s\S]*?\n\}/)?.[0]||'';
+  assert.doesNotMatch(helper,/renderGrid\(/);
+  assert.match(main,/if \(!options\.silent\) broadcast\(\)/);
+});
+
 test('collection assignment and multi-selection context actions preserve batch intent', () => {
   assert.match(renderer, /application\/x-pigeon-assets/);
   assert.doesNotMatch(renderer, /title: 'Move Assets'/);
-  assert.match(renderer, /batchUpdateAssets\(ids, \{ collectionId: target\.id \}\)/);
+  assert.match(renderer, /addAssetsToCollectionWithoutGridRefresh\(ids,target\)/);
   assert.match(renderer, /removeSelectedFromCurrentCollection/);
   assert.match(renderer, /data-context-action="remove-from-collection"/);
   assert.match(renderer, /event\.key === 'Delete' && state\.collectionId/);
