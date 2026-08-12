@@ -382,6 +382,14 @@ test('indexed folders scroll on hover and preview failures terminate cleanly', (
   assert.match(renderer, /asset\.thumbnailPath \? asset\.previewUrl : asset\.mediaUrl/);
 });
 
+test('native PDF canvas is isolated from Pigeon main process',()=>{
+  assert.match(main,/utilityProcess\.fork/);
+  assert.match(main,/pdf-thumbnail-child\.js/);
+  assert.match(main,/Isolated PDF preview process exited/);
+  assert.doesNotMatch(packageJson,/"@napi-rs\/canvas"/);
+  assert.match(fs.readFileSync(path.join(root,'electron','pdf-thumbnail-child.js'),'utf8'),/pdfjs-dist\/node_modules\/@napi-rs\/canvas/);
+});
+
 test('all catchable unhandled exceptions are persisted across Electron processes',()=>{
   assert.match(main,/uncaughtExceptionMonitor/);
   assert.match(main,/main:unhandledRejection/);
@@ -420,7 +428,7 @@ test('large indexing applies system-stability backpressure and crash recovery', 
   assert.match(main,/if\(scanWorkActive\(\)\)throw new Error\('Backup deferred until indexing completes'\)/);
   assert.match(main,/if\(scanWorkActive\(\)\)\{scheduleSave\(\);return;\}/);
   assert.match(main,/persistAssetBatch/);
-  assert.match(main,/maxOldGenerationSizeMb: 192/);
+  assert.match(main,/utilityProcess\.fork/);
   assert.match(main,/databaseSaveInFlight/);
   assert.match(main,/pendingDatabaseSnapshot/);
   assert.match(main,/saveScanQueue/);
@@ -476,8 +484,8 @@ test('appearance typography, unclipped portfolio switcher, and PDF previews are 
   assert.match(styles, /--app-font-family/);
   assert.match(styles, /--console-font-family/);
   assert.match(styles, /\.portfolio-switcher \{ position: fixed/);
-  assert.match(main, /pdf-thumbnail-worker\.js/);
-  assert.match(main, /pdf-preview/);
+  assert.match(main, /pdf-thumbnail-child\.js/);
+  assert.match(main, /Pigeon PDF preview/);
 });
 
 test('sidebar keyboard navigation, recursive exports, and update checks are wired', () => {

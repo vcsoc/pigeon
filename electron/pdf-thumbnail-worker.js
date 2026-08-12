@@ -1,6 +1,6 @@
 const { parentPort, workerData } = require('node:worker_threads');
 const fs = require('node:fs/promises');
-const { createCanvas, DOMMatrix, ImageData, Path2D } = require('@napi-rs/canvas');
+const { createCanvas, DOMMatrix, ImageData, Path2D } = require('pdfjs-dist/node_modules/@napi-rs/canvas');
 globalThis.DOMMatrix = DOMMatrix; globalThis.ImageData = ImageData; globalThis.Path2D = Path2D;
 
 (async () => {

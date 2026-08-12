@@ -1,6 +1,6 @@
 {
   "name": "pigeon",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "description": "A reference-first visual asset library for files that stay where they are.",
   "main": "electron/main.js",
   "author": "Pigeon",
@@ -13,7 +13,7 @@
     "smoke": "electron . --smoke-test",
     "smoke:seeded": "electron . --smoke-test --smoke-seeded",
     "smoke:large": "electron . --smoke-test --smoke-large",
-    "check": "node --check electron/main.js && node --check electron/preload.js && node --check electron/database.js && node --check electron/database-worker.js && node --check electron/library-worker.js && node --check electron/scan-worker.js && node --check electron/folder-tree-worker.js && node --check electron/pdf-thumbnail-worker.js && node --check electron/library-core.js && node --check electron/plugin-worker.js && node --check src/renderer.js",
+    "check": "node --check electron/main.js && node --check electron/preload.js && node --check electron/database.js && node --check electron/database-worker.js && node --check electron/library-worker.js && node --check electron/scan-worker.js && node --check electron/folder-tree-worker.js && node --check electron/pdf-thumbnail-worker.js && node --check electron/pdf-thumbnail-child.js && node --check electron/library-core.js && node --check electron/plugin-worker.js && node --check src/renderer.js",
     "test": "node --test --test-timeout=19000 tests/*.test.js",
     "verify": "npm run check && npm test && npm run smoke:seeded",
     "dist": "electron-builder",
@@ -26,7 +26,6 @@
     "electron-builder": "^26.0.12"
   },
   "dependencies": {
-    "@napi-rs/canvas": "^0.1.100",
     "chokidar": "^4.0.3",
     "electron-updater": "^6.8.9",
     "exif-reader": "^2.0.3",
