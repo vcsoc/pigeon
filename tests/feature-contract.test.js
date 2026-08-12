@@ -18,7 +18,7 @@ const icons = fs.readFileSync(path.join(root, 'src', 'icons.js'), 'utf8');
 const packageJson = fs.readFileSync(path.join(root, 'package.json'), 'utf8');
 
 test('UI exposes collection, smart-folder, batch, trash, media, metadata and editing surfaces', () => {
-  for (const id of ['collection-list', 'smart-folder-list', 'batch-bar', 'duplicates-count', 'trash-count', 'inspector-video', 'inspector-audio', 'sidebar-resizer', 'inspector-resizer', 'batch-stack', 'batch-unstack', 'settings-dialog', 'text-entry-dialog', 'smart-folder-dialog', 'smart-folder-name', 'smart-folder-rules', 'favorite-shortcut', 'portfolio-switcher', 'portfolio-switcher-search', 'portfolio-switcher-list', 'portfolio-select', 'switch-portfolio', 'new-portfolio', 'rename-portfolio', 'delete-portfolio', 'encrypt-locked-folders', 'confirm-folder-moves', 'rotate-left', 'rotate-right', 'tag-suggestions', 'tag-autocomplete', 'tag-assignment-dialog', 'batch-tag-input', 'viewer-edit-toolbar', 'viewer-rotate-left', 'viewer-rotate-right', 'viewer-crop', 'viewer-crop-overlay', 'viewer-reset-edits', 'map-view', 'location-map', 'map-search-input', 'map-globe-mode', 'map-street-mode', 'map-save', 'location-shortcut', 'duplicate-controls', 'duplicate-similarity', 'show-all-duplicate-groups', 'thumbnail-title-line-1', 'thumbnail-title-line-2', 'thumbnail-title-line-3', 'viewer-duplicate', 'tag-browser', 'media-viewer', 'viewer-video', 'asset-histogram', 'annotation-dialog']) {
+  for (const id of ['collection-list', 'smart-folder-list', 'batch-bar', 'duplicates-count', 'trash-count', 'inspector-video', 'inspector-audio', 'sidebar-resizer', 'inspector-resizer', 'batch-stack', 'batch-unstack', 'settings-dialog', 'text-entry-dialog', 'smart-folder-dialog', 'smart-folder-name', 'smart-folder-rules', 'favorite-shortcut', 'portfolio-switcher', 'portfolio-switcher-search', 'portfolio-switcher-list', 'portfolio-select', 'switch-portfolio', 'new-portfolio', 'rename-portfolio', 'delete-portfolio', 'encrypt-locked-folders', 'confirm-folder-moves', 'rotate-left', 'rotate-right', 'tag-suggestions', 'tag-autocomplete', 'tag-assignment-dialog', 'batch-tag-input', 'viewer-crop-overlay', 'map-view', 'location-map', 'map-search-input', 'map-globe-mode', 'map-street-mode', 'map-save', 'location-shortcut', 'duplicate-controls', 'duplicate-similarity', 'show-all-duplicate-groups', 'thumbnail-title-line-1', 'thumbnail-title-line-2', 'thumbnail-title-line-3', 'tag-browser', 'media-viewer', 'viewer-video', 'asset-histogram', 'annotation-dialog']) {
     assert.match(html, new RegExp(`id="${id}"`), `missing ${id}`);
   }
 });
@@ -295,7 +295,7 @@ test('tag assignment snapshots multi-selection and expands complete stacks', () 
 
 test('collection drag updates smart-folder thumbnails without a full grid refresh',()=>{
   assert.match(renderer,/addAssetsToCollectionWithoutGridRefresh/);
-  assert.match(renderer,/batchUpdateAssets\(unique,\{collectionId:collection\.id\},\{silent:true,returnAssets:true\}\)/);
+  assert.match(renderer,/batchUpdateAssets\(unique,operation,\{silent:true,returnAssets:true\}\)/);
   assert.match(renderer,/reconcileThumbnailCards\(changed\)/);
   assert.match(renderer,/card\.remove\(\)/);
   assert.match(renderer,/elements\.grid\.appendChild\(card\)/);
@@ -331,7 +331,7 @@ test('Ctrl-click deselection clears stale borders and repaints only changed thum
 test('collection assignment and multi-selection context actions preserve batch intent', () => {
   assert.match(renderer, /application\/x-pigeon-assets/);
   assert.doesNotMatch(renderer, /title: 'Move Assets'/);
-  assert.match(renderer, /addAssetsToCollectionWithoutGridRefresh\(ids,target\)/);
+  assert.match(renderer, /addAssetsToCollectionWithoutGridRefresh\(ids,target,origin\.collectionId\)/);
   assert.match(renderer, /removeSelectedFromCurrentCollection/);
   assert.match(renderer, /data-context-action="remove-from-collection"/);
   assert.match(renderer, /event\.key === 'Delete' && !isInternalViewerOpen\(\)/);
@@ -347,10 +347,22 @@ test('collection assignment and multi-selection context actions preserve batch i
   assert.match(libraryCore, /Object\.hasOwn\(operation, 'rotateBy'\)/);
 });
 
-test('internal viewer remains inline with the library panels', () => {
+test('internal viewer is chrome-free with context actions, keyboard close, compact footer and wheel zoom', () => {
   assert.match(html, /<section id="media-viewer"/);
   assert.doesNotMatch(html, /<dialog id="media-viewer"/);
+  assert.doesNotMatch(html,/id="close-viewer"/);
+  assert.doesNotMatch(html,/id="viewer-edit-toolbar"/);
+  assert.doesNotMatch(html,/id="viewer-title"/);
   assert.match(html, /id="viewer-fit"/);
+  assert.match(renderer,/showViewerContextMenu/);
+  assert.match(renderer,/data-viewer-action/);
+  assert.match(renderer,/viewer-hidden-filter/);
+  assert.match(renderer,/\['Escape','Enter'\]\.includes\(event\.key\)/);
+  assert.match(renderer,/event\.code === 'Space'/);
+  assert.match(renderer,/viewerZoom/);
+  assert.match(renderer,/\.viewer-stage'\)\.addEventListener\('wheel'/);
+  assert.match(styles,/\.media-viewer footer \{ height:28px/);
+  assert.match(styles,/\.viewer-stage \{ height:calc\(100% - 28px\)/);
 });
 
 test('preferences provide local-first pages and persistent functional controls', () => {
@@ -400,6 +412,21 @@ test('media protocol implements thumbnails and byte ranges for seekable local pl
   assert.match(main, /status: 206/);
   assert.match(main, /content-range/);
   assert.match(main, /accept-ranges/);
+});
+
+test('internal drag moves collections and physical folders with targeted reconciliation',()=>{
+  assert.match(renderer,/application\/x-pigeon-origin/);
+  assert.match(renderer,/effectAllowed = 'move'/);
+  assert.match(renderer,/removeCollectionId:sourceCollectionId/);
+  assert.match(renderer,/moveAssetsToFolder/);
+  assert.match(preload,/moveAssetsToFolder:/);
+  assert.match(main,/assets:move-to-folder/);
+  assert.match(main,/await fsp\.rename\(source,target\)/);
+  assert.match(renderer,/reconcileThumbnailCards\(ids\)/);
+  const collectionMove=renderer.match(/async function addAssetsToCollectionWithoutGridRefresh[\s\S]*?\n\}/)?.[0]||'';
+  assert.doesNotMatch(collectionMove,/renderGrid\(/);
+  const physicalDrop=renderer.match(/const enablePhysicalFolderDrop[\s\S]*?\n    \};/)?.[0]||'';
+  assert.doesNotMatch(physicalDrop,/renderGrid\(/);
 });
 
 test('refresh, robust facets, folder drops, media hover scrubbing, and expanded formats are wired', () => {
@@ -655,6 +682,25 @@ test('portfolio-scoped threaded background work and diagnostics are wired', () =
   for (const id of ['diagnostics-console','diagnostics-list','diagnostics-clear','diagnostics-open-file']) assert.match(html, new RegExp(`id="${id}"`));
   assert.match(styles, /\.diagnostics-console/);
   assert.equal(fs.existsSync(path.join(root, 'electron', 'hash-worker.js')), true);
+});
+
+test('password protection immediately hides collection and physical-folder descendants until temporary unlock',()=>{
+  assert.match(main,/function collectionAncestors/);
+  assert.match(main,/collectionAncestors\(id\)\.some/);
+  assert.match(main,/unlockedCollections\.delete\(id\)/);
+  assert.match(main,/unlockedFolders\.clear\(\)/);
+  assert.match(main,/folder:set-password/);
+  assert.match(main,/folder:unlock/);
+  assert.match(main,/folder:lock-now/);
+  assert.match(main,/matchingFolderLocks\(asset\)/);
+  assert.match(main,/settings:\{\.\.\.settings,folderLocks:publicFolderLocks\(\)\}/);
+  assert.match(preload,/setFolderPassword/);
+  assert.match(preload,/unlockFolder/);
+  assert.match(renderer,/effectiveFolderLockRule/);
+  assert.match(renderer,/Password protect folder/);
+  assert.match(renderer,/lockFolderNow/);
+  assert.match(renderer,/collection\.lockSourceId\|\|collection\.id/);
+  assert.match(renderer,/folderLocked/);
 });
 
 test('nested collection trees, smart subfolders, and inline unlocking are wired', () => {

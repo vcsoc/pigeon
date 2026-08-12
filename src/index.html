@@ -132,8 +132,6 @@
               <div class="map-canvas-wrap"><canvas id="location-map"></canvas><div class="map-crosshair">＋</div><div id="map-coordinates" class="map-coordinates">Select a location</div><div class="map-attribution">Street tiles © OpenStreetMap contributors · cached locally</div></div>
             </section>
             <section id="media-viewer" class="media-viewer hidden">
-              <header><strong id="viewer-title">Viewer</strong><button id="close-viewer" title="Back to thumbnails">×</button></header>
-              <div id="viewer-edit-toolbar" class="viewer-edit-toolbar"><button id="viewer-rotate-left" title="Rotate counter-clockwise">↶ Rotate</button><button id="viewer-rotate-right" title="Rotate clockwise">↷ Rotate</button><button id="viewer-crop" title="Crop image inline">⌗ Crop</button><button id="viewer-duplicate" title="Duplicate image">▣ Duplicate</button><button id="viewer-reset-edits" title="Restore the original image">↺ Reset</button><button id="viewer-favorite" title="Toggle favourite">♡ Favourite</button></div>
               <div class="viewer-stage">
                 <img id="viewer-image" class="hidden" alt="Asset preview" />
                 <div id="viewer-crop-overlay" class="viewer-crop-overlay hidden" aria-label="Adjust crop region"><span class="crop-handle nw" data-crop-handle="nw"></span><span class="crop-handle n" data-crop-handle="n"></span><span class="crop-handle ne" data-crop-handle="ne"></span><span class="crop-handle e" data-crop-handle="e"></span><span class="crop-handle se" data-crop-handle="se"></span><span class="crop-handle s" data-crop-handle="s"></span><span class="crop-handle sw" data-crop-handle="sw"></span><span class="crop-handle w" data-crop-handle="w"></span><strong>Enter to apply · Esc to cancel</strong></div>
@@ -143,7 +141,7 @@
                 <div id="viewer-file" class="viewer-file hidden"></div>
               </div>
               <div id="viewer-minimap" class="viewer-minimap hidden"><img id="viewer-minimap-image" alt="Viewer position map" /><span id="viewer-minimap-viewport"></span></div>
-              <footer><button id="viewer-previous" title="Previous">‹</button><span id="viewer-position"></span><button id="viewer-fit" title="Toggle fit/full view (`)">Fit</button><button id="viewer-open-default">Open with default app</button><button id="viewer-next" title="Next">›</button></footer>
+              <footer><button id="viewer-previous" title="Previous">‹</button><span id="viewer-position"></span><button id="viewer-fit" title="Toggle fit/full view (`)">Fit</button><button id="viewer-next" title="Next">›</button></footer>
             </section>
             <div id="duplicate-controls" class="duplicate-controls hidden"><div><strong id="duplicate-mode-label">Similar image groups</strong><span id="duplicate-summary"></span></div><label>Similarity accuracy <input id="duplicate-similarity" type="range" min="35" max="100" value="78" /><output id="duplicate-similarity-value">78%</output></label><button id="show-all-duplicate-groups" class="secondary-button hidden">Show all groups</button></div>
             <div id="empty-state" class="empty-state">

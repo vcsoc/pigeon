@@ -47,6 +47,7 @@ const state = {
   tagDraftAssetId: null,
   viewerAssetId: null,
   viewerFit: true,
+  viewerZoom: 1,
   viewerReturnScrollTop: 0,
   viewerCropMode: false,
   viewerCrop: null,
@@ -334,7 +335,7 @@ async function ensureCollectionUnlocked(collection) {
   if (!collection?.locked) return true;
   const password = await requestText({ title: `Unlock ${collection.name}`, label: 'Password', type: 'password', confirmText: 'Unlock' });
   if (password === null) return false;
-  const unlocked = await window.pigeon.unlockCollection(collection.id, password);
+  const unlocked = await window.pigeon.unlockCollection(collection.lockSourceId||collection.id, password);
   if (!unlocked) { showToast('Incorrect password'); return false; }
   collection.locked = false;
   return true;
@@ -522,6 +523,9 @@ const smartFolderCollapseKey = (id) => `smart-folder:${id}`;
 const locationCollapseKey = (id, subfolder = '') => subfolder ? `subfolder:${id}:${subfolder.toLowerCase()}` : `location:${id}`;
 const folderAutoTagKey = (locationId, subfolder = '') => `${locationId}:${String(subfolder).replace(/\\/g, '/').replace(/^\/+|\/+$/g, '').toLowerCase()}`;
 function folderAutoTagRule(locationId, subfolder = '') { return state.library.settings?.folderAutoTags?.[folderAutoTagKey(locationId, subfolder)] || null; }
+function folderLockRule(locationId,subfolder=''){return state.library.settings?.folderLocks?.[folderAutoTagKey(locationId,subfolder)]||null;}
+function effectiveFolderLockRule(locationId,subfolder=''){const folder=String(subfolder).replace(/\\/g,'/').replace(/^\/+|\/+$/g,'').toLowerCase();return Object.values(state.library.settings?.folderLocks||{}).filter((rule)=>rule.locationId===locationId&&(!rule.subfolder||folder===rule.subfolder||folder.startsWith(`${rule.subfolder}/`))).sort((a,b)=>b.subfolder.length-a.subfolder.length)[0]||null;}
+async function ensureFolderUnlocked(location,subfolder=''){const rule=effectiveFolderLockRule(location.id,subfolder);if(!rule?.locked)return true;const password=await requestText({title:`Unlock ${subfolder?subfolder.split('/').pop():location.name}`,label:'Password',type:'password',confirmText:'Unlock'});if(password===null)return false;if(!(await window.pigeon.unlockFolder(rule.locationId,rule.subfolder,password))){showToast('Incorrect password');return false;}rule.locked=false;return true;}
 async function editFolderAutoTags(location, subfolder = '') {
   const current = folderAutoTagRule(location.id, subfolder)?.tags || [], label = subfolder ? subfolder.split('/').pop() : location.name;
   const tags = await requestTagSet({ title: current.length ? 'Edit Folder Auto-Tag' : 'Set Folder Auto-Tag', message: `These tags apply to all current and future contents of “${label}”, including every subfolder.`, tags: current, confirmText: current.length ? 'Save' : 'Create' });
@@ -529,8 +533,8 @@ async function editFolderAutoTags(location, subfolder = '') {
   const result = await window.pigeon.setFolderAutoTags(location.id, subfolder, tags); showToast(tags.length ? `${tags.length} automatic tag${tags.length === 1 ? '' : 's'} applied to ${result.updated} item${result.updated === 1 ? '' : 's'}` : 'Folder Auto-Tag removed');
 }
 function showLocationContextMenu(event, location, subfolder = '', row = null) {
-  const rule = folderAutoTagRule(location.id, subfolder), iconKey = subfolder ? subfolderIconKey(location.id, subfolder) : location.id, currentIcon = subfolder ? state.library.settings?.itemIcons?.[iconKey] : location.icon, collapseKey = locationCollapseKey(location.id, subfolder);
-  elements.contextMenu.innerHTML = `<button data-location-action="rescan">${iconSvg('refresh')}<span>Rescan Folder</span></button><button data-location-action="analytics">${iconSvg('analytics')}<span>View Folder Analytics</span></button><button data-location-action="transfer">${iconSvg('portfolio')}<span>Add to other portfolio…</span></button><button data-location-action="search">${iconSvg('search')}<span>Search in Folder</span></button>${subfolder ? `<button data-location-action="show">${iconSvg('eye')}<span>Show Subfolder Content</span></button>` : ''}<button data-location-action="expand">${iconSvg('folder-open')}<span>${isFolderCollapsed(collapseKey) ? 'Expand' : 'Collapse'} Folder</span></button><hr /><button data-location-action="copy">${iconSvg('link')}<span>Copy Folder Path</span></button><button data-location-action="auto-tag">${iconSvg('tags')}<span>${rule ? 'Edit Auto-Tag…' : 'Set Auto-Tag…'}</span>${rule ? `<small>${rule.tags.length}</small>` : ''}</button><hr /><button data-location-action="change-icon">${iconSvg('palette')}<span>Change Icon…</span></button>${subfolder ? '' : `<hr /><button data-location-action="remove">${iconSvg('trash')}<span>Remove Folder</span></button>`}`;
+  const rule = folderAutoTagRule(location.id, subfolder),lockRule=folderLockRule(location.id,subfolder), iconKey = subfolder ? subfolderIconKey(location.id, subfolder) : location.id, currentIcon = subfolder ? state.library.settings?.itemIcons?.[iconKey] : location.icon, collapseKey = locationCollapseKey(location.id, subfolder);
+  elements.contextMenu.innerHTML = `<button data-location-action="rescan">${iconSvg('refresh')}<span>Rescan Folder</span></button><button data-location-action="analytics">${iconSvg('analytics')}<span>View Folder Analytics</span></button><button data-location-action="transfer">${iconSvg('portfolio')}<span>Add to other portfolio…</span></button><button data-location-action="search">${iconSvg('search')}<span>Search in Folder</span></button>${subfolder ? `<button data-location-action="show">${iconSvg('eye')}<span>Show Subfolder Content</span></button>` : ''}<button data-location-action="expand">${iconSvg('folder-open')}<span>${isFolderCollapsed(collapseKey) ? 'Expand' : 'Collapse'} Folder</span></button><hr /><button data-location-action="copy">${iconSvg('link')}<span>Copy Folder Path</span></button><button data-location-action="auto-tag">${iconSvg('tags')}<span>${rule ? 'Edit Auto-Tag…' : 'Set Auto-Tag…'}</span>${rule ? `<small>${rule.tags.length}</small>` : ''}</button><hr /><button data-location-action="change-icon">${iconSvg('palette')}<span>Change Icon…</span></button>${lockRule?(lockRule.locked?'<button data-location-action="unlock"><span>Unlock folder…</span></button>':'<button data-location-action="lock-now"><span>Lock folder now</span></button><button data-location-action="remove-password"><span>Remove password…</span></button>'):'<button data-location-action="password"><span>Password protect folder…</span></button>'}${subfolder ? '' : `<hr /><button data-location-action="remove">${iconSvg('trash')}<span>Remove Folder</span></button>`}`;
   elements.contextMenu.classList.remove('hidden'); positionMenu(elements.contextMenu, event.clientX, event.clientY);
   elements.contextMenu.querySelectorAll('[data-location-action]').forEach((button) => button.addEventListener('click', async () => {
     const action = button.dataset.locationAction; hideContextMenu();
@@ -543,6 +547,10 @@ function showLocationContextMenu(event, location, subfolder = '', row = null) {
     if (action === 'copy') { const target = subfolder ? `${location.path}/${subfolder}` : location.path; await window.pigeon.copyText(target); showToast('Folder path copied'); }
     if (action === 'auto-tag') await editFolderAutoTags(location, subfolder);
     if (action === 'change-icon') openIconPicker({ type: subfolder ? 'subfolder' : 'location', id: iconKey, current: currentIcon, fallback: subfolder ? 'folder' : 'folder-open' });
+    if(action==='password'){const password=await requestText({title:'Protect Folder',message:'All contents and subfolders will be hidden immediately.',label:'Password',type:'password',confirmText:'Continue'});if(password===null||password.length<4)return;const confirmation=await requestText({title:'Confirm Password',label:'Password',type:'password',confirmText:'Protect'});if(password!==confirmation){showToast('Passwords do not match');return;}await window.pigeon.setFolderPassword(location.id,subfolder,password);}
+    if(action==='unlock'){if(await ensureFolderUnlocked(location,subfolder))render();}
+    if(action==='lock-now'){await window.pigeon.lockFolderNow(location.id,subfolder);if(state.locationId===location.id&&(!subfolder||state.locationSubfolder===subfolder||state.locationSubfolder.startsWith(`${subfolder}/`)))selectView('all','All');}
+    if(action==='remove-password'){const password=await requestText({title:'Remove Folder Password',label:'Current password',type:'password',confirmText:'Remove Password'});if(password!==null&&!(await window.pigeon.removeFolderPassword(location.id,subfolder,password)))showToast('Incorrect password');}
     if (action === 'remove' && await requestConfirmation({ title: 'Remove Indexed Location', message: `Remove “${location.name}” from Pigeon? Your original files will not be changed.`, confirmText: 'Remove' })) await window.pigeon.removeLocation(location.id);
   }));
 }
@@ -568,9 +576,9 @@ function renderSidebar(rebuildFolderTree = false) {
   const collectionRows = [];
   const appendCollections = (parentId = null, depth = 0) => {
     for (const collection of (state.library.collections || []).filter((item) => item.parentId === parentId)) {
-      const count = assets.filter((asset) => !asset.deletedAt && (asset.collectionIds || []).includes(collection.id)).length, hasChildren = (state.library.collections || []).some((item) => item.parentId === collection.id), collapseKey = collectionCollapseKey(collection.id), collapsed = hasChildren && isFolderCollapsed(collapseKey);
+      const count = collection.locked?0:assets.filter((asset) => !asset.deletedAt&&!asset.locked&&(asset.collectionIds || []).includes(collection.id)).length, hasChildren = (state.library.collections || []).some((item) => item.parentId === collection.id), collapseKey = collectionCollapseKey(collection.id), collapsed = hasChildren && isFolderCollapsed(collapseKey);
       collectionRows.push(`<button class="nav-item collection-item ${state.collectionId === collection.id ? 'active' : ''}" style="--depth:${depth}" data-collection-id="${collection.id}" draggable="true"><span class="folder-tree-toggle ${hasChildren ? '' : 'empty'}" data-collapse-key="${collapseKey}" role="button" aria-label="${collapsed ? 'Expand' : 'Collapse'} ${escapeHtml(collection.name)}" aria-expanded="${!collapsed}">${hasChildren ? (collapsed ? '▸' : '▾') : ''}</span><span class="nav-icon tree-folder-icon">${iconSvg(itemIcon(collection, hasChildren && !collapsed ? 'folder-open' : 'folder'))}${collection.locked ? `<i class="tree-lock-badge">${iconSvg('lock')}</i>` : ''}</span><span>${escapeHtml(collection.name)}</span><small>${count}</small></button>`);
-      if (!collapsed) appendCollections(collection.id, depth + 1);
+      if (!collapsed&&!collection.locked) appendCollections(collection.id, depth + 1);
     }
   };
   appendCollections();
@@ -606,7 +614,8 @@ function renderSidebar(rebuildFolderTree = false) {
       }
       const ids = JSON.parse(event.dataTransfer.getData('application/x-pigeon-assets') || '[]').filter((id) => state.library.assets.some((asset) => asset.id === id));
       if (!ids.length) return;
-      await addAssetsToCollectionWithoutGridRefresh(ids,target);
+      let origin={};try{origin=JSON.parse(event.dataTransfer.getData('application/x-pigeon-origin')||'{}');}catch{}
+      await addAssetsToCollectionWithoutGridRefresh(ids,target,origin.collectionId);
     });
   });
   $$('#smart-folder-list [data-smart-folder-id]').forEach((button) => {
@@ -629,10 +638,11 @@ function renderSidebar(rebuildFolderTree = false) {
     });
   });
   elements.locationList.innerHTML = state.library.locations.map((location) => {
-    const tree = folderTreeCache.get(location.id) || { folders:[], visibleFolders:0, totalFolders:0 }, rootCollapseKey = locationCollapseKey(location.id), rootCollapsed = isFolderCollapsed(rootCollapseKey);
-    const folderRows = tree.folders.map((folder) => { const hasChildren = folder.hasChildren, collapseKey = locationCollapseKey(location.id, folder.path), collapsed = hasChildren && isFolderCollapsed(collapseKey); return `<button class="nav-item location-folder-item ${state.locationId === location.id && state.locationSubfolder === folder.path ? 'active' : ''}" style="--depth:${folder.depth}" data-location-id="${location.id}" data-subfolder="${encodeURIComponent(folder.path)}" title="${escapeHtml(`${location.path}/${folder.path}`)}"><span class="folder-tree-toggle ${hasChildren ? '' : 'empty'}" data-collapse-key="${collapseKey}" role="button" aria-label="${collapsed ? 'Expand' : 'Collapse'} ${escapeHtml(folder.name)}" aria-expanded="${!collapsed}">${hasChildren ? (collapsed ? '▸' : '▾') : ''}</span><span class="nav-icon">${iconSvg(state.library.settings?.itemIcons?.[subfolderIconKey(location.id, folder.path)] || 'folder')}</span><span class="location-name">${escapeHtml(folder.name)}</span><small>${folder.count}</small></button>`; }).join('') + (tree.visibleFolders > tree.folders.length ? `<button class="location-tree-more" data-load-location-tree="${location.id}">Show ${Math.min(500,tree.visibleFolders-tree.folders.length).toLocaleString()} more of ${tree.visibleFolders.toLocaleString()} folders…</button>` : '');
+    const tree = folderTreeCache.get(location.id) || { folders:[], visibleFolders:0, totalFolders:0 }, rootCollapseKey = locationCollapseKey(location.id), rootCollapsed = isFolderCollapsed(rootCollapseKey),rootLocked=Boolean(folderLockRule(location.id,'')?.locked);
+    const visibleTreeFolders=rootLocked?[]:tree.folders.filter((folder)=>{const lock=effectiveFolderLockRule(location.id,folder.path);return!lock?.locked||lock.subfolder===String(folder.path).replace(/\\/g,'/').replace(/^\/+|\/+$/g,'').toLowerCase();});
+    const folderRows = visibleTreeFolders.map((folder) => { const hasChildren = folder.hasChildren, collapseKey = locationCollapseKey(location.id, folder.path), collapsed = hasChildren && isFolderCollapsed(collapseKey),folderLocked=Boolean(effectiveFolderLockRule(location.id,folder.path)?.locked); return `<button class="nav-item location-folder-item ${state.locationId === location.id && state.locationSubfolder === folder.path ? 'active' : ''}" style="--depth:${folder.depth}" data-location-id="${location.id}" data-subfolder="${encodeURIComponent(folder.path)}" title="${escapeHtml(`${location.path}/${folder.path}`)}"><span class="folder-tree-toggle ${hasChildren ? '' : 'empty'}" data-collapse-key="${collapseKey}" role="button" aria-label="${collapsed ? 'Expand' : 'Collapse'} ${escapeHtml(folder.name)}" aria-expanded="${!collapsed}">${hasChildren ? (collapsed ? '▸' : '▾') : ''}</span><span class="nav-icon tree-folder-icon">${iconSvg(state.library.settings?.itemIcons?.[subfolderIconKey(location.id, folder.path)] || 'folder')}${folderLocked?`<i class="tree-lock-badge">${iconSvg('lock')}</i>`:''}</span><span class="location-name">${escapeHtml(folder.name)}</span><small>${folderLocked?0:folder.count}</small></button>`; }).join('') + (tree.visibleFolders > tree.folders.length ? `<button class="location-tree-more" data-load-location-tree="${location.id}">Show ${Math.min(500,tree.visibleFolders-tree.folders.length).toLocaleString()} more of ${tree.visibleFolders.toLocaleString()} folders…</button>` : '');
     return `<div class="location-item ${location.online ? '' : 'offline'} ${location.scanning ? 'scanning' : ''}" data-location-id="${location.id}" title="${escapeHtml(location.path)}">
-      <button class="nav-item location-root-button ${state.locationId === location.id && !state.locationSubfolder ? 'active' : ''}"><span class="folder-tree-toggle" data-collapse-key="${rootCollapseKey}" role="button" aria-label="${rootCollapsed ? 'Expand' : 'Collapse'} ${escapeHtml(location.name)}" aria-expanded="${!rootCollapsed}">${rootCollapsed ? '▸' : '▾'}</span><span class="nav-icon location-icon">${iconSvg(itemIcon(location, 'folder-open'))}<i class="location-state"></i></span><span class="location-name">${escapeHtml(location.name)}</span><small>${location.assetCount || 0}</small></button>
+      <button class="nav-item location-root-button ${state.locationId === location.id && !state.locationSubfolder ? 'active' : ''}"><span class="folder-tree-toggle" data-collapse-key="${rootCollapseKey}" role="button" aria-label="${rootCollapsed ? 'Expand' : 'Collapse'} ${escapeHtml(location.name)}" aria-expanded="${!rootCollapsed}">${rootCollapsed ? '▸' : '▾'}</span><span class="nav-icon location-icon">${iconSvg(itemIcon(location, 'folder-open'))}${rootLocked?`<i class="tree-lock-badge">${iconSvg('lock')}</i>`:''}<i class="location-state"></i></span><span class="location-name">${escapeHtml(location.name)}</span><small>${location.assetCount || 0}</small></button>
       <button class="location-remove" title="Remove from Pigeon">×</button>
       <div class="location-subfolder-list">${folderRows}</div>
     </div>`;
@@ -645,9 +655,9 @@ function renderSidebar(rebuildFolderTree = false) {
     row.querySelector('.location-root-button').addEventListener('click', () => selectLocation(row.dataset.locationId));
     row.querySelector('.location-root-button').addEventListener('contextmenu', (event) => { event.preventDefault(); const location = state.library.locations.find((item) => item.id === row.dataset.locationId); if (location) showLocationContextMenu(event, location, '', row); });
     const enablePhysicalFolderDrop = (button, subfolder = '') => {
-      button.addEventListener('dragover', (event) => { if (!hasExternalFiles(event)) return; event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = 'copy'; button.classList.add('drag-over'); });
+      button.addEventListener('dragover', (event) => { const internal=event.dataTransfer.types.includes('application/x-pigeon-assets');if(!internal&&!hasExternalFiles(event))return;event.preventDefault();event.stopPropagation();event.dataTransfer.dropEffect=internal?'move':'copy';button.classList.add('drag-over'); });
       button.addEventListener('dragleave', () => button.classList.remove('drag-over'));
-      button.addEventListener('drop', async (event) => { if (!hasExternalFiles(event)) return; event.preventDefault(); event.stopPropagation(); button.classList.remove('drag-over'); const paths = droppedFilePaths(event); if (!paths.length) return; try { const result = await window.pigeon.importDroppedFiles(paths, { locationId: row.dataset.locationId, subfolder }); showToast(`${result.imported} file${result.imported === 1 ? '' : 's'} copied into this folder`); } catch (error) { showToast(error.message); } });
+      button.addEventListener('drop', async (event) => {const internal=event.dataTransfer.types.includes('application/x-pigeon-assets');if(!internal&&!hasExternalFiles(event))return;event.preventDefault();event.stopPropagation();button.classList.remove('drag-over');try{if(internal){const ids=JSON.parse(event.dataTransfer.getData('application/x-pigeon-assets')||'[]'),result=await window.pigeon.moveAssetsToFolder(ids,row.dataset.locationId,subfolder),updates=new Map((result.assets||[]).map((asset)=>[asset.id,asset]));for(const asset of state.library.assets)if(updates.has(asset.id))Object.assign(asset,updates.get(asset.id));reconcileThumbnailCards(ids);showToast(`${result.moved} file${result.moved===1?'':'s'} moved`);return;}const paths=droppedFilePaths(event);if(!paths.length)return;const result=await window.pigeon.importDroppedFiles(paths,{locationId:row.dataset.locationId,subfolder});showToast(`${result.imported} file${result.imported===1?'':'s'} copied into this folder`);}catch(error){showToast(error.message);} });
     };
     enablePhysicalFolderDrop(row.querySelector('.location-root-button'));
     row.querySelectorAll('.location-folder-item').forEach((button) => { const subfolder = decodeURIComponent(button.dataset.subfolder); button.querySelector('[data-collapse-key]')?.addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); toggleFolderCollapsed(event.currentTarget.dataset.collapseKey); }); button.addEventListener('click', () => selectLocation(button.dataset.locationId, subfolder)); button.addEventListener('contextmenu', (event) => { event.preventDefault(); const location = state.library.locations.find((item) => item.id === button.dataset.locationId); if (location) showLocationContextMenu(event, location, subfolder, row); }); enablePhysicalFolderDrop(button, subfolder); });
@@ -821,7 +831,8 @@ function renderGrid() {
     card.addEventListener('dragstart', (event) => {
       const ids = state.selectedIds.has(card.dataset.assetId) ? [...state.selectedIds] : [card.dataset.assetId];
       event.dataTransfer.setData('application/x-pigeon-assets', JSON.stringify(ids));
-      event.dataTransfer.effectAllowed = 'copy';
+      event.dataTransfer.setData('application/x-pigeon-origin',JSON.stringify({collectionId:state.collectionId||null,locationId:state.locationId||null,subfolder:state.locationSubfolder||''}));
+      event.dataTransfer.effectAllowed = 'move';
     });
     card.addEventListener('dblclick', () => preferences.doubleClick === 'default' ? window.pigeon.openAsset(card.dataset.assetId) : openInternalViewer(card.dataset.assetId));
     card.addEventListener('auxclick', (event) => { if (event.button === 1) { event.preventDefault(); window.pigeon.openAsset(card.dataset.assetId); } });
@@ -1023,10 +1034,10 @@ function selectView(view, title, options = {}) {
   elements.title.textContent = title; render();
   if (view === 'duplicates') refreshSimilarityGroups();
 }
-function selectLocation(id, subfolder = '') {
+async function selectLocation(id, subfolder = '') {
+  const location=state.library.locations.find((item)=>item.id===id);if(!location||!(await ensureFolderUnlocked(location,subfolder)))return;
   hideInternalViewer();
   state.locationId = id; state.locationSubfolder = subfolder; state.collectionId = null; state.smartFolderId = null; state.selectedId = null; state.gridScrollTop = 0; clearSelection(); resetRenderLimit();
-  const location = state.library.locations.find((item) => item.id === id);
   elements.title.textContent = subfolder ? subfolder.split('/').pop() : location?.name || 'Location'; render();
 }
 async function selectCollection(id) {
@@ -1084,8 +1095,8 @@ function reconcileThumbnailCards(changedIds=[]){
   for(const id of changedIds)if(!desiredSet.has(id)){state.selectedIds.delete(id);if(state.selectedId===id)state.selectedId=null;}
   elements.count.textContent=`${desired.length} ${desired.length===1?'item':'items'}`;renderBatchBar();renderInspector();renderSidebar(false);scheduleMasonry();saveNavigationState();
 }
-async function addAssetsToCollectionWithoutGridRefresh(ids,collection){
-  const unique=[...new Set(ids)],changed=[],result=await window.pigeon.batchUpdateAssets(unique,{collectionId:collection.id},{silent:true,returnAssets:true}),updates=new Map((result.assets||[]).map((asset)=>[asset.id,asset]));
+async function addAssetsToCollectionWithoutGridRefresh(ids,collection,sourceCollectionId=null){
+  const unique=[...new Set(ids)],changed=[],operation={collectionId:collection.id,...(sourceCollectionId&&sourceCollectionId!==collection.id?{removeCollectionId:sourceCollectionId}:{})},result=await window.pigeon.batchUpdateAssets(unique,operation,{silent:true,returnAssets:true}),updates=new Map((result.assets||[]).map((asset)=>[asset.id,asset]));
   for(const asset of state.library.assets)if(updates.has(asset.id)){Object.assign(asset,updates.get(asset.id));changed.push(asset.id);}
   reconcileThumbnailCards(changed);showToast(`${unique.length} item${unique.length===1?'':'s'} added to ${collection.name}`);
 }
@@ -1477,8 +1488,10 @@ function isInternalViewerOpen() { return !elements.mediaViewer.classList.contain
 function applyViewerImageFit() {
   const image = elements.viewerImage, asset = state.library.assets.find((item) => item.id === state.viewerAssetId), stage = $('.viewer-stage');
   image.style.width = ''; image.style.height = ''; image.style.maxWidth = ''; image.style.maxHeight = '';
-  if (!state.viewerFit || !asset || asset.kind !== 'image' || image.classList.contains('hidden') || !(Number(asset.rotation) % 180)) return;
-  const sourceWidth = image.naturalWidth || asset.width || 1, sourceHeight = image.naturalHeight || asset.height || 1;
+  if (!asset || asset.kind !== 'image' || image.classList.contains('hidden')) return;
+  const sourceWidth=image.naturalWidth||asset.width||1,sourceHeight=image.naturalHeight||asset.height||1;
+  if(!state.viewerFit){image.style.width=`${Math.max(1,sourceWidth*state.viewerZoom)}px`;image.style.height=`${Math.max(1,sourceHeight*state.viewerZoom)}px`;image.style.maxWidth='none';image.style.maxHeight='none';return;}
+  if (!(Number(asset.rotation) % 180)) return;
   const scale = Math.min(stage.clientWidth / sourceHeight, stage.clientHeight / sourceWidth) * .98;
   image.style.width = `${Math.max(1, sourceWidth * scale)}px`; image.style.height = `${Math.max(1, sourceHeight * scale)}px`; image.style.maxWidth = 'none'; image.style.maxHeight = 'none';
 }
@@ -1500,26 +1513,26 @@ function updateViewerCropOverlay() {
 function cancelViewerCrop() {
   state.viewerCropMode = false; state.viewerCrop = null; viewerCropDrag = null;
   elements.mediaViewer.classList.remove('crop-mode'); $('#viewer-crop-overlay').classList.add('hidden');
-  $('#viewer-crop').textContent = '⌗ Crop';
+
 }
 function beginViewerCrop() {
   if (state.viewerCropMode) { applyViewerCrop(); return; }
   const asset = state.library.assets.find((item) => item.id === state.viewerAssetId);
   if (!asset || asset.kind !== 'image') return;
   state.viewerFit = true; state.viewerCropMode = true; state.viewerCrop = { x: .08, y: .08, width: .84, height: .84 };
-  renderInternalViewer(); elements.mediaViewer.classList.add('crop-mode'); $('#viewer-crop-overlay').classList.remove('hidden'); $('#viewer-crop').textContent = '✓ Apply crop';
+  renderInternalViewer(); elements.mediaViewer.classList.add('crop-mode'); $('#viewer-crop-overlay').classList.remove('hidden');
   requestAnimationFrame(updateViewerCropOverlay);
 }
 async function applyViewerCrop() {
   if (!state.viewerCropMode || !state.viewerCrop) return;
   const id = state.viewerAssetId, crop = { ...state.viewerCrop };
-  $('#viewer-crop').textContent = 'Applying…';
+
   try {
     const updated = await window.pigeon.applyInlineCrop(id, crop);
     const asset = state.library.assets.find((item) => item.id === id); if (asset) Object.assign(asset, updated);
     elements.viewerImage.src = protectedUrl(updated.mediaUrl);
     cancelViewerCrop(); renderGrid(); renderInspector(); if (state.viewerAssetId === id && isInternalViewerOpen()) renderInternalViewer(); showToast('Crop applied non-destructively');
-  } catch (error) { $('#viewer-crop').textContent = '✓ Apply crop'; showToast(error.message); }
+  } catch (error) { showToast(error.message); }
 }
 function updateViewerMinimap() {
   const stage = $('.viewer-stage');
@@ -1545,8 +1558,7 @@ function renderInternalViewer() {
   elements.viewerVideo.classList.toggle('hidden', !video);
   elements.viewerAudio.classList.toggle('hidden', !audio);
   elements.viewerFile.classList.toggle('hidden', image || video || audio);
-  $('#viewer-edit-toolbar').classList.toggle('hidden', !image);
-  elements.mediaViewer.classList.toggle('has-edit-toolbar', image);
+
   if (image) { const viewerSource = asset.sourceMissing ? asset.previewUrl : asset.mediaUrl; elements.viewerImage.src = protectedUrl(viewerSource); elements.viewerMinimapImage.src = protectedUrl(viewerSource); elements.viewerImage.style.transform = rotationTransform(asset); }
   if (video) {
     elements.viewerVideo.muted = preferences.videoMuted; elements.viewerVideo.defaultMuted = preferences.videoMuted; elements.viewerVideo.loop = Boolean(preferences.videoLoopShort && Number.isFinite(elements.viewerVideo.duration) && elements.viewerVideo.duration < 30);
@@ -1559,9 +1571,6 @@ function renderInternalViewer() {
   elements.mediaViewer.classList.toggle('full-view', !state.viewerFit);
   elements.viewerMinimap.classList.toggle('hidden', state.viewerFit || !image);
   $('#viewer-fit').textContent = state.viewerFit ? 'Fit' : 'Full';
-  $('#viewer-favorite').textContent = asset.favorite ? '♥ Favourite' : '♡ Favourite';
-  $('#viewer-reset-edits').disabled = !asset.editedPath;
-  $('#viewer-title').textContent = asset.filename;
   const visible = filteredAssets();
   const position = visible.findIndex((item) => item.id === asset.id);
   $('#viewer-position').textContent = position >= 0 ? `${position + 1} / ${visible.length}` : '';
@@ -1570,8 +1579,9 @@ function renderInternalViewer() {
 function openInternalViewer(id) {
   state.selectedId = id; state.selectedIds = new Set([id]); updateCardSelectionStyles(); renderInspector();
   state.viewerReturnScrollTop = elements.gridWrap.scrollTop || state.gridScrollTop;
-  if (state.viewerAssetId !== id) delete elements.viewerVideo.dataset.userRequested; state.viewerAssetId = id; state.viewerFit = true;
+  if (state.viewerAssetId !== id) delete elements.viewerVideo.dataset.userRequested; state.viewerAssetId = id; state.viewerFit = true;state.viewerZoom=1;
   elements.mediaViewer.classList.remove('hidden');
+  $('#filter-bar').classList.add('viewer-hidden-filter');
   elements.grid.classList.add('hidden'); elements.empty.classList.add('hidden'); elements.tagBrowser.classList.add('hidden'); elements.sentinel.classList.add('hidden');
   renderInternalViewer();
 }
@@ -1597,6 +1607,7 @@ function hideInternalViewer() {
   elements.viewerVideo.pause(); elements.viewerAudio.pause();
   elements.viewerVideo.removeAttribute('src'); elements.viewerAudio.removeAttribute('src');
   elements.mediaViewer.classList.add('hidden');
+  $('#filter-bar').classList.remove('viewer-hidden-filter');
 }
 function closeInternalViewer() {
   suppressGridScroll = true;
@@ -1861,7 +1872,6 @@ elements.tags.addEventListener('change', commitTagInput);
 elements.tags.addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); commitTagInput(); } });
 $('#open-asset').addEventListener('click', () => { if (state.selectedId) openInternalViewer(state.selectedId); });
 $('#reveal-asset').addEventListener('click', () => window.pigeon.revealAsset(state.selectedId));
-$('#close-viewer').addEventListener('click', closeInternalViewer);
 $('#viewer-previous').addEventListener('click', () => navigateViewer(-1));
 $('#viewer-next').addEventListener('click', () => navigateViewer(1));
 $('#viewer-fit').addEventListener('click', toggleViewerFit);
@@ -1872,17 +1882,11 @@ async function rotateViewerAsset(direction) {
   await updateSelected({ rotation: ((asset.rotation || 0) + direction + 360) % 360 });
   renderGrid(); renderInternalViewer();
 }
-$('#viewer-rotate-left').addEventListener('click', () => rotateViewerAsset(-90));
-$('#viewer-rotate-right').addEventListener('click', () => rotateViewerAsset(90));
-$('#viewer-crop').addEventListener('click', beginViewerCrop);
-$('#viewer-duplicate').addEventListener('click', async () => { const duplicate = await window.pigeon.duplicateAsset(state.viewerAssetId); if (duplicate) showToast(`Duplicated as ${duplicate.filename}`); });
-$('#viewer-reset-edits').addEventListener('click', async () => {
-  cancelViewerCrop(); const updated = await window.pigeon.resetInlineEdits(state.viewerAssetId);
-  const asset = state.library.assets.find((item) => item.id === state.viewerAssetId); if (asset) Object.assign(asset, updated);
-  elements.viewerImage.src = protectedUrl(updated.mediaUrl);
-  renderGrid(); renderInspector(); renderInternalViewer(); showToast('Original image restored');
-});
-$('#viewer-favorite').addEventListener('click', async () => { state.selectedId = state.viewerAssetId; await toggleSelectedFavourite(); renderInternalViewer(); });
+async function duplicateViewerAsset(){const duplicate=await window.pigeon.duplicateAsset(state.viewerAssetId);if(duplicate)showToast(`Duplicated as ${duplicate.filename}`);}
+async function resetViewerEdits(){cancelViewerCrop();const updated=await window.pigeon.resetInlineEdits(state.viewerAssetId),asset=state.library.assets.find((item)=>item.id===state.viewerAssetId);if(asset)Object.assign(asset,updated);elements.viewerImage.src=protectedUrl(updated.mediaUrl);renderInspector();renderInternalViewer();showToast('Original image restored');}
+async function favoriteViewerAsset(){state.selectedId=state.viewerAssetId;await toggleSelectedFavourite();renderInternalViewer();}
+function showViewerContextMenu(event){event.preventDefault();event.stopPropagation();const asset=state.library.assets.find((item)=>item.id===state.viewerAssetId),image=asset?.kind==='image';closeFloatingMenus();elements.contextMenu.innerHTML=`${image?'<button data-viewer-action="rotate-left"><span>Rotate left</span></button><button data-viewer-action="rotate-right"><span>Rotate right</span></button><button data-viewer-action="crop"><span>Crop…</span></button><button data-viewer-action="duplicate"><span>Duplicate</span></button><button data-viewer-action="reset" '+(asset.editedPath?'':'disabled')+'><span>Restore original</span></button><hr>':''}<button data-viewer-action="favorite"><span>${asset?.favorite?'Remove from favourites':'Add to favourites'}</span></button><button data-viewer-action="fit"><span>${state.viewerFit?'Zoom to actual size':'Fit to window'}</span></button><button data-viewer-action="open"><span>Open with default app</span></button>`;elements.contextMenu.querySelectorAll('[data-viewer-action]').forEach((button)=>button.addEventListener('click',async()=>{const action=button.dataset.viewerAction;elements.contextMenu.classList.add('hidden');if(action==='rotate-left')await rotateViewerAsset(-90);if(action==='rotate-right')await rotateViewerAsset(90);if(action==='crop')beginViewerCrop();if(action==='duplicate')await duplicateViewerAsset();if(action==='reset')await resetViewerEdits();if(action==='favorite')await favoriteViewerAsset();if(action==='fit')toggleViewerFit();if(action==='open')await window.pigeon.openAsset(state.viewerAssetId);}));elements.contextMenu.classList.remove('hidden');positionMenu(elements.contextMenu,event.clientX,event.clientY);}
+elements.mediaViewer.addEventListener('contextmenu',showViewerContextMenu);
 $('#map-globe-mode').addEventListener('click', () => { state.mapMode = 'globe'; state.mapGlobeZoom = 1; renderMap(); });
 $('#map-street-mode').addEventListener('click', () => { state.mapMode = 'street'; state.mapZoom = Math.max(3, state.mapZoom); renderMap(); });
 $('#map-cancel').addEventListener('click', closeMapView);
@@ -2007,7 +2011,7 @@ $('#viewer-crop-overlay').addEventListener('pointermove', (event) => {
 const stopViewerCropDrag = () => { viewerCropDrag = null; };
 $('#viewer-crop-overlay').addEventListener('pointerup', stopViewerCropDrag);
 $('#viewer-crop-overlay').addEventListener('pointercancel', stopViewerCropDrag);
-$('#viewer-open-default').addEventListener('click', async () => { const result = await window.pigeon.openAsset(state.viewerAssetId); if (result) showToast(result); });
+$('.viewer-stage').addEventListener('wheel',(event)=>{if(elements.viewerImage.classList.contains('hidden'))return;event.preventDefault();const stage=$('.viewer-stage'),rect=stage.getBoundingClientRect(),ratioX=(event.clientX-rect.left+stage.scrollLeft)/Math.max(stage.scrollWidth,1),ratioY=(event.clientY-rect.top+stage.scrollTop)/Math.max(stage.scrollHeight,1);state.viewerFit=false;state.viewerZoom=Math.max(.1,Math.min(8,state.viewerZoom*(event.deltaY<0?1.12:.89)));renderInternalViewer();requestAnimationFrame(()=>{stage.scrollLeft=ratioX*stage.scrollWidth-(event.clientX-rect.left);stage.scrollTop=ratioY*stage.scrollHeight-(event.clientY-rect.top);updateViewerMinimap();});},{passive:false});
 $('#duplicate-similarity').addEventListener('input', (event) => {
   state.duplicateSimilarity = Number(event.target.value); $('#duplicate-similarity-value').textContent = `${state.duplicateSimilarity}%`; localStorage.setItem('pigeon.duplicateSimilarity', String(state.duplicateSimilarity));
   clearTimeout(refreshSimilarityGroups.sliderTimer); refreshSimilarityGroups.sliderTimer = setTimeout(() => refreshSimilarityGroups(), 180);
@@ -2135,6 +2139,7 @@ document.addEventListener('keydown', (event) => {
   if (!editing && event.key === 'F2' && state.selectedId && !isInternalViewerOpen()) { event.preventDefault(); beginInspectorFilenameRename(); return; }
   if (!editing && state.viewerCropMode && event.key === 'Enter') { event.preventDefault(); applyViewerCrop(); return; }
   if (!editing && state.viewerCropMode && event.key === 'Escape') { event.preventDefault(); cancelViewerCrop(); return; }
+  if(!editing&&isInternalViewerOpen()&&['Escape','Enter'].includes(event.key)){event.preventDefault();closeInternalViewer();return;}
   if (!editing && state.mapOpen && event.key === 'Escape') { event.preventDefault(); closeMapView(); return; }
   const commandKey = event.metaKey || event.ctrlKey;
   if(!editing&&commandKey&&event.key.toLowerCase()==='a'){event.preventDefault();const ids=filteredAssets().map((asset)=>asset.id);state.selectedIds=new Set(ids);state.selectedId=ids[0]||null;state.selectionAnchorId=state.selectedId;updateCardSelectionStyles();renderInspector();showToast(`${ids.length} item${ids.length===1?'':'s'} selected`);return;}
@@ -2147,7 +2152,7 @@ document.addEventListener('keydown', (event) => {
   if (!editing && state.locationShortcut && shortcutFromEvent(event) === state.locationShortcut) { event.preventDefault(); openMapView(isInternalViewerOpen() ? [state.viewerAssetId] : [...state.selectedIds]); return; }
   const shortcutAction=!editing&&shortcutActions.find((action)=>action.shortcut&&action.shortcut===shortcutFromEvent(event));if(shortcutAction){event.preventDefault();runShortcutAction(shortcutAction).catch((error)=>showToast(error.message));return;}
   if (state.mapOpen) return;
-  if (!editing && !commandKey && event.code === 'Space' && preferences.spacebar === 'preview') { event.preventDefault(); if (isInternalViewerOpen()) closeInternalViewer(); else if (state.selectedId) openInternalViewer(state.selectedId); return; }
+  if (!editing && !commandKey && event.code === 'Space') { if(isInternalViewerOpen()||preferences.spacebar==='preview'){event.preventDefault();if(isInternalViewerOpen())closeInternalViewer();else if(state.selectedId)openInternalViewer(state.selectedId);return;} }
   if (!editing && !commandKey && !event.altKey && event.key === 'Delete' && !isInternalViewerOpen()) { event.preventDefault(); handleDeleteSelection().catch((error)=>showToast(error.message)); return; }
   if (!editing && !commandKey && !event.altKey && /^[1-5]$/.test(event.key)) {
     const assetId = isInternalViewerOpen() ? state.viewerAssetId : state.selectedId;

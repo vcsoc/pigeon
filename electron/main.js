@@ -31,6 +31,7 @@ const thumbnailQueue = [];
 const videoPreparationJobs = new Map();
 const thumbnailPreparationJobs = new Map();
 const unlockedCollections = new Map();
+const unlockedFolders = new Map();
 let mainWindow;
 let mediaServer = null, mediaServerPort = 0;
 const mediaServerToken = crypto.randomBytes(24).toString('hex');
@@ -138,17 +139,18 @@ function kindFor(extension) {
   return 'file';
 }
 
-function isCollectionLocked(id) {
-  const collection = library.collections.find((item) => item.id === id);
-  return Boolean(collection?.lock && !unlockedCollections.has(id));
-}
-function isAssetLocked(asset) { return (asset.collectionIds || []).some(isCollectionLocked); }
-function publicCollections() {
-  return library.collections.map((collection) => ({ ...collection, lock: collection.lock ? { enabled: true, encrypted: Boolean(collection.lock.encrypted) } : null, locked: isCollectionLocked(collection.id) }));
-}
+function collectionAncestors(id){const result=[];let current=library.collections.find((item)=>item.id===id);while(current){result.push(current);current=current.parentId?library.collections.find((item)=>item.id===current.parentId):null;}return result;}
+function isCollectionLocked(id) {return collectionAncestors(id).some((collection)=>collection.lock&&!unlockedCollections.has(collection.id));}
+function folderLockKey(locationId,subfolder=''){return`${locationId}:${normalizedSubfolder(subfolder).toLowerCase()}`;}
+function folderLocks(){return Object.values(library.settings?.folderLocks||{});}
+function assetRelativeFolder(asset){const location=library.locations.find((item)=>item.id===asset.locationId);if(!location)return'';const relative=path.relative(location.path,path.dirname(asset.path)).replace(/\\/g,'/');return relative==='.'?'':normalizedSubfolder(relative).toLowerCase();}
+function matchingFolderLocks(asset){const folder=assetRelativeFolder(asset);return folderLocks().filter((rule)=>rule.locationId===asset.locationId&&(!rule.subfolder||folder===rule.subfolder||folder.startsWith(`${rule.subfolder}/`)));}
+function isAssetLocked(asset) { return (asset.collectionIds || []).some(isCollectionLocked)||matchingFolderLocks(asset).some((rule)=>!unlockedFolders.has(folderLockKey(rule.locationId,rule.subfolder))); }
+function publicCollections() {return library.collections.map((collection)=>{const lockSource=collectionAncestors(collection.id).find((item)=>item.lock&&!unlockedCollections.has(item.id));return{...collection,lock:collection.lock?{enabled:true,encrypted:Boolean(collection.lock.encrypted)}:lockSource?{enabled:true,inherited:true}:null,lockSourceId:lockSource?.id||null,locked:Boolean(lockSource)};});}
+function publicFolderLocks(){return Object.fromEntries(folderLocks().map((rule)=>[folderLockKey(rule.locationId,rule.subfolder),{locationId:rule.locationId,subfolder:rule.subfolder,locked:!unlockedFolders.has(folderLockKey(rule.locationId,rule.subfolder))}]));}
 function publicLibrarySummary() {
-  const { assets, collections, ...metadata } = library;
-  return { ...metadata, collections: publicCollections(), portfolios: portfolios.map(({ id, name }) => ({ id, name })), activePortfolioId, assets: [], totalAssets: assets.length };
+  const { assets, collections, settings={}, ...metadata } = library;
+  return { ...metadata,settings:{...settings,folderLocks:publicFolderLocks()},collections:publicCollections(),portfolios:portfolios.map(({ id, name })=>({ id, name })),activePortfolioId,assets:[],totalAssets:assets.length };
 }
 function passwordKey(password, salt) { return crypto.pbkdf2Sync(String(password), salt, 120000, 32, 'sha256'); }
 function passwordDigest(key) { return crypto.createHash('sha256').update(key).digest('hex'); }
@@ -1568,7 +1570,7 @@ ipcMain.handle('portfolio:switch', async (_event, id) => {
   await cancelPortfolioBackground(`Paused while viewing ${portfolio.name}`);
   await saveLibraryNow();
   if (databaseWorker) { await databaseWorker.terminate(); databaseWorker = null; }
-  for (const watcher of watchers.values()) watcher.close(); watchers.clear(); for (const timer of watcherRefreshTimers.values()) clearTimeout(timer); watcherRefreshTimers.clear(); unlockedCollections.clear();
+  for (const watcher of watchers.values()) watcher.close(); watchers.clear(); for (const timer of watcherRefreshTimers.values()) clearTimeout(timer); watcherRefreshTimers.clear(); unlockedCollections.clear(); unlockedFolders.clear();
   activePortfolioId = id; databaseFile = portfolio.database || portfolioDatabasePath(id); legacyJsonFile = portfolio.legacyFile || null; library = libraryCore.migrateLibrary({ loading: true });
   await savePortfolioRegistry(); broadcast(); await loadLibraryInWorker(); broadcast(); resumePendingScans();
   refreshSourcesInBackground().then(() => { schedulePortfolioBackground(warmThumbnailCache, 500); schedulePortfolioBackground(warmContentHashes, 300); }).catch((error) => recordDiagnostic('error', 'Portfolio background resume failed', error));
@@ -1646,7 +1648,7 @@ ipcMain.handle('collection:set-password', async (_event, { id, password, encrypt
   const salt = crypto.randomBytes(16).toString('hex');
   const key = passwordKey(password, salt);
   collection.lock = { salt, digest: passwordDigest(key), encrypted: Boolean(encrypt), createdAt: Date.now() };
-  unlockedCollections.set(id, key);
+  unlockedCollections.delete(id);
   if (encrypt) await encryptCollectionCopies(collection, key);
   else for (const asset of library.assets) { if (asset.encryptedMediaPaths) delete asset.encryptedMediaPaths[id]; if (asset.encryptedThumbnailPaths) delete asset.encryptedThumbnailPaths[id]; }
   scheduleSave(); broadcast(); return true;
@@ -1670,6 +1672,10 @@ ipcMain.handle('collection:remove-password', (_event, { id, password }) => {
   for (const asset of library.assets) { if (asset.encryptedMediaPaths) delete asset.encryptedMediaPaths[id]; if (asset.encryptedThumbnailPaths) delete asset.encryptedThumbnailPaths[id]; }
   scheduleSave(); broadcast(); return true;
 });
+ipcMain.handle('folder:set-password',(_event,{locationId,subfolder='',password})=>{if(!library.locations.some((item)=>item.id===locationId))throw new Error('Folder does not exist');if(String(password).length<4)throw new Error('Password must contain at least four characters');const folder=normalizedSubfolder(subfolder).toLowerCase(),salt=crypto.randomBytes(16).toString('hex'),key=passwordKey(password,salt),rule={locationId,subfolder:folder,salt,digest:passwordDigest(key),createdAt:Date.now()};library.settings=library.settings||{};library.settings.folderLocks=library.settings.folderLocks||{};library.settings.folderLocks[folderLockKey(locationId,folder)]=rule;unlockedFolders.delete(folderLockKey(locationId,folder));scheduleSave();broadcast();return true;});
+ipcMain.handle('folder:unlock',(_event,{locationId,subfolder='',password})=>{const keyName=folderLockKey(locationId,subfolder),rule=library.settings?.folderLocks?.[keyName];if(!rule)return true;const key=passwordKey(password,rule.salt),expected=Buffer.from(rule.digest,'hex'),actual=Buffer.from(passwordDigest(key),'hex');if(expected.length!==actual.length||!crypto.timingSafeEqual(expected,actual))return false;unlockedFolders.set(keyName,key);broadcast();return true;});
+ipcMain.handle('folder:lock-now',(_event,{locationId,subfolder=''})=>{unlockedFolders.delete(folderLockKey(locationId,subfolder));broadcast();return true;});
+ipcMain.handle('folder:remove-password',(_event,{locationId,subfolder='',password})=>{const keyName=folderLockKey(locationId,subfolder),rule=library.settings?.folderLocks?.[keyName];if(!rule)return true;const key=passwordKey(password,rule.salt);if(passwordDigest(key)!==rule.digest)return false;delete library.settings.folderLocks[keyName];unlockedFolders.delete(keyName);scheduleSave();broadcast();return true;});
 ipcMain.handle('collection:remove', (_event, id) => {
   const descendants = collectionDescendants(id), removed = libraryCore.removeCollection(library, id);
   if (library.settings?.collectionAutoTags) for (const collectionId of descendants) delete library.settings.collectionAutoTags[collectionId];
@@ -1806,6 +1812,7 @@ ipcMain.handle('library:sync-now', async () => {
   await fsp.writeFile(target, libraryCore.serializeLibrary(library));
   scheduleSave(); broadcast(); return target;
 });
+ipcMain.handle('assets:move-to-folder',async(_event,{ids=[],locationId,subfolder=''})=>{const location=library.locations.find((item)=>item.id===locationId);if(!location)throw new Error('Destination folder is no longer indexed');const safeSubfolder=normalizedSubfolder(subfolder);if(safeSubfolder==='..'||safeSubfolder.startsWith('../'))throw new Error('Invalid destination folder');const destination=path.join(location.path,safeSubfolder),moved=[];await fsp.mkdir(destination,{recursive:true});for(const asset of library.assets.filter((item)=>ids.includes(item.id))){if(!(await pathAvailable(asset.path)))continue;const source=path.resolve(asset.path),target=path.join(destination,asset.filename);if(source.toLowerCase()===target.toLowerCase())continue;if(await pathAvailable(target))throw new Error(`${asset.filename} already exists in the destination`);watcherIgnoreUntil.set(asset.locationId,Date.now()+2500);try{await fsp.rename(source,target);}catch(error){if(error.code!=='EXDEV')throw error;await fsp.copyFile(source,target);try{await fsp.rm(source,{force:true});}catch(removeError){await fsp.rm(target,{force:true}).catch(()=>{});throw removeError;}}asset.path=target;asset.locationId=locationId;asset.sourceMissing=false;asset.metadataUpdatedAt=Date.now();moved.push({...asset,previewUrl:previewUrlFor(asset),mediaUrl:mediaUrlFor(asset)});}scheduleSave();return{moved:moved.length,assets:moved};});
 ipcMain.handle('asset:apply-inline-crop', (_event, { id, crop }) => applyInlineCrop(id, crop));
 ipcMain.handle('asset:rename-file', async (_event, { id, name }) => {
   const asset = library.assets.find((item) => item.id === id);
