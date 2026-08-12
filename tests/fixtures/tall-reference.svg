@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="420" height="680" viewBox="0 0 420 680">
+  <defs><linearGradient id="g" y2="1"><stop stop-color="#ee7564"/><stop offset="1" stop-color="#542f6f"/></linearGradient></defs>
+  <rect width="420" height="680" rx="26" fill="url(#g)"/><rect x="70" y="95" width="280" height="430" rx="140" fill="#ffd8a8" opacity=".9"/><text x="210" y="610" text-anchor="middle" fill="white" font-family="Arial" font-size="24">TALL CARD</text>
+</svg>

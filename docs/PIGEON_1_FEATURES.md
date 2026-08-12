@@ -1,0 +1,44 @@
+# Pigeon 1 local-first feature contract
+
+Pigeon keeps source files in place. Operations that would alter pixels always export a new derivative.
+
+## Implemented subsystems
+
+1. **Nested collections and drag/drop** — create a collection with `+`, select a parent before creating a child, drag assets into collections, and drag collections onto other collections. Collection deletion removes virtual memberships only.
+2. **Multi-select and batch editing** — Ctrl/Cmd-click, Shift-click, keyboard navigation, and the batch bar support tags, collections, automatic tags, favorites, and reference trash.
+3. **Media previews** — the inspector plays local video and audio through a seekable custom protocol with byte-range responses.
+4. **Duplicates and similarity** — exact duplicates use SHA-256 content hashes; the Duplicates page groups perceptually similar images into horizontal rows, provides a persistent 35–100% accuracy slider, and supports source-based “Find similar” from the asset context menu.
+5. **Smart folders** — current query, type, rating, tag, location, favorite, and collection constraints can be persisted and reopened.
+6. **Capture and ingestion** — local managed imports accept HTTP(S) URLs, clipboard URLs, and OS screen captures. `browser-extension/` is an unpacked Manifest V3 Chrome/Edge extension that hands URLs to the registered `pigeon://` protocol.
+7. **Metadata** — indexing stores SHA-256, dimensions, format/color-space details, dominant color, and a 32-bin luminance histogram.
+8. **Commands and menus** — arrow/Home/End/Page navigation, application menus, quick actions, right-click asset actions, and filter popovers are available.
+9. **Local automatic tags** — deterministic offline suggestions use filenames, media kind, orientation, and dominant color. Tags can be renamed or removed library-wide.
+10. **Trash, backup, export, migration, and folder sync** — schema migrations are non-destructive, saves are atomic, rotating backups are retained, trash removes references only, and user-selected sync folders merge metadata by update timestamp.
+11. **Annotations and derivative editing** — rectangle/text annotations, rotation, horizontal flip, and brightness adjustment export to a new PNG. Original files are never modified.
+12. **Plugins and automation** — `.js` plugins in the local plugin directory run in a time-limited worker/VM with no `require`, `process`, filesystem, or network capability. The exposed API is read-only `pigeon.assets` plus `pigeon.emit({type:'tag', ids, tag})`.
+
+## Safety invariants
+
+- Removing locations, collections, smart folders, tags, or trash entries never deletes original files.
+- URL and screenshot sources are written only to Pigeon's managed imports directory.
+- Sync is opt-in and writes only to a user-selected local folder.
+- Editing always uses Save As and produces a derivative.
+- Plugins cannot access Node or Electron APIs and are terminated after two seconds.
+- Automatic tagging runs entirely offline.
+
+## Browser extension installation
+
+Open `chrome://extensions` or `edge://extensions`, enable Developer mode, choose **Load unpacked**, and select the packaged `browser-extension` directory. Pigeon registers the `pigeon://` protocol when launched.
+
+## Verification
+
+```sh
+npm run verify
+npm run dist:win
+```
+
+Pigeon’s Preferences window provides General, Sidebar, Controls, Preview, Screenshot, Shortcuts, Notifications, Password, Auto-Import, local AI Search/Models, local MCP, and Developer pages. Preferences remain local and optional integrations are disabled by default.
+
+Video startup work extracts thumbnails only. FFmpeg proxies are generated only after native playback fails, run one at a time with one codec/filter thread at below-normal OS priority, and never execute synchronously on the renderer. Similarity grouping runs in a worker thread.
+
+`npm test` covers migrations, nested collection invariants, batch/trash behavior, duplicate and similarity logic, saved filters, local tags, extension structure, media range support, and plugin sandbox behavior. The seeded Electron smoke test asserts selection, multi-selection, keyboard handling, facet menus, and the application menu.

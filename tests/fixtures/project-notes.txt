@@ -1,0 +1,2 @@
+Pigeon smoke-test fixture.
+This file verifies that non-image assets are indexed without being copied.

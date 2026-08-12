@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="300" viewBox="0 0 960 300">
+  <defs><linearGradient id="g" x2="1"><stop stop-color="#e2617b"/><stop offset="1" stop-color="#f3b95c"/></linearGradient></defs>
+  <rect width="960" height="300" rx="22" fill="url(#g)"/><circle cx="760" cy="82" r="48" fill="#fff0bf"/><path d="M0 270 210 95l150 108 142-129 180 196Z" fill="#393c6d"/><text x="45" y="62" fill="white" font-family="Arial" font-size="26">WIDE REFERENCE</text>
+</svg>

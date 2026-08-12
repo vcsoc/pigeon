@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="780" viewBox="0 0 360 780">
+  <defs><linearGradient id="g" y2="1"><stop stop-color="#7f6ef2"/><stop offset="1" stop-color="#20264a"/></linearGradient></defs>
+  <rect width="360" height="780" rx="22" fill="url(#g)"/><circle cx="180" cy="235" r="92" fill="#ffd597"/><path d="M55 690 180 390l125 300Z" fill="#55b6d2"/><text x="180" y="735" text-anchor="middle" fill="white" font-family="Arial" font-size="22">PORTRAIT</text>
+</svg>

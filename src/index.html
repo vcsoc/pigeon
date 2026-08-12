@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' pigeon-asset: pigeon-map: data:; media-src 'self' pigeon-asset: http://127.0.0.1:*; style-src 'self' 'unsafe-inline'; script-src 'self';" />
+    <title>Pigeon</title>
+    <link rel="icon" type="image/png" href="../pigeon-logo.png" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <div id="startup-splash" class="startup-splash" aria-label="Pigeon is loading"><img src="../pigeon-logo.png" alt="Pigeon" /></div>
+      <aside class="sidebar">
+        <div class="window-drag">
+          <button id="app-menu-button" class="sidebar-menu-glyph" title="Pigeon menu" aria-label="Open Pigeon menu">☰</button>
+          <div class="sidebar-top-actions">
+            <button id="add-button" title="Index files or folders">＋</button>
+            <button id="rescan-button" title="Rescan indexed locations">⇄</button>
+            <button id="sidebar-collapse" title="Toggle sidebar">▣</button>
+          </div>
+        </div>
+        <div class="brand-row brand-menu" role="button" tabindex="0" title="Switch portfolio" aria-label="Switch portfolio" aria-haspopup="dialog" aria-expanded="false" aria-controls="portfolio-switcher">
+          <div class="brand-mark"><img src="../pigeon-logo.png" alt="Pigeon" /></div>
+          <strong id="active-portfolio-name">My Portfolio</strong>
+          <div id="portfolio-switcher" class="portfolio-switcher hidden" role="dialog" aria-label="Switch portfolio">
+            <div class="portfolio-switcher-search"><span>⌕</span><input id="portfolio-switcher-search" type="search" placeholder="Search portfolios…" autocomplete="off" /><button id="close-portfolio-switcher" title="Close">×</button></div>
+            <div id="portfolio-switcher-list" class="portfolio-switcher-list" role="listbox"></div>
+            <div class="portfolio-switcher-actions"><button id="quick-create-portfolio">▱＋ Create Portfolio…</button><button id="manage-portfolios">⚙ Manage Portfolios…</button></div>
+          </div>
+        </div>
+
+        <nav class="library-nav" aria-label="Portfolio">
+          <button class="nav-item active" data-view="all"><span class="nav-icon">▣</span><span>All</span><small id="all-count">0</small></button>
+          <button class="nav-item" data-view="uncategorized"><span class="nav-icon">◇</span><span>Uncategorized</span><small id="uncategorized-count">0</small></button>
+          <button class="nav-item nested-nav-item" data-view="untagged"><span class="nav-icon">⌑</span><span>Untagged</span><small id="untagged-count">0</small></button>
+          <button class="nav-item" data-view="favorites"><span class="nav-icon">♡</span><span>Favorites</span><small id="favorites-count">0</small></button>
+          <button class="nav-item" data-view="tags"><span class="nav-icon">⌑</span><span>All Tags</span><small id="tags-count">0</small></button>
+          <button class="nav-item" data-view="duplicates"><span class="nav-icon">◫</span><span>Duplicates</span><small id="duplicates-count">0</small></button>
+          <button class="nav-item" data-view="trash"><span class="nav-icon">♲</span><span>Trash</span><small id="trash-count">0</small></button>
+          <button class="nav-item" data-view="analytics"><span class="nav-icon">▥</span><span>Analytics</span></button>
+        </nav>
+
+        <div class="section-label collapsible-section-label" data-section-toggle="smart-folders" role="button" tabindex="0" aria-expanded="true"><span>Smart folders</span><button id="save-smart-folder" class="tiny-button" title="Save current filters">＋</button></div>
+        <div id="sidebar-section-smart-folders" class="sidebar-section-content">
+          <nav id="smart-folder-list" class="library-nav compact"></nav>
+          <nav class="library-nav compact">
+            <button class="nav-item" data-view="recent"><span class="nav-icon">◷</span><span>Recently added</span></button>
+            <button class="nav-item" data-view="offline"><span class="nav-icon">⇣</span><span>Offline sources</span><small id="offline-count">0</small></button>
+            <button class="nav-item" data-view="five-stars"><span class="nav-icon">☆</span><span>5 stars</span></button>
+          </nav>
+        </div>
+
+        <div class="section-label collapsible-section-label" data-section-toggle="collections" role="button" tabindex="0" aria-expanded="true"><span>Collections</span><button id="add-collection" class="tiny-button" title="New collection">＋</button></div>
+        <div id="sidebar-section-collections" class="sidebar-section-content"><nav id="collection-list" class="library-nav collection-list"></nav></div>
+
+        <div class="section-label collapsible-section-label" data-section-toggle="indexed-locations" role="button" tabindex="0" aria-expanded="true"><span>Indexed locations</span><button id="add-folder-mini" class="tiny-button" title="Index a folder">＋</button></div>
+        <div id="sidebar-section-indexed-locations" class="sidebar-section-content"><div id="location-list" class="location-list"></div></div>
+
+        <div class="sidebar-footer">
+          <div class="index-note"><span class="pulse-dot"></span><span>Files stay in their original locations</span></div>
+        </div>
+        <div id="sidebar-resizer" class="panel-resizer sidebar-resizer" role="separator" aria-orientation="vertical" aria-label="Resize portfolio panel" tabindex="0"></div>
+      </aside>
+
+      <main class="main-panel">
+        <header class="toolbar">
+          <div class="toolbar-left">
+            <button id="navigation-back" class="icon-button navigation-button" title="Back" aria-label="Back">‹</button>
+            <button id="navigation-forward" class="icon-button navigation-button" title="Forward" aria-label="Forward">›</button>
+            <h1 id="view-title">All</h1>
+            <span id="view-count" class="view-count">0 items</span>
+          </div>
+          <div class="toolbar-center">
+            <span class="zoom-glyph">−</span>
+            <input id="zoom-slider" class="toolbar-zoom" type="range" min="130" max="310" value="240" title="Thumbnail size" />
+            <span class="zoom-glyph">＋</span>
+          </div>
+          <div class="toolbar-right">
+            <button id="refresh-button" class="icon-button" type="button" title="Refresh source status and rescan" aria-label="Refresh source status and rescan">⇄</button>
+            <button id="subfolder-content-toggle" class="icon-button" type="button" title="Show content from subfolders" aria-label="Show content from subfolders" aria-pressed="false">▱</button>
+            <button id="settings-button" class="icon-button toolbar-settings" title="Settings">♧</button>
+            <button id="quick-action-button" class="icon-button" title="Quick actions">ϟ</button>
+            <button id="layout-button" class="icon-button" title="Toggle layout">▱</button>
+            <button id="inspector-toggle" class="icon-button" title="Toggle inspector">▣</button>
+            <button id="filter-button" class="icon-button selected funnel-button" title="Toggle filters">▽</button>
+            <label class="search-box">
+              <span>⌕</span>
+              <input id="search-input" type="search" placeholder="Search" autocomplete="off" />
+              <span class="search-camera" aria-hidden="true">▣</span>
+            </label>
+            <button id="pin-button" class="icon-button" title="Keep Pigeon on top">⌖</button>
+            <div id="window-controls" class="window-controls" aria-label="Window controls">
+              <button id="window-minimize" class="window-control" title="Minimize" aria-label="Minimize"><span class="minimize-glyph"></span></button>
+              <button id="window-maximize" class="window-control" title="Maximize" aria-label="Maximize"><span class="maximize-glyph"></span></button>
+              <button id="window-close" class="window-control close" title="Close" aria-label="Close"><span class="close-glyph"></span></button>
+            </div>
+          </div>
+        </header>
+
+        <div id="filter-bar" class="filter-bar">
+          <button class="filter-chip" data-facet="color"><span class="color-wheel">●</span> Color</button>
+          <button class="filter-chip" data-facet="tags"><span>◇</span> Tags</button>
+          <button class="filter-chip" data-facet="folder"><span>▱</span> Folder</button>
+          <button class="filter-chip" data-facet="shape"><span>▤</span> Shape</button>
+          <button class="filter-chip" data-facet="rating"><span>☆</span> Rating</button>
+          <button class="filter-chip" data-facet="types"><span>▧</span> Types</button>
+          <button id="clear-filters" class="filter-chip add-filter" title="Clear filters"><span>＋</span></button>
+        </div>
+
+        <section class="content-area">
+          <div id="grid-wrap" class="grid-wrap">
+            <section id="locked-content" class="locked-content hidden" aria-live="polite">
+              <div class="locked-art" aria-hidden="true"><span class="locked-shackle"></span><span class="locked-body"><i></i></span></div>
+              <h2>Unlock to view contents</h2><p id="locked-hint">This collection is password protected.</p>
+              <form id="inline-unlock-form"><label class="sr-only" for="inline-unlock-password">Password</label><input id="inline-unlock-password" type="password" placeholder="Enter Password" autocomplete="current-password" /><button type="submit">Unlock</button></form>
+              <p id="inline-unlock-error" class="inline-unlock-error" role="alert"></p>
+            </section>
+            <section id="tag-browser" class="tag-browser hidden" aria-label="Tag manager"></section>
+            <section id="analytics-view" class="analytics-view hidden" aria-label="Portfolio analytics">
+              <header class="analytics-header"><div><span class="analytics-eyebrow">Telemetry</span><h2 id="analytics-title">Portfolio Analytics</h2><p id="analytics-subtitle">A local overview of your current portfolio.</p></div><button id="close-analytics" class="secondary-button">Back to library</button></header>
+              <nav id="analytics-tabs" class="analytics-tabs" aria-label="Analytics sections"><button class="active" data-analytics-tab="overview">Overview</button><button data-analytics-tab="types">Types</button><button data-analytics-tab="activity">Activity heatmap</button><button data-analytics-tab="details">Details</button></nav>
+              <div id="analytics-content" class="analytics-content"></div>
+            </section>
+            <section id="map-view" class="map-view hidden" aria-label="Image location editor">
+              <header class="map-toolbar"><strong>Set image location</strong><span id="map-selection-count"></span><div class="map-search"><input id="map-search-input" type="search" placeholder="Search an address or place" autocomplete="off" aria-autocomplete="list" aria-controls="map-search-results" /><button id="map-search-button">Search</button><div id="map-search-results" class="map-search-results hidden" role="listbox" aria-label="Address suggestions"></div></div><div class="map-mode"><button id="map-globe-mode" class="active">3D globe</button><button id="map-street-mode">Street map</button></div><button id="map-cancel">Cancel</button><button id="map-save" class="primary-button">Set location</button></header>
+              <div class="map-canvas-wrap"><canvas id="location-map"></canvas><div class="map-crosshair">＋</div><div id="map-coordinates" class="map-coordinates">Select a location</div><div class="map-attribution">Street tiles © OpenStreetMap contributors · cached locally</div></div>
+            </section>
+            <section id="media-viewer" class="media-viewer hidden">
+              <header><strong id="viewer-title">Viewer</strong><button id="close-viewer" title="Back to thumbnails">×</button></header>
+              <div id="viewer-edit-toolbar" class="viewer-edit-toolbar"><button id="viewer-rotate-left" title="Rotate counter-clockwise">↶ Rotate</button><button id="viewer-rotate-right" title="Rotate clockwise">↷ Rotate</button><button id="viewer-crop" title="Crop image inline">⌗ Crop</button><button id="viewer-duplicate" title="Duplicate image">▣ Duplicate</button><button id="viewer-reset-edits" title="Restore the original image">↺ Reset</button><button id="viewer-favorite" title="Toggle favourite">♡ Favourite</button></div>
+              <div class="viewer-stage">
+                <img id="viewer-image" class="hidden" alt="Asset preview" />
+                <div id="viewer-crop-overlay" class="viewer-crop-overlay hidden" aria-label="Adjust crop region"><span class="crop-handle nw" data-crop-handle="nw"></span><span class="crop-handle n" data-crop-handle="n"></span><span class="crop-handle ne" data-crop-handle="ne"></span><span class="crop-handle e" data-crop-handle="e"></span><span class="crop-handle se" data-crop-handle="se"></span><span class="crop-handle s" data-crop-handle="s"></span><span class="crop-handle sw" data-crop-handle="sw"></span><span class="crop-handle w" data-crop-handle="w"></span><strong>Enter to apply · Esc to cancel</strong></div>
+                <video id="viewer-video" class="hidden" controls muted playsinline preload="auto"></video>
+                <div id="viewer-video-status" class="viewer-video-status hidden"><span class="spinner"></span><strong>Preparing compatibility playback…</strong><small>The original remains unchanged</small></div>
+                <audio id="viewer-audio" class="hidden" controls autoplay></audio>
+                <div id="viewer-file" class="viewer-file hidden"></div>
+              </div>
+              <div id="viewer-minimap" class="viewer-minimap hidden"><img id="viewer-minimap-image" alt="Viewer position map" /><span id="viewer-minimap-viewport"></span></div>
+              <footer><button id="viewer-previous" title="Previous">‹</button><span id="viewer-position"></span><button id="viewer-fit" title="Toggle fit/full view (`)">Fit</button><button id="viewer-open-default">Open with default app</button><button id="viewer-next" title="Next">›</button></footer>
+            </section>
+            <div id="duplicate-controls" class="duplicate-controls hidden"><div><strong id="duplicate-mode-label">Similar image groups</strong><span id="duplicate-summary"></span></div><label>Similarity accuracy <input id="duplicate-similarity" type="range" min="35" max="100" value="78" /><output id="duplicate-similarity-value">78%</output></label><button id="show-all-duplicate-groups" class="secondary-button hidden">Show all groups</button></div>
+            <div id="empty-state" class="empty-state">
+              <div class="empty-art"><span>⌁</span></div>
+              <h2 id="empty-title">Build your visual index</h2>
+              <p id="empty-description">Add folders or individual files. Pigeon catalogs them in place—nothing is copied, moved, or renamed.</p>
+              <div id="empty-actions" class="empty-actions">
+                <button id="empty-add-folder" class="primary-button">Index a folder</button>
+                <button id="empty-add-files" class="secondary-button">Add files</button>
+              </div>
+            </div>
+            <div id="asset-grid" class="asset-grid"></div>
+            <div id="batch-bar" class="batch-bar hidden"><strong id="batch-count">0 selected</strong><button id="batch-tag">Tag</button><button id="batch-collection">Collection</button><button id="batch-auto-tag">Auto tag</button><button id="batch-stack">Stack</button><button id="batch-unstack">Unstack</button><button id="batch-favorite">Favorite</button><button id="batch-trash">Trash</button><button id="batch-clear">×</button></div>
+            <button id="grid-sentinel" class="grid-sentinel hidden">Load more</button>
+          </div>
+
+          <aside id="inspector" class="inspector empty">
+            <div id="inspector-resizer" class="panel-resizer inspector-resizer" role="separator" aria-orientation="vertical" aria-label="Resize inspector panel" tabindex="0"></div>
+            <div id="inspector-placeholder" class="inspector-placeholder">
+              <div class="placeholder-icon">◫</div>
+              <p>Select an item to inspect it</p>
+            </div>
+            <div id="inspector-content" class="inspector-content hidden">
+              <div class="preview-card">
+                <img id="inspector-image" alt="Selected asset preview" />
+                <video id="inspector-video" class="hidden" controls preload="auto" muted playsinline></video>
+                <audio id="inspector-audio" class="hidden" controls preload="metadata"></audio>
+                <div id="inspector-file-icon" class="inspector-file-icon hidden"></div>
+                <span id="inspector-format" class="format-badge"></span>
+                <span id="inspector-offline" class="offline-badge hidden">Source offline</span>
+              </div>
+              <div id="asset-palette" class="color-row"></div>
+              <div id="asset-histogram" class="asset-histogram" title="Luminance histogram"></div>
+              <input id="asset-name" class="title-input" aria-label="Filename without extension" title="Rename source file (extension is preserved)" spellcheck="false" autocomplete="off" />
+              <div id="rating-row" class="rating-row" aria-label="Rating"></div>
+              <label class="field-label" for="asset-note">Notes</label>
+              <textarea id="asset-note" placeholder="Add a note…"></textarea>
+              <label class="field-label" for="asset-tags">Tags</label>
+              <input id="asset-tags" class="text-field" placeholder="Add a tag…" autocomplete="off" aria-autocomplete="list" aria-controls="tag-autocomplete" />
+              <datalist id="tag-suggestions"></datalist>
+              <div id="tag-pills" class="tag-pills"></div>
+              <dl class="metadata-list">
+                <div><dt>Location</dt><dd id="meta-location"></dd></div>
+                <div><dt>File</dt><dd id="meta-file"></dd></div>
+                <div><dt>Size</dt><dd id="meta-size"></dd></div>
+                <div><dt>Modified</dt><dd id="meta-modified"></dd></div>
+                <div><dt>Dimensions</dt><dd id="meta-dimensions"></dd></div>
+                <div><dt>Color</dt><dd id="meta-color"></dd></div>
+                <div><dt>Hash</dt><dd id="meta-hash"></dd></div>
+                <div><dt>Camera</dt><dd id="meta-camera"></dd></div>
+                <div><dt>Exposure</dt><dd id="meta-exposure"></dd></div>
+                <div><dt>Map</dt><dd id="meta-geo"></dd></div>
+              </dl>
+              <div class="inspector-actions">
+                <button id="open-asset" class="primary-button">Open</button>
+                <button id="reveal-asset" class="secondary-button">Reveal</button>
+                <button id="find-similar" class="secondary-button">Find similar</button>
+                <button id="annotate-asset" class="secondary-button">Annotate</button>
+              </div>
+            </div>
+          </aside>
+        </section>
+
+        <div id="background-progress" class="background-progress hidden" role="status" aria-live="polite"><div class="background-progress-copy"><strong id="background-progress-label">Working…</strong><span id="background-progress-detail"></span></div><div class="background-progress-track"><span id="background-progress-fill"></span></div></div>
+        <footer class="statusbar">
+          <span id="status-text">Ready</span>
+        </footer>
+      </main>
+    </div>
+
+    <div id="add-menu" class="popover hidden">
+      <button id="menu-add-folder"><span>▤</span><span><strong>Index folders</strong><small>Keep every file in place</small></span></button>
+      <button id="menu-add-files"><span>＋</span><span><strong>Add files</strong><small>Reference selected files</small></span></button>
+    </div>
+    <div id="facet-popover" class="facet-popover hidden"></div>
+    <div id="app-menu" class="app-menu hidden">
+      <button data-menu-group="library"><span>Portfolio</span><span>›</span></button>
+      <button data-menu-group="file"><span>File</span><span>›</span></button>
+      <button data-menu-group="edit"><span>Edit</span><span>›</span></button>
+      <button data-menu-group="find"><span>Find</span><span>›</span></button>
+      <button data-menu-group="organize"><span>Organize</span><span>›</span></button>
+      <button data-menu-group="view"><span>View</span><span>›</span></button>
+      <button data-menu-group="actions"><span>Actions</span><span>›</span></button>
+      <button data-menu-group="plugin"><span>Plugin</span><span>›</span></button>
+      <button data-menu-group="help"><span>Help</span><span>›</span></button>
+      <hr />
+      <button data-menu-action="settings"><span>Preferences…</span><kbd>Ctrl+,</kbd></button>
+      <button data-menu-action="about"><span>About Pigeon</span></button>
+      <hr />
+      <button data-menu-action="quit"><span>Quit</span><kbd>Alt+F4</kbd></button>
+    </div>
+    <div id="app-submenu" class="app-menu app-submenu hidden"></div>
+    <div id="tag-autocomplete" class="tag-autocomplete hidden" popover="manual" role="listbox" aria-label="Existing tag suggestions"></div>
+    <div id="asset-context-menu" class="app-menu context-menu hidden"></div>
+    <dialog id="about-dialog" class="about-dialog" aria-labelledby="about-title">
+      <button id="close-about" class="about-close" title="Close" aria-label="Close">×</button>
+      <img src="../pigeon-logo.png" alt="Pigeon logo" />
+      <h2 id="about-title">pigeon</h2><p class="about-subtitle">sees all</p>
+      <span id="about-version" class="about-version">Version</span>
+      <p class="about-credit">Developed by <strong>Chris Visser</strong></p>
+      <button id="about-github" class="about-github" type="button"><span id="about-github-icon"></span><span>github.com/vcsoc/pigeon</span></button>
+    </dialog>
+    <dialog id="tag-assignment-dialog" class="settings-dialog tag-assignment-dialog">
+      <header><strong>Assign tags</strong><button id="close-tag-assignment">×</button></header>
+      <div class="settings-content"><label for="batch-tag-input">Tags</label><p>Type or select existing tags. Separate multiple tags with commas.</p><input id="batch-tag-input" class="text-field" autocomplete="off" aria-autocomplete="list" aria-controls="tag-autocomplete" placeholder="Add tags…" /><footer><button id="cancel-tag-assignment">Cancel</button><button id="apply-tag-assignment" class="primary-button">Apply tags</button></footer></div>
+    </dialog>
+    <dialog id="icon-picker-dialog" class="settings-dialog icon-picker-dialog"><header><strong>Change Icon</strong><button id="close-icon-picker">×</button></header><div class="settings-content"><input id="icon-picker-search" class="text-field" type="search" placeholder="Search icons…" autocomplete="off" /><div id="icon-picker-grid" class="icon-picker-grid"></div><footer><button id="reset-item-icon">Reset to Default</button><button id="cancel-icon-picker">Cancel</button></footer></div></dialog>
+    <dialog id="text-entry-dialog" class="settings-dialog text-entry-dialog">
+      <header><strong id="text-entry-title">Enter a value</strong><button id="close-text-entry">×</button></header>
+      <div class="settings-content"><p id="text-entry-message"></p><div id="text-entry-tag-pills" class="text-entry-tag-pills hidden" aria-label="Applied automatic tags"></div><label id="text-entry-label" for="text-entry-input">Name</label><input id="text-entry-input" class="text-field" autocomplete="off" /><footer><button id="cancel-text-entry">Cancel</button><button id="confirm-text-entry" class="primary-button">Create</button></footer></div>
+    </dialog>
+    <dialog id="smart-folder-dialog" class="settings-dialog smart-folder-dialog">
+      <header><strong>New Smart Folder</strong><button id="close-smart-folder-dialog">×</button></header>
+      <div class="settings-content"><label for="smart-folder-name">Smart Folder Name</label><input id="smart-folder-name" class="text-field" autocomplete="off" /><p>Smart Folder will automatically collect items that meet these rules.</p><div class="smart-rule-mode"><select id="smart-folder-match"><option value="all">all</option><option value="any">any</option></select><span>of the following rules are true</span><button id="add-smart-rule" title="Add rule">＋</button></div><div id="smart-folder-rules" class="smart-folder-rules"></div><div id="smart-folder-found" class="smart-folder-found">Found 0 items</div><footer><button id="cancel-smart-folder">Cancel</button><button id="create-smart-folder" class="primary-button">Create</button></footer></div>
+    </dialog>
+    <dialog id="settings-dialog" class="settings-dialog preferences-dialog">
+      <div class="preferences-shell">
+        <aside class="preferences-nav"><strong>Preferences</strong><input id="preferences-search" type="search" placeholder="⌕  Search…" /><nav>
+          <button class="active" data-preference-page="general">◎ General</button><button data-preference-page="sidebar">▣ Sidebar</button><button data-preference-page="controls">☷ Controls</button><button data-preference-page="preview">◉ Preview</button><button data-preference-page="screenshot">▧ Screenshot</button><button data-preference-page="shortcuts">⌘ Shortcuts</button><button data-preference-page="notifications">♧ Notification</button><button data-preference-page="password">♙ Password</button><button data-preference-page="auto-import">⇩ Auto-Import</button><button data-preference-page="ai-search">◌ AI Search <small>Local</small></button><button data-preference-page="ai-models">◇ AI Models <small>Local</small></button><button data-preference-page="mcp">⌁ Pigeon MCP <small>Local</small></button><button data-preference-page="developer">‹/› Developer</button>
+        </nav></aside>
+        <section class="preferences-main"><header><strong id="preferences-title">General</strong><button id="close-settings">×</button></header><div class="preferences-pages">
+          <section class="preference-page active" data-preference-content="general"><div class="preference-card"><h3>Appearance</h3><div class="preference-row"><span>Theme</span><select data-pref="theme"><option value="dark">Dark</option><option value="graphite">Graphite</option><option value="midnight">Midnight</option></select></div><div class="preference-row"><span>Language</span><select data-pref="language"><option>English</option></select><span>Zoom Level</span><select data-pref="interfaceZoom"><option value="0.8">80%</option><option value="0.9">90%</option><option value="1">100%</option><option value="1.1">110%</option><option value="1.25">125%</option></select></div><label><input type="checkbox" data-pref="transparency" checked /> Enable transparency effects</label><label><input type="checkbox" data-pref="showCounts" checked /> Show counts on the sidebar</label></div><div class="preference-card"><h3>Launch and Performance</h3><label><input type="checkbox" data-pref="launchOnLogin" /> Launch automatically on login</label><label><input type="checkbox" data-pref="lowResourceMode" checked /> Low-resource background processing</label><label><input type="checkbox" data-pref="hardwareAcceleration" checked /> Enable GPU acceleration (restart required)</label><label><input type="checkbox" data-pref="videoProxiesOnDemand" checked /> Generate video compatibility previews only when playback fails</label><p>Background media work is asynchronous, single-threaded, and below-normal priority.</p></div><div class="preference-card"><h3>Portfolios</h3><p>Create separate portfolios with independent locations, collections, and tags.</p><div class="portfolio-manager"><select id="portfolio-select"></select><button id="switch-portfolio">Switch</button><button id="new-portfolio">New</button><button id="rename-portfolio">Rename</button><button id="delete-portfolio">Delete</button></div></div></section>
+          <section class="preference-page" data-preference-content="sidebar"><div class="preference-card"><h3>Interaction</h3><div class="preference-row"><span>Section title click</span><label><input type="radio" name="sidebar-title" data-pref="sidebarTitleAction" value="collapse" checked /> Expand/Collapse</label></div></div><div class="preference-card"><h3>Show these items</h3><div class="preference-grid"><label><input type="checkbox" data-pref="showUncategorized" checked /> Uncategorized</label><label><input type="checkbox" data-pref="showFavorites" checked /> Favorites</label><label><input type="checkbox" data-pref="showTags" checked /> All Tags</label><label><input type="checkbox" data-pref="showDuplicates" checked /> Duplicates</label><label><input type="checkbox" data-pref="showTrash" checked /> Trash</label><label><input type="checkbox" data-pref="showSmartFolders" checked /> Smart Folders</label><label><input type="checkbox" data-pref="showCollections" checked /> Collections</label><label><input type="checkbox" data-pref="showLocations" checked /> Indexed Locations</label></div></div></section>
+          <section class="preference-page" data-preference-content="controls"><div class="preference-card"><h3>Mouse</h3><div class="preference-row"><span>Ctrl + mouse wheel</span><select data-pref="wheelBehavior"><option value="scroll" selected>Keep vertical scrolling</option><option value="zoom">Resize thumbnails</option><option value="navigate">Previous/Next</option></select></div><label><input type="checkbox" data-pref="hoverZoom" /> Enable hover zoom</label><div class="preference-row"><span>Item double-click</span><select data-pref="doubleClick"><option value="viewer">View in Pigeon</option><option value="default">Open with default app</option></select></div></div><div class="preference-card"><h3>Keyboard</h3><div class="preference-row"><span>Spacebar behavior</span><select data-pref="spacebar"><option value="preview">Preview</option><option value="scroll">Scroll list</option></select></div><label><input id="confirm-folder-moves" type="checkbox" checked /> Confirm folder moves</label></div></section>
+          <section class="preference-page" data-preference-content="preview"><div class="preference-card"><h3>Image</h3><div class="preference-row"><span>Zooming</span><select data-pref="imageRendering"><option value="smooth">Smooth</option><option value="pixelated">Pixelated</option></select></div><label><input type="checkbox" data-pref="rememberViewerPosition" checked /> Remember last viewed positions</label><div class="preference-row"><span>Default image size</span><select data-pref="defaultImageSize"><option value="fit">Smart Fit</option><option value="original">Original size</option></select></div><label><input type="checkbox" data-pref="transparentGrid" /> Show transparency grid</label></div><div class="preference-card"><h3>Thumbnail titles</h3><p>Choose up to three optional title lines.</p><div class="thumbnail-title-settings"><label>Line 1</label><select id="thumbnail-title-line-1"></select><label>Line 2</label><select id="thumbnail-title-line-2"></select><label>Line 3</label><select id="thumbnail-title-line-3"></select></div></div><div class="preference-card"><h3>Hover media preview</h3><label><input type="checkbox" data-pref="videoHoverPreview" checked /> Play and scrub videos inside thumbnails</label><label><input type="checkbox" data-pref="audioHoverPreview" checked /> Play and scrub audio waveforms inside thumbnails</label><p>Move the pointer horizontally to seek through the media. Video previews always start muted.</p></div><div class="preference-card"><h3>Video viewer</h3><label><input type="checkbox" data-pref="videoAutoplay" /> Autoplay only when explicitly enabled</label><label><input type="checkbox" data-pref="videoMuted" checked /> Start muted</label><label><input type="checkbox" data-pref="videoLoopShort" /> Loop clips shorter than 30 seconds</label></div></section>
+          <section class="preference-page" data-preference-content="screenshot"><div class="preference-card"><h3>Format and Quality</h3><div class="preference-row"><span>Format</span><select data-pref="screenshotFormat"><option>PNG</option><option>JPG</option><option>WebP</option></select></div></div><div class="preference-card"><h3>Screenshot Options</h3><label><input type="checkbox" data-pref="screenshotNotify" checked /> Notify when a screenshot is taken</label><label><input type="checkbox" data-pref="screenshotTag" checked /> Add “Screenshot” tag automatically</label><label><input type="checkbox" data-pref="screenshotClipboard" /> Copy screenshot to clipboard</label></div></section>
+          <section class="preference-page" data-preference-content="shortcuts"><div class="preference-card"><h3>Portfolio Shortcuts</h3><label>Favourite shortcut</label><div class="shortcut-field"><input id="favorite-shortcut" readonly placeholder="Not set" /><button id="clear-favorite-shortcut">Clear</button></div><label>Location/map shortcut</label><div class="shortcut-field"><input id="location-shortcut" readonly placeholder="Not set" /><button id="clear-location-shortcut">Clear</button></div><div class="shortcut-list"><span>Open selected item</span><kbd>Enter</kbd><span>Duplicate</span><kbd>Ctrl+D</kbd><span>Preview</span><kbd>Space</kbd><span>Rate</span><kbd>1–5</kbd></div></div></section>
+          <section class="preference-page" data-preference-content="notifications"><div class="preference-card"><h3>Notifications</h3><label><input type="checkbox" data-pref="soundEffects" /> Sound effects</label><label><input type="checkbox" data-pref="popupNotifications" checked /> Pop-up notifications</label><label><input type="checkbox" data-pref="notifyDuplicates" /> Notify when importing duplicates</label><label><input type="checkbox" data-pref="notifyExtension" checked /> Notify when the browser extension adds images</label></div></section>
+          <section class="preference-page" data-preference-content="password"><div class="preference-card"><h3>Collection Security</h3><label><input id="encrypt-locked-folders" type="checkbox" /> Encrypt protected image copies and thumbnails</label><p>Passwords use PBKDF2-derived keys. Sources remain untouched.</p></div></section>
+          <section class="preference-page" data-preference-content="auto-import"><div class="preference-card"><h3>Auto-Import</h3><label><input type="checkbox" data-pref="autoImport" /> Enable Auto-Import</label><p>Monitor a local folder and index new files without moving them.</p><button id="choose-auto-import-folder">▱ Select a folder to monitor</button><output id="auto-import-folder">Not configured</output></div></section>
+          <section class="preference-page" data-preference-content="ai-search"><div class="preference-card"><h3>Local AI Search</h3><label><input type="checkbox" data-pref="localAiSearch" /> Enable local visual index</label><p>Uses locally cached perceptual hashes and tags. No assets leave this computer.</p><button id="rebuild-ai-index">Rebuild Local Index</button></div></section>
+          <section class="preference-page" data-preference-content="ai-models"><div class="preference-card preference-empty"><h3>Local Model Providers</h3><p>Optional local model endpoints can enrich tags. Network providers are never enabled automatically.</p><button id="add-model-provider">＋ Add Local Model Provider</button><button id="import-model-config">⇩ Import Config</button></div></section>
+          <section class="preference-page" data-preference-content="mcp"><div class="preference-card"><h3>Pigeon MCP</h3><label><input type="checkbox" data-pref="mcpEnabled" /> Enable localhost MCP server</label><p>Disabled by default. Sandboxed tools only; no remote listener.</p><div class="preference-grid"><label><input type="checkbox" data-pref="mcpAssets" checked /> Assets</label><label><input type="checkbox" data-pref="mcpFolders" checked /> Folders</label><label><input type="checkbox" data-pref="mcpTags" checked /> Tags</label><label><input type="checkbox" data-pref="mcpSmartFolders" /> Smart Folders</label></div></div></section>
+          <section class="preference-page" data-preference-content="developer"><div class="preference-card"><h3>Local API Token</h3><div class="shortcut-field"><input id="developer-token" readonly /><button id="regenerate-developer-token">Regenerate Token</button></div><p>For optional localhost integrations only.</p></div></section>
+        </div><footer><button id="apply-preferences">Apply</button><button id="save-preferences" class="primary-button">Save Changes</button></footer></section>
+      </div>
+    </dialog>
+    <dialog id="annotation-dialog" class="annotation-dialog">
+      <header><strong>Non-destructive annotations</strong><button id="close-annotations">×</button></header>
+      <div class="annotation-toolbar"><button data-tool="rect">Rectangle</button><button data-tool="text">Text</button><button data-tool="crop">Crop</button><input id="annotation-color" type="color" value="#ff3b30" /><button id="undo-annotation">Undo</button><span class="toolbar-divider"></span><button id="rotate-left">↶ Rotate</button><button id="rotate-right">↷ Rotate</button><button id="flip-image">⇋ Flip</button><label>Brightness <input id="edit-brightness" type="range" min="50" max="150" value="100" /></label></div>
+      <div id="annotation-stage" class="annotation-stage"></div>
+      <footer><button id="save-annotations" class="secondary-button">Save metadata</button><button id="export-annotations" class="primary-button">Export derivative</button></footer>
+    </dialog>
+    <section id="diagnostics-console" class="diagnostics-console hidden" aria-label="Diagnostics Console">
+      <header><div><strong>Diagnostics Console</strong><span id="diagnostics-summary">No recorded issues</span></div><div class="diagnostics-actions"><button id="diagnostics-open-file">Open Log File</button><button id="diagnostics-clear">Clear</button><button id="diagnostics-close" aria-label="Close">×</button></div></header>
+      <nav><button class="active" data-diagnostic-level="all">All</button><button data-diagnostic-level="error">Errors</button><button data-diagnostic-level="warning">Warnings</button><button data-diagnostic-level="info">Info</button></nav>
+      <div id="diagnostics-list" class="diagnostics-list" role="log" aria-live="polite"></div>
+    </section>
+    <div id="toast" class="toast hidden"></div>
+    <script src="icons.js"></script>
+    <script src="world-land.js"></script>
+    <script src="renderer.js"></script>
+  </body>
+</html>
