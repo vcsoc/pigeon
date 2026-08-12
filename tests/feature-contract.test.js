@@ -113,9 +113,9 @@ test('startup uses the transparent Pigeon logo everywhere', async () => {
   assert.match(styles,/\.app-shell\.startup-active > :not\(\.startup-splash\)/);
   assert.match(html,/startup-brand[\s\S]*?<strong>pigeon<\/strong><span>sees all<\/span>/);
   assert.match(styles,/\.startup-brand \{ position:absolute; left:0; bottom:0/);
-  assert.match(styles,/\.startup-brand img \{[^}]*width:156px/);
-  assert.match(styles,/\.startup-brand strong \{[^}]*font-size:46px/);
-  assert.match(styles,/\.startup-brand span \{[^}]*font-size:18px/);
+  assert.match(styles,/\.startup-brand img \{[^}]*width:210px/);
+  assert.match(styles,/\.startup-brand strong \{[^}]*font-size:58px/);
+  assert.match(styles,/\.startup-brand span \{[^}]*font-size:23px/);
   assert.match(styles, /\.brand-mark \{[^}]*background: transparent/);
   assert.doesNotMatch(html, /pigeon\.png/);
   assert.match(main, /icon: path\.join\([^\n]*'pigeon-logo\.png'/);
@@ -125,7 +125,7 @@ test('startup uses the transparent Pigeon logo everywhere', async () => {
   assert.equal((await logo.stats()).isOpaque, false);
   assert.match(renderer, /finishStartupSplash/);
   assert.match(renderer, /STARTUP_SPLASH_MINIMUM_MS=2000/);
-  assert.match(styles, /\.startup-brand img \{[^}]*width:156px/);
+  assert.match(styles, /\.startup-brand img \{[^}]*width:210px/);
   assert.match(styles, /border: 0/);
 });
 
@@ -541,6 +541,11 @@ test('left panel item visibility context menu and inspector preview collapse are
   assert.match(renderer,/primarySidebarItems/);
   assert.match(renderer,/showPrimarySidebarContextMenu/);
   assert.match(renderer,/data-toggle-sidebar-item/);
+  assert.match(renderer,/applyPrimarySidebarVisibility/);
+  assert.match(renderer,/clickEvent\.stopPropagation\(\)/);
+  assert.match(renderer,/class="menu-check"/);
+  assert.match(styles,/\.app-menu\.sidebar-visibility-menu \{ width:158px/);
+  assert.match(styles,/grid-template-columns:minmax\(0,1fr\) 16px/);
   assert.match(renderer,/showUntagged: true/);
   assert.match(renderer,/showAnalytics: true/);
   assert.match(renderer,/pigeon\.inspectorPreviewCollapsed/);
@@ -712,7 +717,7 @@ test('Trash context menu deletes source files permanently or through the operati
   assert.match(renderer,/trashDeletionMode: 'permanent'/);
   assert.match(renderer,/showTrashContextMenu/);
   assert.match(renderer,/data-trash-action="clear"/);
-  assert.match(renderer,/event\.target\.closest\('\[data-view="trash"\]'\)\)showTrashContextMenu\(event\)/);
+  assert.match(renderer,/showPrimarySidebarContextMenu\(event,\{trash:Boolean\(event\.target\.closest\('\[data-view="trash"\]'\)\)\}\)/);
   assert.match(preload,/emptyTrash: \(mode = 'permanent'\)/);
   assert.match(main,/shell\.trashItem\(asset\.path\)/);
   assert.match(main,/fsp\.rm\(asset\.path, \{ force: true \}\)/);

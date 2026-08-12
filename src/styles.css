@@ -53,8 +53,8 @@ html[data-theme="midnight"] { --bg: #151a25; --panel: #1d2230; --sidebar: #191e2
 .app-shell.startup-active > :not(.startup-splash) { visibility:hidden; }
 .startup-splash { position: fixed; inset: 0; z-index: 1000; background: var(--bg); opacity: 1; transition: opacity 180ms ease; }
 .startup-brand { position:absolute; left:0; bottom:0; display:flex; align-items:flex-end; gap:18px; margin:0; padding:0; text-align:left; }
-.startup-brand img { display:block; width:156px; height:156px; object-fit:contain; border:0; border-radius:0; box-shadow:none; background:transparent; }
-.startup-brand div { display:grid; gap:13px; padding-bottom:22px; }.startup-brand strong { color:#f1f3f7; font-size:46px; line-height:.92; letter-spacing:.015em; text-transform:lowercase; }.startup-brand span { color:#8995b3; font-size:18px; line-height:1; font-style:italic; letter-spacing:.13em; text-transform:lowercase; }
+.startup-brand img { display:block; width:210px; height:210px; object-fit:contain; border:0; border-radius:0; box-shadow:none; background:transparent; }
+.startup-brand div { display:grid; gap:15px; padding-bottom:30px; }.startup-brand strong { color:#f1f3f7; font-size:58px; line-height:.92; letter-spacing:.015em; text-transform:lowercase; }.startup-brand span { color:#8995b3; font-size:23px; line-height:1; font-style:italic; letter-spacing:.13em; text-transform:lowercase; }
 .startup-splash.finishing { opacity: 0; pointer-events: none; }
 .startup-splash.hidden { display: none; }
 .app-shell.sidebar-collapsed { --sidebar-width: 0px; }
@@ -574,6 +574,8 @@ textarea { resize: vertical; min-height: 68px; padding: 8px; line-height: 1.5; }
 .app-menu button:hover { background: #34373d; }
 .app-menu kbd { color: #9ba0a8; font: 10px inherit; }
 .app-menu hr { height: 1px; margin: 6px -8px; border: 0; background: #393c42; }
+.app-menu.sidebar-visibility-menu { width:158px; padding:5px; border-color:#464a52; border-radius:7px; background:#202226; box-shadow:0 9px 24px rgba(0,0,0,.58); }
+.app-menu.sidebar-visibility-menu button { height:25px; padding:0 7px; display:grid; grid-template-columns:minmax(0,1fr) 16px; gap:8px; font-size:10.5px; }.app-menu.sidebar-visibility-menu button > span:first-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.app-menu.sidebar-visibility-menu .menu-check { color:#dce1e9; text-align:right; }.app-menu.sidebar-visibility-menu hr { margin:5px -5px; }
 .app-submenu { width: 210px; }
 .context-menu { width: 210px; }
 .context-menu button { justify-content: flex-start; gap: 8px; text-align: left; }
