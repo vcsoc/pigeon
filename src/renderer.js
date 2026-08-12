@@ -258,16 +258,18 @@ function refreshDuplicateIds() {
   if (!state.duplicateGroups.length) state.duplicateGroups = [...groups.values()].filter((ids) => ids.length > 1);
   state.duplicateIds = new Set(state.duplicateGroups.flat());
 }
-let similarityRefreshGeneration = 0;
+let similarityRefreshGeneration = 0, similarityRefreshPromise = null, lastSimilarityRefreshAt = 0;
 async function refreshSimilarityGroups(renderAfter = true) {
-  const generation = ++similarityRefreshGeneration;
+  if (similarityRefreshPromise) return similarityRefreshPromise; if (!renderAfter && Date.now()-lastSimilarityRefreshAt<5000) return;
+  const generation = ++similarityRefreshGeneration; similarityRefreshPromise = (async()=>{
   try {
     const groups = await window.pigeon.findSimilarGroups(state.duplicateSimilarity, state.duplicateSourceId);
     if (generation !== similarityRefreshGeneration) return;
     state.duplicateGroups = groups; state.duplicateIds = new Set(groups.flat());
-    if (renderAfter && state.view === 'duplicates') { resetRenderLimit(); render(); }
-    else renderSidebar();
-  } catch (error) { showToast(error.message); }
+    lastSimilarityRefreshAt=Date.now(); if (renderAfter && state.view === 'duplicates') { resetRenderLimit(); render(); }
+    else { $('#duplicates-count').textContent=state.duplicateIds.size; }
+  } catch (error) { showToast(error.message); } finally { similarityRefreshPromise=null; }
+  })(); return similarityRefreshPromise;
 }
 
 function filteredAssets() {
@@ -502,7 +504,7 @@ function collapsedFolderStorageKey() { return `pigeon.collapsedFolders.${state.l
 function collapsedFolders() { try { return new Set(JSON.parse(localStorage.getItem(collapsedFolderStorageKey()) || '[]')); } catch { return new Set(); } }
 function isFolderCollapsed(key) { return collapsedFolders().has(key); }
 function setFolderCollapsed(key, collapsed) { const folders = collapsedFolders(); if (collapsed) folders.add(key); else folders.delete(key); localStorage.setItem(collapsedFolderStorageKey(), JSON.stringify([...folders])); }
-function toggleFolderCollapsed(key) { setFolderCollapsed(key, !isFolderCollapsed(key)); renderSidebar(); }
+function toggleFolderCollapsed(key) { setFolderCollapsed(key, !isFolderCollapsed(key)); renderSidebar(false); scheduleFolderTreeBuild(); }
 const collectionCollapseKey = (id) => `collection:${id}`;
 const smartFolderCollapseKey = (id) => `smart-folder:${id}`;
 const locationCollapseKey = (id, subfolder = '') => subfolder ? `subfolder:${id}:${subfolder.toLowerCase()}` : `location:${id}`;
@@ -538,7 +540,7 @@ function handleSidebarTreeKeys(event) { const row = event.target.closest('.colle
 function wireSidebarKeyboard() { for (const tree of [$('#collection-list'),$('#smart-folder-list'),$('#location-list')]) { if (tree.dataset.keyboardWired) continue; tree.dataset.keyboardWired = 'true'; tree.addEventListener('keydown', handleSidebarTreeKeys); } }
 const folderTreeCache = new Map(), folderTreeLimits = new Map(); let folderTreeGeneration = 0, folderTreeTimer = null;
 function scheduleFolderTreeBuild() { clearTimeout(folderTreeTimer); const generation = ++folderTreeGeneration; folderTreeTimer = setTimeout(async () => { const limits = Object.fromEntries(state.library.locations.map((location)=>[location.id,folderTreeLimits.get(location.id)||300])); try { const result = await window.pigeon.buildFolderTree({ collapsedKeys:[...collapsedFolders()], limits }); if (generation !== folderTreeGeneration) return; folderTreeCache.clear(); for (const entry of result) folderTreeCache.set(entry.locationId,entry); renderSidebar(false); } catch (error) { window.pigeon.logDiagnostic('error','Folder tree calculation failed',error.message); } }, 80); }
-function renderSidebar(rebuildFolderTree = true) {
+function renderSidebar(rebuildFolderTree = false) {
   const activePortfolio = (state.library.portfolios || []).find((item) => item.id === state.library.activePortfolioId);
   $('#active-portfolio-name').textContent = activePortfolio?.name || 'My Portfolio';
   document.title = `Pigeon — ${activePortfolio?.name || 'Portfolio'}`;
@@ -990,7 +992,7 @@ document.addEventListener('keydown', (event) => {
 }, true);
 document.addEventListener('mousedown', (event) => { if (!event.target.closest('#tag-autocomplete, [data-tag-autocomplete="true"]')) hideTagAutocomplete(); }, true);
 function updateSubfolderContentToggle() { const button = $('#subfolder-content-toggle'), enabled = state.includeSubfolderContent; button.classList.toggle('selected', enabled); button.setAttribute('aria-pressed', String(enabled)); button.title = enabled ? 'Hide content from subfolders' : 'Show content from subfolders'; button.setAttribute('aria-label', button.title); }
-function render() { updateSubfolderContentToggle(); renderTagSuggestions(); renderSidebar(); renderGrid(); renderInspector(); }
+function render() { updateSubfolderContentToggle(); renderTagSuggestions(); renderSidebar(false); renderGrid(); renderInspector(); }
 function resetRenderLimit() { state.renderLimit = 240; }
 function clearSelection() { state.selectedIds.clear(); state.selectionAnchorId = null; }
 function updateCardSelectionStyles() {
@@ -2188,23 +2190,22 @@ window.pigeon.onLibraryChanged((library) => {
   if (!state.library.loading && !(state.library.totalAssets ?? state.library.assets.length)) finishStartupSplash();
   if (!state.library.loading && state.navigationRestoredPortfolioId !== state.library.activePortfolioId) { restoreNavigationState(); updateFilterChips(); }
   resetRenderLimit();
-  render();
+  render(); scheduleFolderTreeBuild();
 });
 window.pigeon.onLibraryAssets(({ generation, assets, done }) => {
   if (generation !== state.streamGeneration) return;
   const firstBatch = state.library.assets.length === 0;
   state.library.assets.push(...assets);
-  if (done) { state.library.totalAssets = state.library.assets.length; refreshDuplicateIds(); refreshSimilarityGroups(state.view === 'duplicates'); finishStartupSplash(); }
+  if (done) { state.library.totalAssets = state.library.assets.length; refreshDuplicateIds(); refreshSimilarityGroups(state.view === 'duplicates'); finishStartupSplash(); scheduleFolderTreeBuild(); }
   clearTimeout(streamRenderTimer);
   if (firstBatch || done) { render(); if (done && isInternalViewerOpen()) renderInternalViewer(); }
-  else streamRenderTimer = setTimeout(render, 140);
+  else streamRenderTimer = setTimeout(() => { renderGrid(); updateLocationProgressUI(); }, 240);
 });
+function updateLocationProgressUI() { for (const location of state.library.locations) { const row=elements.locationList.querySelector(`[data-location-id="${location.id}"]`); if (!row) continue; row.classList.toggle('offline',!location.online); row.classList.toggle('scanning',Boolean(location.scanning)); const count=row.querySelector('.location-root-button small'); if(count) count.textContent=location.assetCount||0; } const scanning=state.library.locations.find((location)=>location.scanning),progress=scanning?.scanProgress; if(scanning) elements.status.textContent=`Indexing ${scanning.name}… ${progress?.inspected||0}${progress?.discovered?` / ${progress.discovered}`:''}`; }
 window.pigeon.onLocationsChanged(({ locations, loading, totalAssets }) => {
-  state.library.locations = locations;
-  state.library.loading = loading;
-  state.library.totalAssets = totalAssets;
-  renderSidebar();
-  renderGrid();
+  const structureChanged = locations.length !== state.library.locations.length || locations.some((location,index)=>location.id!==state.library.locations[index]?.id || location.path!==state.library.locations[index]?.path);
+  state.library.locations = locations; state.library.loading = loading; state.library.totalAssets = totalAssets;
+  if(structureChanged){ renderSidebar(false); scheduleFolderTreeBuild(); } else updateLocationProgressUI();
 });
 window.pigeon.onThumbnailReady(({ id, previewUrl, mediaUrl, width, height, duration, failed, error, dominantColor, histogram, palette, perceptualHash, exif, technicalMetadata }) => {
   const asset = state.library.assets.find((item) => item.id === id);

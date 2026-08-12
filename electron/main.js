@@ -606,6 +606,7 @@ async function scanLocation(locationId, { notify = true, resume = false } = {}) 
     }
     const workerCount = location.unstable ? 2 : Math.min(INDEX_WORKER_COUNT, Math.ceil(Math.max(1, filePaths.length - location.scanCheckpoint.nextIndex) / INDEX_BATCH_SIZE));
     reportBackgroundProgress(progressId, { label: `Adding files from ${location.name}`, detail: `${filePaths.length.toLocaleString()} files · ${workerCount} index threads · ${INDEX_CPU_LIMIT}% CPU ceiling`, completed: location.scanCheckpoint.nextIndex, total: filePaths.length });
+    let lastCheckpointAt = Date.now();
     while (location.scanCheckpoint.nextIndex < filePaths.length && backgroundRunActive(run)) {
       if (!(await waitForIndexCpuBudget(run))) break;
       const waveStart = location.scanCheckpoint.nextIndex, batches = [];
@@ -614,7 +615,8 @@ async function scanLocation(locationId, { notify = true, resume = false } = {}) 
       if (!backgroundRunActive(run)) break;
       for (const result of inspectedBatches.flat()) { if (result.error) continue; const existing = previous.get(path.resolve(result.filePath)), asset = await inspectFile(result.filePath, location, existing, { deferHash: location.unstable, inspection: result }); if (!asset) continue; const index = jobLibrary.assets.findIndex((item) => item.id === asset.id); if (index >= 0) jobLibrary.assets[index] = asset; else jobLibrary.assets.push(asset); previous.set(asset.path, asset); }
       location.scanCheckpoint.nextIndex = Math.min(filePaths.length, waveStart + batches.reduce((sum, batch) => sum + batch.length, 0)); location.scanProgress.inspected = location.scanCheckpoint.nextIndex; location.assetCount = jobLibrary.assets.filter((asset) => asset.locationId === location.id).length;
-      await persistLibrary(jobLibrary); reportBackgroundProgress(progressId, { label: `Adding files from ${location.name}`, detail: `${location.scanProgress.inspected.toLocaleString()} of ${filePaths.length.toLocaleString()} · ${workerCount} threads`, completed: location.scanProgress.inspected, total: filePaths.length }); if (notify) broadcastLocations(); await new Promise((resolve) => setImmediate(resolve));
+      if (Date.now() - lastCheckpointAt >= 2000) { lastCheckpointAt = Date.now(); persistLibrary(jobLibrary).catch((error)=>recordDiagnostic('error','Index checkpoint save failed',error)); }
+      reportBackgroundProgress(progressId, { label: `Adding files from ${location.name}`, detail: `${location.scanProgress.inspected.toLocaleString()} of ${filePaths.length.toLocaleString()} · ${workerCount} threads`, completed: location.scanProgress.inspected, total: filePaths.length }); if (notify) scheduleBroadcast(250); await new Promise((resolve) => setImmediate(resolve));
     }
     if (!backgroundRunActive(run)) return;
     const foundPaths = new Set(filePaths.map((filePath) => path.resolve(filePath))), currentAssets = jobLibrary.assets.filter((asset) => asset.locationId === location.id), retained = currentAssets.map((asset) => foundPaths.has(asset.path) ? asset : scanComplete ? ({ ...asset, sourceMissing: true, sourcePending: false, missingSince: asset.missingSince || Date.now() }) : ({ ...asset, sourcePending: true, sourceMissing: false }));

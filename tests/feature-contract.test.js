@@ -372,6 +372,16 @@ test('indexed folders scroll on hover and preview failures terminate cleanly', (
   assert.match(renderer, /asset\.thumbnailPath \? asset\.previewUrl : asset\.mediaUrl/);
 });
 
+test('frequent indexing progress avoids full renderer and database rebuilds', () => {
+  assert.match(renderer,/function updateLocationProgressUI/);
+  assert.match(renderer,/if\(structureChanged\)/);
+  assert.match(renderer,/setTimeout\(\(\) => \{ renderGrid\(\); updateLocationProgressUI\(\); \}, 240\)/);
+  assert.match(renderer,/similarityRefreshPromise/);
+  assert.match(renderer,/Date\.now\(\)-lastSimilarityRefreshAt<5000/);
+  assert.match(main,/Date\.now\(\) - lastCheckpointAt >= 2000/);
+  assert.match(main,/scheduleBroadcast\(250\)/);
+});
+
 test('huge folder trees are worker-built and bounded, console resizes/fullscreens, and twelve threads are allowed', () => {
   assert.match(html, /class="nav-item" data-view="untagged"/);
   for (const id of ['diagnostics-resizer','diagnostics-fullscreen']) assert.match(html,new RegExp(`id="${id}"`));
