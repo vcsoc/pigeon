@@ -134,6 +134,8 @@ function batchUpdateAssets(library, ids, operation = {}) {
     else if (Object.hasOwn(operation, 'rotateBy')) asset.rotation = ((Number(asset.rotation || 0) + Number(operation.rotateBy || 0)) % 360 + 360) % 360;
     if (operation.geo && Number.isFinite(Number(operation.geo.lat)) && Number.isFinite(Number(operation.geo.lon))) asset.geo = { lat: Number(operation.geo.lat), lon: Number(operation.geo.lon), address: String(operation.geo.address || '').slice(0, 500), updatedAt: Date.now() };
     if (operation.clearGeo) asset.geo = null;
+    if (Object.hasOwn(operation, 'note')) asset.note = String(operation.note || '').slice(0, 10000);
+    if (operation.clearInfo) { asset.note = ''; asset.tags = []; asset.rating = 0; asset.favorite = false; asset.geo = null; asset.annotations = []; }
     if (operation.trash) asset.deletedAt = asset.deletedAt || Date.now();
     if (operation.restore) asset.deletedAt = null;
     updated += 1;

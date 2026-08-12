@@ -132,6 +132,7 @@ const savedWindowZoom = Number(localStorage.getItem('pigeon.windowZoom'));
 state.uiZoom = Number.isFinite(savedWindowZoom) ? Math.max(.6, Math.min(2, savedWindowZoom)) : 1;
 state.favoriteShortcut = localStorage.getItem('pigeon.favoriteShortcut') || '';
 state.locationShortcut = localStorage.getItem('pigeon.locationShortcut') || '';
+let shortcutActions = (() => { try { const value=JSON.parse(localStorage.getItem('pigeon.shortcutActions')||'[]'); return Array.isArray(value)?value:[]; } catch { return []; } })();
 state.encryptLockedFolders = localStorage.getItem('pigeon.encryptLockedFolders') === 'true';
 state.confirmFolderMoves = localStorage.getItem('pigeon.confirmFolderMoves') !== 'false';
 const thumbnailTitleFields = new Set(['none', 'name', 'filename', 'dimensions', 'type', 'size', 'rating', 'date', 'folder', 'tags']);
@@ -1231,6 +1232,18 @@ function shortcutFromEvent(event) {
   const key = event.key === ' ' ? 'Space' : event.key.length === 1 ? event.key.toUpperCase() : event.key;
   parts.push(key); return parts.join('+');
 }
+const shortcutStepTypes=[['addTags','Add Tags'],['collection','Add to Collection'],['rating','Set Rating'],['description','Add Description'],['favorite','Set Favourite'],['clearInfo','Clear Info']];
+let editingShortcutActionId=null;
+function persistShortcutActions(){localStorage.setItem('pigeon.shortcutActions',JSON.stringify(shortcutActions));}
+function shortcutStepSummary(step){if(step.type==='collection')return state.library.collections?.find((item)=>item.id===step.value)?.name||'Choose collection';if(step.type==='rating')return `${Number(step.value)||0} stars`;if(step.type==='favorite')return step.value==='false'?'Remove favourite':'Mark favourite';if(step.type==='clearInfo')return 'Tags, rating, description, location and favourite';return step.value||'Configure value';}
+function renderShortcutActions(){const list=$('#shortcut-actions-list');if(!list)return;list.innerHTML=shortcutActions.length?shortcutActions.map((action)=>`<div class="shortcut-action-row" data-shortcut-action="${action.id}"><span><strong>${escapeHtml(action.name)}</strong><small>${escapeHtml((action.steps||[]).map(shortcutStepSummary).join(' → '))}</small></span>${action.shortcut?`<kbd>${escapeHtml(action.shortcut)}</kbd>`:''}<button type="button" data-edit-shortcut-action="${action.id}" title="Edit">✎</button><button type="button" data-remove-shortcut-action="${action.id}" title="Delete">×</button></div>`).join(''):'<div class="shortcut-action-empty">No custom actions yet. Create one to automate the selected thumbnails.</div>';}
+function shortcutStepValueControl(step,index){if(step.type==='collection')return `<select data-shortcut-step-value="${index}"><option value="">Choose collection…</option>${(state.library.collections||[]).map((item)=>`<option value="${item.id}" ${step.value===item.id?'selected':''}>${escapeHtml(item.name)}</option>`).join('')}</select>`;if(step.type==='rating')return `<select data-shortcut-step-value="${index}">${[0,1,2,3,4,5].map((value)=>`<option value="${value}" ${String(step.value)===String(value)?'selected':''}>${value===0?'Clear rating':`${value} star${value===1?'':'s'}`}</option>`).join('')}</select>`;if(step.type==='favorite')return `<select data-shortcut-step-value="${index}"><option value="true" ${step.value!=='false'?'selected':''}>Mark favourite</option><option value="false" ${step.value==='false'?'selected':''}>Remove favourite</option></select>`;if(step.type==='clearInfo')return '<input value="Clear editable information" disabled />';return `<input data-shortcut-step-value="${index}" value="${escapeHtml(step.value||'')}" placeholder="${step.type==='addTags'?'Comma-separated tags':'Description'}" />`;}
+function renderShortcutActionSteps(steps){$('#shortcut-action-steps').innerHTML=steps.map((step,index)=>`<div class="shortcut-step" data-shortcut-step="${index}"><select data-shortcut-step-type="${index}">${shortcutStepTypes.map(([value,label])=>`<option value="${value}" ${step.type===value?'selected':''}>${label}</option>`).join('')}</select>${shortcutStepValueControl(step,index)}<button type="button" data-remove-shortcut-step="${index}" title="Remove step">×</button></div>`).join('');}
+function readShortcutActionSteps(){return $$('.shortcut-step').map((row)=>({type:row.querySelector('[data-shortcut-step-type]').value,value:row.querySelector('[data-shortcut-step-value]')?.value||''}));}
+function openShortcutActionDialog(action=null){editingShortcutActionId=action?.id||null;$('#shortcut-action-title').textContent=action?'Edit Action':'Create Action';$('#shortcut-action-name').value=action?.name||'';$('#shortcut-action-key').value=action?.shortcut||'';$('#save-shortcut-action').textContent=action?'Save Action':'Create Action';renderShortcutActionSteps(action?.steps?.map((step)=>({...step}))||[]);if(!$('#shortcut-action-dialog').open)$('#shortcut-action-dialog').showModal();setTimeout(()=>$('#shortcut-action-name').focus(),0);}
+function closeShortcutActionDialog(){if($('#shortcut-action-dialog').open)$('#shortcut-action-dialog').close();editingShortcutActionId=null;}
+function operationForShortcutStep(step){if(step.type==='addTags')return{addTags:String(step.value).split(',').map((tag)=>tag.trim()).filter(Boolean)};if(step.type==='collection')return{collectionId:step.value};if(step.type==='rating')return{rating:Number(step.value)||0};if(step.type==='description')return{note:step.value};if(step.type==='favorite')return{favorite:step.value!=='false'};if(step.type==='clearInfo')return{clearInfo:true};return{};}
+async function runShortcutAction(action){const ids=isInternalViewerOpen()?[state.viewerAssetId]:state.selectedIds.size?[...state.selectedIds]:state.selectedId?[state.selectedId]:[];if(!ids.length){showToast('Select one or more thumbnails first');return;}let result;for(let index=0;index<(action.steps||[]).length;index++)result=await window.pigeon.batchUpdateAssets(ids,operationForShortcutStep(action.steps[index]),{silent:true,returnAssets:index===action.steps.length-1});const updates=new Map((result?.assets||[]).map((asset)=>[asset.id,asset]));for(const asset of state.library.assets)if(updates.has(asset.id))Object.assign(asset,updates.get(asset.id));reconcileThumbnailCards(ids);showToast(`${action.name} applied to ${ids.length} item${ids.length===1?'':'s'}`);}
 function renderPortfolioManager() {
   const select = $('#portfolio-select');
   select.innerHTML = (state.library.portfolios || []).map((portfolio) => `<option value="${portfolio.id}" ${portfolio.id === state.library.activePortfolioId ? 'selected' : ''}>${escapeHtml(portfolio.name)}</option>`).join('');
@@ -1268,6 +1281,7 @@ function openSettings() {
   renderPortfolioManager(); renderThumbnailTitleSettings(); populatePreferenceInputs();
   $('#favorite-shortcut').value = state.favoriteShortcut;
   $('#location-shortcut').value = state.locationShortcut;
+  renderShortcutActions();
   $('#encrypt-locked-folders').checked = state.encryptLockedFolders;
   $('#confirm-folder-moves').checked = state.confirmFolderMoves;
   if (!$('#settings-dialog').open) $('#settings-dialog').showModal();
@@ -2082,6 +2096,14 @@ $('#location-shortcut').addEventListener('keydown', (event) => {
   const shortcut = shortcutFromEvent(event); if (!shortcut) return;
   state.locationShortcut = shortcut; localStorage.setItem('pigeon.locationShortcut', shortcut); event.currentTarget.value = shortcut;
 });
+$('#new-shortcut-action').addEventListener('click',()=>openShortcutActionDialog());
+$('#close-shortcut-action').addEventListener('click',closeShortcutActionDialog);$('#cancel-shortcut-action').addEventListener('click',closeShortcutActionDialog);
+$('#shortcut-action-key').addEventListener('keydown',(event)=>{event.preventDefault();event.stopPropagation();if(event.key==='Backspace'||event.key==='Delete'){event.currentTarget.value='';return;}const shortcut=shortcutFromEvent(event);if(shortcut)event.currentTarget.value=shortcut;});
+$('#add-shortcut-step').addEventListener('click',()=>renderShortcutActionSteps([...readShortcutActionSteps(),{type:'addTags',value:''}]));
+$('#shortcut-action-steps').addEventListener('change',(event)=>{if(!event.target.matches('[data-shortcut-step-type]'))return;const steps=readShortcutActionSteps(),index=Number(event.target.dataset.shortcutStepType);steps[index]={type:event.target.value,value:''};renderShortcutActionSteps(steps);});
+$('#shortcut-action-steps').addEventListener('click',(event)=>{const button=event.target.closest('[data-remove-shortcut-step]');if(!button)return;const steps=readShortcutActionSteps();steps.splice(Number(button.dataset.removeShortcutStep),1);renderShortcutActionSteps(steps);});
+$('#save-shortcut-action').addEventListener('click',()=>{const name=$('#shortcut-action-name').value.trim(),shortcut=$('#shortcut-action-key').value,steps=readShortcutActionSteps();if(!name){showToast('Enter an action name');return;}if(!steps.length){showToast('Add at least one step');return;}const duplicate=shortcut&&shortcutActions.some((action)=>action.shortcut===shortcut&&action.id!==editingShortcutActionId);if(duplicate){showToast('That shortcut is already assigned');return;}const action={id:editingShortcutActionId||crypto.randomUUID(),name,shortcut,steps};const index=shortcutActions.findIndex((item)=>item.id===action.id);if(index>=0)shortcutActions[index]=action;else shortcutActions.push(action);persistShortcutActions();renderShortcutActions();closeShortcutActionDialog();showToast('Shortcut action saved');});
+$('#shortcut-actions-list').addEventListener('click',(event)=>{const edit=event.target.closest('[data-edit-shortcut-action]'),remove=event.target.closest('[data-remove-shortcut-action]');if(edit)openShortcutActionDialog(shortcutActions.find((action)=>action.id===edit.dataset.editShortcutAction));if(remove){shortcutActions=shortcutActions.filter((action)=>action.id!==remove.dataset.removeShortcutAction);persistShortcutActions();renderShortcutActions();}});
 $('#quick-action-button').addEventListener('click', (event) => { event.stopPropagation(); showAppSubmenu('library', event.currentTarget); });
 $('#pin-button').addEventListener('click', async (event) => {
   const pinned = await window.pigeon.toggleAlwaysOnTop();
@@ -2104,6 +2126,7 @@ document.addEventListener('keydown', (event) => {
   if (commandKey && event.key === '0') { event.preventDefault(); applyWindowZoom(1); return; }
   if (!editing && state.favoriteShortcut && shortcutFromEvent(event) === state.favoriteShortcut) { event.preventDefault(); toggleSelectedFavourite(); return; }
   if (!editing && state.locationShortcut && shortcutFromEvent(event) === state.locationShortcut) { event.preventDefault(); openMapView(isInternalViewerOpen() ? [state.viewerAssetId] : [...state.selectedIds]); return; }
+  const shortcutAction=!editing&&shortcutActions.find((action)=>action.shortcut&&action.shortcut===shortcutFromEvent(event));if(shortcutAction){event.preventDefault();runShortcutAction(shortcutAction).catch((error)=>showToast(error.message));return;}
   if (state.mapOpen) return;
   if (!editing && !commandKey && event.code === 'Space' && preferences.spacebar === 'preview') { event.preventDefault(); if (isInternalViewerOpen()) closeInternalViewer(); else if (state.selectedId) openInternalViewer(state.selectedId); return; }
   if (!editing && !commandKey && !event.altKey && event.key === 'Delete' && state.collectionId && !isInternalViewerOpen()) { event.preventDefault(); removeSelectedFromCurrentCollection(); return; }

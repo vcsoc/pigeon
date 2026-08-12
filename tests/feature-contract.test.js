@@ -111,6 +111,8 @@ test('startup uses the transparent Pigeon logo everywhere', async () => {
   assert.match(html, /rel="icon"[^>]*pigeon-logo\.png/);
   assert.match(styles, /\.startup-splash \{[^}]*background: var\(--bg\)/);
   assert.match(styles,/\.app-shell\.startup-active > :not\(\.startup-splash\)/);
+  assert.match(html,/startup-brand[\s\S]*?<strong>pigeon<\/strong><span>sees all<\/span>/);
+  assert.match(styles,/\.startup-brand \{ position:absolute; left:28px; bottom:24px/);
   assert.match(styles, /\.brand-mark \{[^}]*background: transparent/);
   assert.doesNotMatch(html, /pigeon\.png/);
   assert.match(main, /icon: path\.join\([^\n]*'pigeon-logo\.png'/);
@@ -120,7 +122,7 @@ test('startup uses the transparent Pigeon logo everywhere', async () => {
   assert.equal((await logo.stats()).isOpaque, false);
   assert.match(renderer, /finishStartupSplash/);
   assert.match(renderer, /STARTUP_SPLASH_MINIMUM_MS=2000/);
-  assert.match(styles, /max-width: 350px/);
+  assert.match(styles, /\.startup-brand img \{[^}]*width:76px/);
   assert.match(styles, /border: 0/);
 });
 
@@ -646,6 +648,20 @@ test('availability refresh and inline About Pigeon view are wired', () => {
   assert.match(renderer,/\$\('#about-dialog'\)\.addEventListener\('click',closeAboutView\)/);
   assert.match(icons, /github:/);
   assert.match(styles, /\.about-dialog \{ position:fixed; inset:0/);
+  assert.match(html,/about-corner-logo/);
+  assert.match(styles,/\.about-corner-logo \{ position:absolute; left:28px; bottom:24px/);
+});
+
+test('custom shortcut actions combine configurable steps for the current selection',()=>{
+  for(const id of ['new-shortcut-action','shortcut-actions-list','shortcut-action-dialog','shortcut-action-name','shortcut-action-key','shortcut-action-steps','add-shortcut-step','save-shortcut-action'])assert.match(html,new RegExp(`id="${id}"`));
+  for(const label of ['Add Tags','Add to Collection','Set Rating','Add Description','Set Favourite','Clear Info'])assert.match(renderer,new RegExp(label));
+  assert.match(renderer,/pigeon\.shortcutActions/);
+  assert.match(renderer,/runShortcutAction/);
+  assert.match(renderer,/shortcutActions\.find\(\(action\)=>action\.shortcut/);
+  assert.match(renderer,/batchUpdateAssets\(ids,operationForShortcutStep/);
+  assert.match(libraryCore,/operation\.clearInfo/);
+  assert.match(libraryCore,/Object\.hasOwn\(operation, 'note'\)/);
+  assert.match(styles,/\.shortcut-action-dialog/);
 });
 
 test('global background progress and scoped analytics are wired', () => {
