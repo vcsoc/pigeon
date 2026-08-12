@@ -381,8 +381,18 @@ test('indexed folders scroll on hover and preview failures terminate cleanly', (
   assert.match(renderer, /asset\.thumbnailPath \? asset\.previewUrl : asset\.mediaUrl/);
 });
 
-test('large indexing avoids full-library checkpoint clones and caps PDF memory concurrency', () => {
+test('large indexing applies system-stability backpressure and crash recovery', () => {
   assert.match(main,/PDF_WORKER_LIMIT = 2/);
+  assert.match(main,/LARGE_SCAN_WORKER_LIMIT = 4/);
+  assert.match(main,/MIN_FREE_MEMORY_BYTES/);
+  assert.match(main,/os\.freemem\(\)/);
+  assert.match(main,/await worker\.terminate\(\)/);
+  assert.match(main,/scanWorkActive/);
+  assert.match(main,/waitForScanIdle/);
+  assert.match(main,/resourceLimits: \{ maxOldGenerationSizeMb: 128 \}/);
+  assert.match(main,/crashReporter\.start/);
+  assert.match(main,/child-process-gone/);
+  assert.match(main,/render-process-gone/);
   assert.match(main,/maxOldGenerationSizeMb: 192/);
   assert.match(main,/databaseSaveInFlight/);
   assert.match(main,/pendingDatabaseSnapshot/);

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, protocol, shell, clipboard, desktopCapturer } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, protocol, shell, clipboard, desktopCapturer, crashReporter } = require('electron');
 const fsp = require('node:fs/promises');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -64,6 +64,8 @@ const INDEX_WORKER_COUNT = Math.max(2, Math.min(MAX_BACKGROUND_THREADS, Math.max
 const THUMBNAIL_WORKER_COUNT = Math.max(2, Math.min(MAX_BACKGROUND_THREADS, Math.max(1, os.cpus().length - 1)));
 const BACKGROUND_HASH_WORKERS = Math.max(2, Math.min(MAX_BACKGROUND_THREADS, Math.max(1, os.cpus().length - 1)));
 const PDF_WORKER_LIMIT = 2;
+const LARGE_SCAN_WORKER_LIMIT = 4;
+const MIN_FREE_MEMORY_BYTES = 2 * 1024 * 1024 * 1024;
 let activePdfWorkers = 0;
 const pdfWorkerWaiters = [];
 let diagnosticsFile;
@@ -97,6 +99,7 @@ if (smokeTest) {
   if (smokeSeeded) fs.rmSync(smokeProfile, { recursive: true, force: true });
   app.setPath('userData', smokeProfile);
 }
+const crashDumpDirectory=path.join(app.getPath('userData'),'crashes'); fs.mkdirSync(crashDumpDirectory,{recursive:true}); app.setPath('crashDumps',crashDumpDirectory); crashReporter.start({uploadToServer:false,compress:false});
 const runtimePreferencesFile = path.join(app.getPath('userData'), 'runtime-preferences.json');
 try { const runtimePreferences = JSON.parse(fs.readFileSync(runtimePreferencesFile, 'utf8')); if (runtimePreferences.hardwareAcceleration === false) app.disableHardwareAcceleration(); } catch { /* Defaults remain enabled. */ }
 const hasInstanceLock = app.requestSingleInstanceLock();
@@ -115,7 +118,9 @@ async function telemetrySnapshot() {
   const threads = await Promise.all([...workerTelemetry.values()].map(async (entry) => { const resource = await workerResourceTelemetry(entry); return { id: entry.id, threadId: entry.threadId, type: entry.type, portfolioId: entry.portfolioId, status: entry.status, startedAt: entry.startedAt, filesCompleted: entry.filesCompleted, filesTotal: entry.filesTotal, currentFile: entry.currentFile, batch: entry.batch, ...resource }; }));
   return { timestamp: Date.now(), collective: { cpu, memoryBytes, gpuCpu: gpuProcesses.reduce((sum, item) => sum + (item.cpu?.percentCPUUsage || 0), 0), gpuMemoryBytes: gpuProcesses.reduce((sum, item) => sum + (item.memory?.workingSetSize || 0) * 1024, 0), filesCompleted: threads.reduce((sum, item) => sum + item.filesCompleted, 0), filesTotal: threads.reduce((sum, item) => sum + item.filesTotal, 0), activeThreads: threads.length, logicalCpus: os.cpus().length, cpuLimit: INDEX_CPU_LIMIT }, threads, processes: metrics.map((item) => ({ pid: item.pid, type: item.type, cpu: item.cpu?.percentCPUUsage || 0, memoryBytes: (item.memory?.workingSetSize || 0) * 1024 })) };
 }
-async function waitForIndexCpuBudget(run) { while (backgroundRunActive(run)) { const snapshot = await telemetrySnapshot(); if (snapshot.collective.cpu < INDEX_CPU_LIMIT) return true; await new Promise((resolve) => setTimeout(resolve, 180)); } return false; }
+async function waitForIndexCpuBudget(run) { while (backgroundRunActive(run)) { const snapshot = await telemetrySnapshot(),freeMemory=os.freemem(); if (snapshot.collective.cpu < INDEX_CPU_LIMIT && freeMemory>=MIN_FREE_MEMORY_BYTES) return true; if(freeMemory<MIN_FREE_MEMORY_BYTES)reportBackgroundProgress(run.progressId,{label:'Indexing paused for system stability',detail:`Waiting for available memory · ${Math.round(freeMemory/1024/1024)} MB free`,status:'paused'}); await new Promise((resolve) => setTimeout(resolve, freeMemory<MIN_FREE_MEMORY_BYTES?1000:180)); } return false; }
+function scanWorkActive(){return [...backgroundRuns.values()].some((run)=>run.type==='scan'&&backgroundRunActive(run));}
+async function waitForScanIdle(run){while(backgroundRunActive(run)&&scanWorkActive())await backgroundDelay(500,run);return backgroundRunActive(run);}
 
 function kindFor(extension) {
   if (IMAGE_EXTENSIONS.has(extension)) return 'image';
@@ -377,9 +382,12 @@ function startThumbnailWorker() {
 }
 
 function dispatchThumbnailJobs() {
-  while (thumbnailWorkers.length < THUMBNAIL_WORKER_COUNT) startThumbnailWorker();
+  const concurrency=scanWorkActive()?1:THUMBNAIL_WORKER_COUNT;
+  while (thumbnailWorkers.length < concurrency) startThumbnailWorker();
+  let dispatched=thumbnailWorkers.filter((worker)=>worker.busy).length;
   for (const worker of [...thumbnailWorkers]) {
-    if (worker.busy || !thumbnailQueue.length) continue;
+    if (dispatched>=concurrency||worker.busy || !thumbnailQueue.length) continue;
+    dispatched+=1;
     const job = thumbnailQueue.shift(); worker.busy = true; worker.currentJob = job; if (worker.telemetry) { worker.telemetry.filesTotal += 1; worker.telemetry.currentFile = job.source; worker.telemetry.status = 'running'; }
     worker.jobTimer = setTimeout(() => { recordDiagnostic('warning', 'Preview worker timed out', { source: job.source, timeout: 10000 }); finishThumbnailWorkerJob(worker, { ok: false, message: 'Preview generation timed out' }, true); }, 10000);
     worker.postMessage({ source: job.source, target: job.target });
@@ -567,9 +575,9 @@ async function inspectFile(filePath, location, existing, { deferHash = false, in
 
 function inspectScanBatch(batch, location, previous, run, batchNumber) {
   return new Promise((resolve) => {
-    const worker = new Worker(path.join(__dirname, 'scan-worker.js'), { workerData: { batch: batch.map((filePath) => ({ filePath, existing: previous.get(path.resolve(filePath)) ? { size: previous.get(path.resolve(filePath)).size, modified: previous.get(path.resolve(filePath)).modified, contentHash: previous.get(path.resolve(filePath)).contentHash } : null })), deferHash: location.unstable, dutyCycle: Math.max(0.08, (INDEX_CPU_LIMIT / 100) / INDEX_WORKER_COUNT) } });
+    const worker = new Worker(path.join(__dirname, 'scan-worker.js'), { workerData: { batch: batch.map((filePath) => ({ filePath, existing: previous.get(path.resolve(filePath)) ? { size: previous.get(path.resolve(filePath)).size, modified: previous.get(path.resolve(filePath)).modified, contentHash: previous.get(path.resolve(filePath)).contentHash } : null })), deferHash: location.unstable, dutyCycle: Math.max(0.08, (INDEX_CPU_LIMIT / 100) / INDEX_WORKER_COUNT) }, resourceLimits: { maxOldGenerationSizeMb: 128 } });
     const telemetry = trackWorker(worker, 'index-scan', { portfolioId: run.portfolioId, filesTotal: batch.length, batch: batchNumber }); telemetry.currentFile = batch[0] || '';
-    let settled = false; const finish = (result) => { if (settled) return; settled = true; clearTimeout(timer); telemetry.filesCompleted = result?.results?.length || 0; telemetry.status = result?.error ? 'failed' : 'completed'; try { telemetry.memoryBytes = worker.resourceLimits?.maxOldGenerationSizeMb ? worker.resourceLimits.maxOldGenerationSizeMb * 1024 * 1024 : 0; } catch { /* unavailable */ } worker.terminate().catch(() => {}); resolve(result?.results || []); };
+    let settled = false; const finish = async (result) => { if (settled) return; settled = true; clearTimeout(timer); telemetry.filesCompleted = result?.results?.length || 0; telemetry.status = result?.error ? 'failed' : 'completed'; try { telemetry.memoryBytes = worker.resourceLimits?.maxOldGenerationSizeMb ? worker.resourceLimits.maxOldGenerationSizeMb * 1024 * 1024 : 0; } catch { /* unavailable */ } try { await worker.terminate(); } catch {} resolve(result?.results || []); };
     const timer = setTimeout(() => { recordDiagnostic('warning', 'Index worker timed out', { location: location.path, batch: batchNumber }); finish({ error: 'timeout' }); }, location.unstable ? 15000 : 45000);
     worker.once('message', finish); worker.once('error', (error) => { recordDiagnostic('error', 'Index worker failed', error); finish({ error: error.message }); }); worker.once('exit', () => finish({ error: 'exited' }));
   });
@@ -617,7 +625,7 @@ async function scanLocation(locationId, { notify = true, resume = false } = {}) 
       if (!backgroundRunActive(run)) return;
       await saveScanQueue(run.portfolioId,location.id,filePaths); location.scanCheckpoint = { root: location.path, nextIndex: 0, discovered:filePaths.length, complete: scanComplete, startedAt: Date.now() }; await persistLibrary(jobLibrary);
     }
-    const workerCount = location.unstable ? 2 : Math.min(INDEX_WORKER_COUNT, Math.ceil(Math.max(1, filePaths.length - location.scanCheckpoint.nextIndex) / INDEX_BATCH_SIZE));
+    const workerCount = location.unstable ? 2 : Math.min(filePaths.length>=10000?LARGE_SCAN_WORKER_LIMIT:INDEX_WORKER_COUNT, Math.ceil(Math.max(1, filePaths.length - location.scanCheckpoint.nextIndex) / INDEX_BATCH_SIZE));
     reportBackgroundProgress(progressId, { label: `Adding files from ${location.name}`, detail: `${filePaths.length.toLocaleString()} files · ${workerCount} index threads · ${INDEX_CPU_LIMIT}% CPU ceiling`, completed: location.scanCheckpoint.nextIndex, total: filePaths.length });
     let lastCheckpointAt = Date.now(), assetsSinceCheckpoint=[];
     while (location.scanCheckpoint.nextIndex < filePaths.length && backgroundRunActive(run)) {
@@ -694,7 +702,9 @@ async function warmContentHashes() {
   if (!total) { finishBackgroundRun(run); return; } reportBackgroundProgress(progressId, { label: 'Analyzing file fingerprints', detail: `${total.toLocaleString()} files`, total });
   let completed = 0, failed = 0;
   try {
+    if(scanWorkActive()&&!(await waitForScanIdle(run)))return;
     const workers = Array.from({ length: Math.min(BACKGROUND_HASH_WORKERS, pending.length) }, async () => { while (pending.length && backgroundRunActive(run)) {
+      if(scanWorkActive()&&!(await waitForScanIdle(run)))break;
       const asset = pending.shift(), result = await retryBackground(async () => { const hash = await hashFile(asset.path, 8000); if (!hash) throw new Error('Fingerprint unavailable'); return hash; }, run, { attempts: 3, timeout: 9000, baseDelay: 100, label: `Fingerprint ${asset.filename}` });
       if (!backgroundRunActive(run)) break; if (typeof result === 'string') asset.contentHash = result; else failed += 1; completed += 1;
       if (completed % 10 === 0 || completed === total) reportBackgroundProgress(progressId, { label: 'Analyzing file fingerprints', detail: `${completed.toLocaleString()} of ${total.toLocaleString()}${failed ? ` · ${failed} failed` : ''}`, completed, total });
@@ -733,6 +743,7 @@ async function warmThumbnailCache() {
   try {
   const workers = Array.from({ length: Math.min(THUMBNAIL_WORKER_COUNT, pending.length) }, async () => {
     while (pending.length && backgroundRunActive(run)) {
+      if(scanWorkActive()&&!(await waitForScanIdle(run)))break;
       const asset = pending.shift();
       const thumbnail = await retryBackground(async () => { const value = asset.kind === 'video' ? await prepareVideoFiles(asset) : await createThumbnail(asset); if (!value?.ok) throw new Error(value?.message || 'Preview unavailable'); return value; }, run, { attempts: 3, timeout: 11000, baseDelay: 120, label: `Preview ${asset.filename}` });
       if (!backgroundRunActive(run)) break; completed += 1; if (completed % 5 === 0 || completed === total) reportBackgroundProgress(progressId, { label: 'Building media previews', detail: `${completed.toLocaleString()} of ${total.toLocaleString()}`, completed, total });
@@ -1112,7 +1123,7 @@ function createWindow() {
   });
   mainWindow.on('maximize', () => mainWindow.webContents.send('window:maximized', true));
   mainWindow.on('unmaximize', () => mainWindow.webContents.send('window:maximized', false));
-  mainWindow.webContents.on('render-process-gone', (_event, details) => recordDiagnostic('error', 'Renderer process stopped', details));
+  mainWindow.webContents.on('render-process-gone', (_event, details) => { recordDiagnostic('error', 'Renderer process stopped', details); if(!app.isQuitting&&details.reason!=='clean-exit')setTimeout(()=>{if(mainWindow&&!mainWindow.isDestroyed())mainWindow.reload();else createWindow();},500); });
   mainWindow.webContents.on('console-message', (_event, details) => { if (details.level === 'warning' || details.level === 'error') recordDiagnostic(details.level, details.message, `${details.sourceId}:${details.lineNumber}`); });
   mainWindow.loadFile(path.join(__dirname, '..', 'src', 'index.html'));
   if (smokeTest) {
@@ -1934,6 +1945,7 @@ app.whenReady().then(async () => {
       assets: Array.from({ length: 25000 }, (_, index) => ({ id: `asset-${index}`, locationId: 'large', path: `virtual/${index}.dat`, name: `Reference ${index + 1}`, filename: `${index}.dat`, extension: 'DAT', kind: 'file', size: index, created: Date.now(), modified: Date.now() - index, indexedAt: Date.now(), tags: [], note: '', rating: 0, favorite: false, thumbnailPath: null }))
     });
   }
+  app.on('child-process-gone',(_event,details)=>recordDiagnostic('error','Electron child process stopped',details));
   createWindow();
   for (const value of pendingProtocolUrls.splice(0)) handleProtocolUrl(value);
   const startupUrl = process.argv.find((argument) => argument.startsWith('pigeon://'));
