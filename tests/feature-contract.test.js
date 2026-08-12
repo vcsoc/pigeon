@@ -24,8 +24,24 @@ test('UI exposes collection, smart-folder, batch, trash, media, metadata and edi
 });
 
 test('preload exposes local-first ingestion, sync, plugin, batch and editing APIs', () => {
-  for (const api of ['setCollectionAutoTags', 'setFolderAutoTags', 'copyText', 'pathForDroppedFile', 'importDroppedFiles', 'searchMap', 'suggestMap', 'createPortfolio', 'renamePortfolio', 'switchPortfolio', 'removePortfolio', 'createCollection', 'batchUpdateAssets', 'findDuplicates', 'autoTag', 'importUrl', 'importClipboard', 'captureScreen', 'backupLibrary', 'configureSync', 'syncNow', 'exportAnnotated', 'runPlugin', 'openAssetWith', 'ensurePlayable', 'setWindowZoom', 'setCollectionPassword', 'unlockCollection', 'lockCollectionNow', 'removeCollectionPassword', 'renameAssetFile', 'applyInlineCrop', 'resetInlineEdits', 'duplicateAsset', 'stackAssets', 'unstackAssets']) assert.match(preload, new RegExp(`${api}:`));
+  for (const api of ['setCollectionAutoTags', 'setFolderAutoTags', 'copyText', 'copyAssets', 'pasteAssets', 'pathForDroppedFile', 'importDroppedFiles', 'searchMap', 'suggestMap', 'createPortfolio', 'renamePortfolio', 'switchPortfolio', 'removePortfolio', 'createCollection', 'batchUpdateAssets', 'findDuplicates', 'autoTag', 'importUrl', 'importClipboard', 'captureScreen', 'backupLibrary', 'configureSync', 'syncNow', 'exportAnnotated', 'runPlugin', 'openAssetWith', 'ensurePlayable', 'setWindowZoom', 'setCollectionPassword', 'unlockCollection', 'lockCollectionNow', 'removeCollectionPassword', 'renameAssetFile', 'applyInlineCrop', 'resetInlineEdits', 'duplicateAsset', 'stackAssets', 'unstackAssets']) assert.match(preload, new RegExp(`${api}:`));
   assert.match(preload, /webUtils\.getPathForFile/);
+});
+
+test('Ctrl+A selects thumbnails and Ctrl+C/Ctrl+V use the native file clipboard',()=>{
+  assert.match(preload,/copyAssets:/);
+  assert.match(preload,/pasteAssets:/);
+  assert.match(main,/clipboard:copy-assets/);
+  assert.match(main,/SetFileDropList/);
+  assert.match(main,/ContainsFileDropList/);
+  assert.match(main,/clipboard\.readImage\(\)/);
+  assert.match(main,/importDroppedFiles\(paths\)/);
+  assert.match(renderer,/event\.key\.toLowerCase\(\)==='a'/);
+  assert.match(renderer,/state\.selectedIds=new Set\(ids\)/);
+  assert.match(renderer,/event\.key\.toLowerCase\(\)==='c'/);
+  assert.match(renderer,/window\.pigeon\.copyAssets/);
+  assert.match(renderer,/event\.key\.toLowerCase\(\)==='v'/);
+  assert.match(renderer,/window\.pigeon\.pasteAssets/);
 });
 
 test('external drops use a managed organization inbox and ordinary wheel input scrolls', () => {

@@ -2084,6 +2084,9 @@ document.addEventListener('keydown', (event) => {
   if (!editing && state.viewerCropMode && event.key === 'Escape') { event.preventDefault(); cancelViewerCrop(); return; }
   if (!editing && state.mapOpen && event.key === 'Escape') { event.preventDefault(); closeMapView(); return; }
   const commandKey = event.metaKey || event.ctrlKey;
+  if(!editing&&commandKey&&event.key.toLowerCase()==='a'){event.preventDefault();const ids=filteredAssets().map((asset)=>asset.id);state.selectedIds=new Set(ids);state.selectedId=ids[0]||null;state.selectionAnchorId=state.selectedId;updateCardSelectionStyles();renderInspector();showToast(`${ids.length} item${ids.length===1?'':'s'} selected`);return;}
+  if(!editing&&commandKey&&event.key.toLowerCase()==='c'){event.preventDefault();const ids=state.selectedIds.size?[...state.selectedIds]:state.selectedId?[state.selectedId]:[];window.pigeon.copyAssets(ids).then((result)=>showToast(`${result.copied} file${result.copied===1?'':'s'} copied to clipboard`)).catch((error)=>showToast(error.message));return;}
+  if(!editing&&commandKey&&event.key.toLowerCase()==='v'){event.preventDefault();window.pigeon.pasteAssets().then((result)=>showToast(result.imported?`${result.imported} file${result.imported===1?'':'s'} pasted into Needs Organization`:'Clipboard does not contain files or an image')).catch((error)=>showToast(error.message));return;}
   if (commandKey && (event.key === '+' || event.key === '=' || event.code === 'NumpadAdd')) { event.preventDefault(); applyWindowZoom(state.uiZoom + .1); return; }
   if (commandKey && (event.key === '-' || event.code === 'NumpadSubtract')) { event.preventDefault(); applyWindowZoom(state.uiZoom - .1); return; }
   if (commandKey && event.key === '0') { event.preventDefault(); applyWindowZoom(1); return; }

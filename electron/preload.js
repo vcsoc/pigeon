@@ -46,6 +46,8 @@ contextBridge.exposeInMainWorld('pigeon', {
   setFolderAutoTags: (locationId, subfolder, tags) => ipcRenderer.invoke('folder:set-auto-tags', { locationId, subfolder, tags }),
   setCollectionAutoTags: (collectionId, tags) => ipcRenderer.invoke('collection:set-auto-tags', { collectionId, tags }),
   copyText: (text) => ipcRenderer.invoke('clipboard:write-text', text),
+  copyAssets: (ids) => ipcRenderer.invoke('clipboard:copy-assets', ids),
+  pasteAssets: () => ipcRenderer.invoke('clipboard:paste-assets'),
   batchUpdateAssets: (ids, operation, options = {}) => ipcRenderer.invoke('assets:batch-update', { ids, operation, options }),
   stackAssets: (ids) => ipcRenderer.invoke('assets:stack', ids),
   unstackAssets: (ids) => ipcRenderer.invoke('assets:unstack', ids),
