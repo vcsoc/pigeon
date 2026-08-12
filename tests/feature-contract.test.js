@@ -112,7 +112,10 @@ test('startup uses the transparent Pigeon logo everywhere', async () => {
   assert.match(styles, /\.startup-splash \{[^}]*background: var\(--bg\)/);
   assert.match(styles,/\.app-shell\.startup-active > :not\(\.startup-splash\)/);
   assert.match(html,/startup-brand[\s\S]*?<strong>pigeon<\/strong><span>sees all<\/span>/);
-  assert.match(styles,/\.startup-brand \{ position:absolute; left:28px; bottom:24px/);
+  assert.match(styles,/\.startup-brand \{ position:absolute; left:0; bottom:0/);
+  assert.match(styles,/\.startup-brand img \{[^}]*width:156px/);
+  assert.match(styles,/\.startup-brand strong \{[^}]*font-size:46px/);
+  assert.match(styles,/\.startup-brand span \{[^}]*font-size:18px/);
   assert.match(styles, /\.brand-mark \{[^}]*background: transparent/);
   assert.doesNotMatch(html, /pigeon\.png/);
   assert.match(main, /icon: path\.join\([^\n]*'pigeon-logo\.png'/);
@@ -122,7 +125,7 @@ test('startup uses the transparent Pigeon logo everywhere', async () => {
   assert.equal((await logo.stats()).isOpaque, false);
   assert.match(renderer, /finishStartupSplash/);
   assert.match(renderer, /STARTUP_SPLASH_MINIMUM_MS=2000/);
-  assert.match(styles, /\.startup-brand img \{[^}]*width:76px/);
+  assert.match(styles, /\.startup-brand img \{[^}]*width:156px/);
   assert.match(styles, /border: 0/);
 });
 
@@ -662,6 +665,32 @@ test('custom shortcut actions combine configurable steps for the current selecti
   assert.match(libraryCore,/operation\.clearInfo/);
   assert.match(libraryCore,/Object\.hasOwn\(operation, 'note'\)/);
   assert.match(styles,/\.shortcut-action-dialog/);
+});
+
+test('Trash context menu deletes source files permanently or through the operating-system trash',()=>{
+  assert.match(html,/data-pref="trashDeletionMode"/);
+  assert.match(html,/Permanently delete files/);
+  assert.match(html,/operating-system Recycle Bin/);
+  assert.match(renderer,/trashDeletionMode: 'permanent'/);
+  assert.match(renderer,/showTrashContextMenu/);
+  assert.match(renderer,/data-trash-action="clear"/);
+  assert.match(renderer,/data-view="trash"\]'\)\.addEventListener\('contextmenu',showTrashContextMenu\)/);
+  assert.match(preload,/emptyTrash: \(mode = 'permanent'\)/);
+  assert.match(main,/shell\.trashItem\(asset\.path\)/);
+  assert.match(main,/fsp\.rm\(asset\.path, \{ force: true \}\)/);
+  assert.match(main,/failures\.push/);
+});
+
+test('Analytics and All Tags preserve the previous library position for back and forward navigation',()=>{
+  assert.match(renderer,/captureNavigationSnapshot/);
+  assert.match(renderer,/rememberTemporaryViewOrigin/);
+  assert.match(renderer,/if\(view==='tags'\)rememberTemporaryViewOrigin\(\)/);
+  assert.match(renderer,/function openAnalytics[^\n]*rememberTemporaryViewOrigin\(\)/);
+  assert.match(renderer,/gridScrollTop:Math\.max\(0,Number\(elements\.gridWrap\.scrollTop\)\|\|0\)/);
+  assert.match(renderer,/\['analytics','tags'\]\.includes\(state\.view\)&&navigationReturnState/);
+  assert.match(renderer,/navigation-back'\)\.addEventListener\('click',returnFromTemporaryView\)/);
+  assert.match(renderer,/navigation-forward'\)\.addEventListener\('click',forwardToTemporaryView\)/);
+  assert.match(renderer,/close-analytics'\)\.addEventListener\('click',\(\)=>\{if\(!returnFromTemporaryView\(\)\)/);
 });
 
 test('global background progress and scoped analytics are wired', () => {
