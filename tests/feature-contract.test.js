@@ -23,6 +23,12 @@ test('UI exposes collection, smart-folder, batch, trash, media, metadata and edi
   }
 });
 
+test('sidebar-only creation, universal worker progress, and immediate inspector tag suggestions are wired',()=>{
+  assert.match(main,/function broadcastSidebar/);assert.match(main,/collection:create[\s\S]{0,180}broadcastSidebar\(\)/);assert.match(main,/smart-folder:create[\s\S]{0,180}broadcastSidebar\(\)/);assert.match(preload,/onSidebarChanged/);assert.match(renderer,/window\.pigeon\.onSidebarChanged/);
+  assert.match(main,/showProgress=!\['database','thumbnail'\]\.includes\(type\)/);assert.match(main,/if\(showProgress\)reportBackgroundProgress/);assert.match(main,/worker complete/);
+  assert.match(renderer,/if\(input===elements\.tags\)/);assert.match(renderer,/addTagsToAssets\(targets,\[tag\]\)/);assert.match(renderer,/event\.key === 'Enter'.*applyTagSuggestion/);
+});
+
 test('trash progress, PDF first-page refresh, sidebar ordering, reset icon, and larger branding are wired',()=>{
   assert.match(main,/Clearing Trash/);assert.match(main,/reportBackgroundProgress\(progressId/);assert.match(main,/pdfPreviewVersion!==2/);assert.match(main,/timeout: asset\.extension==='PDF'\?35000:11000/);
   assert.match(fs.readFileSync(path.join(root,'electron','pdf-thumbnail-child.js'),'utf8'),/standardFontDataUrl/);

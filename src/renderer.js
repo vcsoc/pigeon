@@ -994,6 +994,7 @@ function renderTagAutocomplete(input) {
   const rect = input.getBoundingClientRect(); popup.style.minWidth = `${Math.max(190, rect.width)}px`; popup.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - popup.offsetWidth - 8))}px`; popup.style.top = `${Math.max(8, Math.min(rect.bottom + 3, window.innerHeight - popup.offsetHeight - 8))}px`;
 }
 function applyTagSuggestion(input, tag) {
+  if(input===elements.tags){const targets=expandedTagTargetIds();input.value='';hideTagAutocomplete();addTagsToAssets(targets,[tag]);input.focus();return;}
   if (input.dataset.tagPillEditor === 'true') { addTextEntryTags([tag]); input.value = ''; hideTagAutocomplete(); input.focus(); return; }
   const token = currentTagToken(input), prefix = input.dataset.tagMultiple === 'true' && token.start ? `${input.value.slice(0, token.start).trimEnd()} ` : input.value.slice(0, token.start), suffix = input.value.slice(token.end);
   input.value = `${prefix}${tag}${suffix}`; const cursor = prefix.length + tag.length; input.setSelectionRange(cursor, cursor); input.dispatchEvent(new Event('input', { bubbles: true })); hideTagAutocomplete(); input.focus();
@@ -1750,11 +1751,11 @@ $('#smart-folder-match').addEventListener('change', updateSmartFolderFound);
 $('#add-smart-rule').addEventListener('click', () => { smartFolderRules.push({ field: 'name', operator: 'contains', value: '' }); renderSmartFolderRules(); });
 const closeSmartFolderDialog = () => { $('#smart-folder-dialog').close(); smartFolderDialogParentId = null; };
 $('#close-smart-folder-dialog').addEventListener('click', closeSmartFolderDialog); $('#cancel-smart-folder').addEventListener('click', closeSmartFolderDialog);
-$('#create-smart-folder').addEventListener('click', async () => { const name = $('#smart-folder-name').value.trim(); if (!name) { $('#smart-folder-name').focus(); return; } try { await window.pigeon.createSmartFolder(name, currentSmartFolderFilters(), smartFolderDialogParentId); closeSmartFolderDialog(); } catch (error) { showToast(error.message); } });
+$('#create-smart-folder').addEventListener('click', async () => { const name = $('#smart-folder-name').value.trim(); if (!name) { $('#smart-folder-name').focus(); return; } try { const folder=await window.pigeon.createSmartFolder(name,currentSmartFolderFilters(),smartFolderDialogParentId);if(folder&&!state.library.smartFolders.some((item)=>item.id===folder.id)){state.library.smartFolders.push(folder);renderSidebar(false);}closeSmartFolderDialog(); } catch (error) { showToast(error.message); } });
 async function createCollectionPrompt(parentId = null) {
   const parent = state.library.collections.find((item) => item.id === parentId), name = await requestText({ title: parent ? `New Subfolder in ${parent.name}` : 'Create a Collection', message: parent ? 'The new collection will appear nested beneath this collection.' : 'Collections organize references without moving the original files.', label: 'Collection name', placeholder: 'Collection name', confirmText: parent ? 'Create Subfolder' : 'Create Collection' });
   if (!name?.trim()) return null;
-  try { return await window.pigeon.createCollection(name.trim(), parentId); } catch (error) { showToast(error.message); return null; }
+  try { const collection=await window.pigeon.createCollection(name.trim(),parentId);if(collection&&!state.library.collections.some((item)=>item.id===collection.id)){state.library.collections.push(collection);renderSidebar(false);}return collection;} catch (error) { showToast(error.message); return null; }
 }
 $('#add-collection').addEventListener('click', () => createCollectionPrompt());
 $('#save-smart-folder').addEventListener('click', () => openSmartFolderDialog());
@@ -2262,6 +2263,7 @@ window.pigeon.onLibraryChanged((library) => {
   resetRenderLimit();
   render(); scheduleFolderTreeBuild();
 });
+window.pigeon.onSidebarChanged(({collections,smartFolders,settings,activePortfolioId})=>{if(activePortfolioId!==state.library.activePortfolioId)return;state.library.collections=collections||state.library.collections;state.library.smartFolders=smartFolders||state.library.smartFolders;state.library.settings={...(state.library.settings||{}),...(settings||{})};renderSidebar(false);renderTagSuggestions();});
 window.pigeon.onLibraryAssets(({ generation, assets, done }) => {
   if (generation !== state.streamGeneration) return;
   const firstBatch = state.library.assets.length === 0;

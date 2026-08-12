@@ -128,6 +128,11 @@ contextBridge.exposeInMainWorld('pigeon', {
     ipcRenderer.on('library:changed', handler);
     return () => ipcRenderer.removeListener('library:changed', handler);
   },
+  onSidebarChanged: (callback) => {
+    const handler = (_event, value) => callback(value);
+    ipcRenderer.on('sidebar:changed', handler);
+    return () => ipcRenderer.removeListener('sidebar:changed', handler);
+  },
   onLibraryAssets: (callback) => {
     const handler = (_event, value) => callback(value);
     ipcRenderer.on('library:assets', handler);

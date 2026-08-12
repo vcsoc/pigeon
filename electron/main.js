@@ -115,10 +115,11 @@ function makeId(value) {
   return crypto.createHash('sha1').update(value).digest('hex').slice(0, 16);
 }
 function trackWorker(worker, type, detail = {}) {
-  const id = `${type}:${worker.threadId}:${Date.now()}`; workerTelemetry.set(id, { id, worker, threadId: worker.threadId, type, portfolioId: detail.portfolioId || activePortfolioId, status: 'running', startedAt: Date.now(), filesTotal: detail.filesTotal || 0, filesCompleted: 0, currentFile: '', batch: detail.batch || 0 });
-  worker.on('error',(error)=>{writeFatalDiagnostic(`worker:${type}:error`,error,{id,threadId:worker.threadId});recordDiagnostic('error',`${type} worker exception`,error);});
+  const id = `${type}:${worker.threadId}:${Date.now()}`,progressId=`${activePortfolioId}:worker:${id}`,label=String(type).split('-').map((part)=>part[0]?.toUpperCase()+part.slice(1)).join(' '),showProgress=!['database','thumbnail'].includes(type); workerTelemetry.set(id, { id, worker, threadId: worker.threadId, type, portfolioId: detail.portfolioId || activePortfolioId, status: 'running', startedAt: Date.now(), filesTotal: detail.filesTotal || 0, filesCompleted: 0, currentFile: '', batch: detail.batch || 0,progressId });
+  if(showProgress)reportBackgroundProgress(progressId,{label:`${label} worker`,detail:detail.filesTotal?`${Number(detail.filesTotal).toLocaleString()} items`:'Running in background',total:detail.filesTotal||0});
+  worker.on('error',(error)=>{writeFatalDiagnostic(`worker:${type}:error`,error,{id,threadId:worker.threadId});recordDiagnostic('error',`${type} worker exception`,error);if(showProgress)reportBackgroundProgress(progressId,{label:`${label} worker failed`,detail:error.message,done:true,status:'failed'});});
   worker.on('messageerror',(error)=>{writeFatalDiagnostic(`worker:${type}:messageerror`,error,{id,threadId:worker.threadId});recordDiagnostic('error',`${type} worker message could not be deserialized`,error);});
-  worker.once('exit', (code) => {workerTelemetry.delete(id);if(code!==0&&!app.isQuitting)recordDiagnostic('error',`${type} worker exited unexpectedly`,{id,code});}); return workerTelemetry.get(id);
+  worker.once('exit', (code) => {const entry=workerTelemetry.get(id),successful=code===0||Boolean(entry?.filesTotal&&entry.filesCompleted>=entry.filesTotal);workerTelemetry.delete(id);if(showProgress)reportBackgroundProgress(progressId,{label:successful?`${label} worker complete`:`${label} worker stopped`,detail:successful?'Background work finished':`Exit code ${code}`,completed:entry?.filesTotal||0,total:entry?.filesTotal||0,done:true,status:successful?'completed':'failed'});if(code!==0&&!successful&&!app.isQuitting)recordDiagnostic('error',`${type} worker exited unexpectedly`,{id,code});}); return workerTelemetry.get(id);
 }
 async function workerResourceTelemetry(entry) { try { const [cpuUsage, heap] = await Promise.all([typeof entry.worker.cpuUsage === 'function' ? entry.worker.cpuUsage(entry.lastCpuUsage).catch(() => null) : null, typeof entry.worker.getHeapStatistics === 'function' ? entry.worker.getHeapStatistics().catch(() => null) : null]); const elapsed = Math.max(1, Date.now() - (entry.lastSampleAt || entry.startedAt)); entry.lastSampleAt = Date.now(); if (cpuUsage) entry.lastCpuUsage = cpuUsage; return { cpu: cpuUsage ? Math.min(100, ((cpuUsage.user + cpuUsage.system) / 1000 / elapsed) * 100) : (entry.worker.performance?.eventLoopUtilization()?.utilization || 0) * 100, memoryBytes: heap?.usedHeapSize || entry.memoryBytes || 0 }; } catch { return { cpu: 0, memoryBytes: entry.memoryBytes || 0 }; } }
 async function telemetrySnapshot() {
@@ -198,6 +199,7 @@ function compatibilityStreamUrl(asset) { return `pigeon-asset://asset/${asset.id
 
 function publicAssetForRenderer(asset,location){ const {encryptedMediaPaths,encryptedThumbnailPaths,...publicAsset}=asset; return {...publicAsset,locked:isAssetLocked(asset),previewUrl:previewUrlFor(asset,location),mediaUrl:mediaUrlFor(asset)}; }
 function broadcastScanAssets(location,assets,done=false){ if(!mainWindow||mainWindow.isDestroyed()||!assets.length&&!done)return; mainWindow.webContents.send('scan:assets',{portfolioId:activePortfolioId,locationId:location.id,assets:assets.map((asset)=>publicAssetForRenderer(asset,location)),done}); }
+function broadcastSidebar(){if(!mainWindow||mainWindow.isDestroyed())return;mainWindow.webContents.send('sidebar:changed',{collections:publicCollections(),smartFolders:library.smartFolders,settings:{sidebarSort:library.settings?.sidebarSort||{}},activePortfolioId});}
 function broadcast() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   const generation = ++libraryStreamGeneration;
@@ -1635,7 +1637,7 @@ ipcMain.handle('library:rescan', async (_event, id) => {
 ipcMain.handle('library:refresh-sources', () => refreshSourcesInBackground({ rescan: true }));
 ipcMain.handle('collection:create', (_event, { name, parentId }) => {
   const collection = libraryCore.createCollection(library, name, parentId);
-  scheduleSave(); broadcast(); return collection;
+  scheduleSave(); broadcastSidebar(); return collection;
 });
 ipcMain.handle('collection:rename', (_event, { id, name }) => {
   const collection = libraryCore.renameCollection(library, id, name);
@@ -1688,7 +1690,7 @@ ipcMain.handle('collection:remove', (_event, id) => {
 });
 ipcMain.handle('smart-folder:create', (_event, { name, filters, parentId }) => {
   const smartFolder = libraryCore.createSmartFolder(library, name, filters, parentId);
-  scheduleSave(); broadcast(); return smartFolder;
+  scheduleSave(); broadcastSidebar(); return smartFolder;
 });
 ipcMain.handle('smart-folder:rename', (_event, { id, name }) => {
   const smartFolder = libraryCore.renameSmartFolder(library, id, name); scheduleSave(); broadcast(); return smartFolder;
