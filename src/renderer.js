@@ -91,7 +91,7 @@ const elements = {
   sentinel: $('#grid-sentinel'), emptyTitle: $('#empty-title'), emptyDescription: $('#empty-description'), emptyActions: $('#empty-actions'),
   analyticsView: $('#analytics-view'), analyticsContent: $('#analytics-content'), backgroundProgress: $('#background-progress'), lockedContent: $('#locked-content')
 };
-let masonryFrame,navigationPaintFrame=null,navigationRenderGeneration=0,searchRenderFrame=null;
+let masonryFrame,navigationPaintFrame=null,navigationRenderGeneration=0,searchRenderFrame=null,marqueeSelection=null,marqueeScrollFrame=null,suppressMarqueeClick=false;
 const rotatedThumbnailObserver = new ResizeObserver((entries) => {
   for (const entry of entries) {
     const preview = entry.target, image = preview.querySelector(':scope > img'); if (!image) continue;
@@ -568,7 +568,7 @@ function renderSidebar(rebuildFolderTree = false) {
   const activePortfolio = (state.library.portfolios || []).find((item) => item.id === state.library.activePortfolioId);
   $('#active-portfolio-name').textContent = activePortfolio?.name || 'My Portfolio';
   document.title = `Pigeon — ${activePortfolio?.name || 'Portfolio'}`;
-  const assets = state.library.assets;
+  const assets = state.library.assets,visibleAssets=assets.filter((asset)=>!asset.deletedAt&&!asset.locked),collectionCounts=new Map();for(const asset of visibleAssets)for(const id of asset.collectionIds||[])collectionCounts.set(id,(collectionCounts.get(id)||0)+1);
   $('#all-count').textContent = state.library.totalAssets ?? assets.length;
   $('#uncategorized-count').textContent = assets.filter((asset) => !(asset.tags || []).length && !(asset.collectionIds || []).length).length;
   $('#untagged-count').textContent = assets.filter((asset) => !(asset.tags || []).length).length;
@@ -580,7 +580,7 @@ function renderSidebar(rebuildFolderTree = false) {
   const collectionRows = [];
   const appendCollections = (parentId = null, depth = 0) => {
     for (const collection of sidebarSortedSiblings(state.library.collections||[],parentId,'collections')) {
-      const count = collection.locked?0:assets.filter((asset) => !asset.deletedAt&&!asset.locked&&(asset.collectionIds || []).includes(collection.id)).length, hasChildren = (state.library.collections || []).some((item) => item.parentId === collection.id), collapseKey = collectionCollapseKey(collection.id), collapsed = hasChildren && isFolderCollapsed(collapseKey);
+      const count = collection.locked?0:collectionCounts.get(collection.id)||0, hasChildren = (state.library.collections || []).some((item) => item.parentId === collection.id), collapseKey = collectionCollapseKey(collection.id), collapsed = hasChildren && isFolderCollapsed(collapseKey);
       collectionRows.push(`<button class="nav-item collection-item ${state.collectionId === collection.id ? 'active' : ''}" style="--depth:${depth}" data-collection-id="${collection.id}" draggable="true"><span class="folder-tree-toggle ${hasChildren ? '' : 'empty'}" data-collapse-key="${collapseKey}" role="button" aria-label="${collapsed ? 'Expand' : 'Collapse'} ${escapeHtml(collection.name)}" aria-expanded="${!collapsed}">${hasChildren ? (collapsed ? '▸' : '▾') : ''}</span><span class="nav-icon tree-folder-icon">${iconSvg(itemIcon(collection, hasChildren && !collapsed ? 'folder-open' : 'folder'))}${collection.locked ? `<i class="tree-lock-badge">${iconSvg('lock')}</i>` : ''}</span><span>${escapeHtml(collection.name)}</span><small>${count}</small></button>`);
       if (!collapsed&&!collection.locked) appendCollections(collection.id, depth + 1);
     }
@@ -836,6 +836,7 @@ function renderGrid() {
       else lastFilenameClick = title ? { assetId: card.dataset.assetId, time: now } : { assetId: null, time: 0 };
     });
     card.addEventListener('dragstart', (event) => {
+      if(marqueeSelection){event.preventDefault();return;}
       const ids = state.selectedIds.has(card.dataset.assetId) ? [...state.selectedIds] : [card.dataset.assetId];
       event.dataTransfer.setData('application/x-pigeon-assets', JSON.stringify(ids));
       event.dataTransfer.setData('application/x-pigeon-origin',JSON.stringify({collectionId:state.collectionId||null,locationId:state.locationId||null,subfolder:state.locationSubfolder||''}));
@@ -1831,6 +1832,13 @@ $('#order-by-button').addEventListener('click',(event)=>{event.stopPropagation()
 $('#inspector-toggle').addEventListener('click', (event) => { elements.inspector.classList.toggle('hidden-panel'); event.currentTarget.classList.toggle('selected'); });
 elements.search.addEventListener('input',()=>{state.query=elements.search.value;state.gridScrollTop=0;resetRenderLimit();if(searchRenderFrame)cancelAnimationFrame(searchRenderFrame);searchRenderFrame=requestAnimationFrame(()=>{searchRenderFrame=null;renderGrid();});});
 const acceptsManagedDrop = () => !state.locationId && !state.collectionId && !state.smartFolderId && ['all', 'uncategorized', 'tags'].includes(state.view);
+function updateMarqueeSelection(event){if(!marqueeSelection)return;marqueeSelection.currentX=event.clientX;marqueeSelection.currentY=event.clientY;const wrapRect=elements.gridWrap.getBoundingClientRect(),left=Math.min(marqueeSelection.startX,event.clientX),right=Math.max(marqueeSelection.startX,event.clientX),top=Math.min(marqueeSelection.startY,event.clientY),bottom=Math.max(marqueeSelection.startY,event.clientY),marquee=$('#selection-marquee');marquee.classList.remove('hidden');marquee.style.left=`${left-wrapRect.left+elements.gridWrap.scrollLeft}px`;marquee.style.top=`${top-wrapRect.top+elements.gridWrap.scrollTop}px`;marquee.style.width=`${right-left}px`;marquee.style.height=`${bottom-top}px`;const next=new Set(marqueeSelection.base);for(const card of elements.grid.querySelectorAll('.asset-card')){const rect=card.getBoundingClientRect(),intersects=rect.right>=left&&rect.left<=right&&rect.bottom>=top&&rect.top<=bottom;if(intersects)next.add(card.dataset.assetId);else if(!marqueeSelection.base.has(card.dataset.assetId))next.delete(card.dataset.assetId);}const changed=[...new Set([...state.selectedIds,...next])].filter((id)=>state.selectedIds.has(id)!==next.has(id));state.selectedIds=next;state.selectedId=[...next].at(-1)||null;paintChangedSelectionCards(changed);scheduleSelectionInspector();const edge=54,speed=event.clientY<wrapRect.top+edge?-Math.ceil((wrapRect.top+edge-event.clientY)/4):event.clientY>wrapRect.bottom-edge?Math.ceil((event.clientY-(wrapRect.bottom-edge))/4):0;marqueeSelection.scrollSpeed=Math.max(-22,Math.min(22,speed));}
+function runMarqueeAutoScroll(){if(!marqueeSelection){marqueeScrollFrame=null;return;}if(marqueeSelection.scrollSpeed){elements.gridWrap.scrollTop+=marqueeSelection.scrollSpeed;updateMarqueeSelection({clientX:marqueeSelection.currentX,clientY:marqueeSelection.currentY});}marqueeScrollFrame=requestAnimationFrame(runMarqueeAutoScroll);}
+function finishMarqueeSelection(){if(!marqueeSelection)return;suppressMarqueeClick=marqueeSelection.moved;marqueeSelection=null;$('#selection-marquee').classList.add('hidden');if(marqueeScrollFrame)cancelAnimationFrame(marqueeScrollFrame);marqueeScrollFrame=null;renderBatchBar();scheduleSelectionInspector();}
+elements.gridWrap.addEventListener('pointerdown',(event)=>{if(event.button!==0||isInternalViewerOpen()||state.mapOpen||event.target.closest('button,input,textarea,select,a,.stack-badge'))return;const card=event.target.closest('.asset-card');if(card&&state.selectedIds.has(card.dataset.assetId))return;marqueeSelection={pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,currentX:event.clientX,currentY:event.clientY,base:event.ctrlKey||event.metaKey?new Set(state.selectedIds):new Set(),moved:false,scrollSpeed:0};elements.gridWrap.setPointerCapture(event.pointerId);if(!marqueeScrollFrame)marqueeScrollFrame=requestAnimationFrame(runMarqueeAutoScroll);});
+elements.gridWrap.addEventListener('pointermove',(event)=>{if(!marqueeSelection||event.pointerId!==marqueeSelection.pointerId)return;if(!marqueeSelection.moved&&Math.hypot(event.clientX-marqueeSelection.startX,event.clientY-marqueeSelection.startY)<4)return;marqueeSelection.moved=true;event.preventDefault();updateMarqueeSelection(event);});
+elements.gridWrap.addEventListener('pointerup',(event)=>{if(marqueeSelection?.pointerId===event.pointerId)finishMarqueeSelection();});elements.gridWrap.addEventListener('pointercancel',finishMarqueeSelection);
+elements.grid.addEventListener('click',(event)=>{if(!suppressMarqueeClick)return;suppressMarqueeClick=false;event.preventDefault();event.stopImmediatePropagation();},true);
 const hasExternalFiles = (event) => { const transfer = event.dataTransfer; return Boolean(transfer && (transfer.files?.length || [...(transfer.items || [])].some((item) => item.kind === 'file') || [...(transfer.types || [])].some((type) => String(type).toLowerCase() === 'files'))); };
 function droppedFilePaths(event) { return [...(event.dataTransfer?.files || [])].map((file) => window.pigeon.pathForDroppedFile(file)).filter(Boolean); }
 elements.gridWrap.addEventListener('dragover', (event) => { if (!hasExternalFiles(event)) return; event.preventDefault(); event.dataTransfer.dropEffect = acceptsManagedDrop() ? 'copy' : 'none'; elements.gridWrap.classList.toggle('external-drop', acceptsManagedDrop()); });

@@ -23,6 +23,11 @@ test('UI exposes collection, smart-folder, batch, trash, media, metadata and edi
   }
 });
 
+test('thumbnail marquee selection auto-scrolls while background scans remain consolidated and responsive',()=>{
+  assert.match(html,/id="selection-marquee"/);assert.match(styles,/\.selection-marquee/);assert.match(renderer,/function updateMarqueeSelection/);assert.match(renderer,/function runMarqueeAutoScroll/);assert.match(renderer,/setPointerCapture/);assert.match(renderer,/scrollSpeed/);assert.match(renderer,/paintChangedSelectionCards\(changed\)/);
+  assert.match(main,/\['database','thumbnail','index-scan','fingerprint'\]/);assert.match(main,/offset\+=100/);assert.match(main,/const scanBroadcastQueues=new Map/);assert.match(main,/setTimeout\(drain,16\)/);assert.match(renderer,/collectionCounts=new Map/);
+});
+
 test('destructive sidebar confirmations identify the exact collection, Smart Folder, or indexed folder',()=>{
   assert.match(renderer,/title: `Delete “\$\{collection\.name\}”\?`/);assert.match(renderer,/collection “\$\{collection\.name\}”/);
   assert.match(renderer,/title: `Delete “\$\{folder\.name\}”\?`/);assert.match(renderer,/Smart Folder “\$\{folder\.name\}”/);
@@ -31,7 +36,7 @@ test('destructive sidebar confirmations identify the exact collection, Smart Fol
 
 test('sidebar-only creation, universal worker progress, and immediate inspector tag suggestions are wired',()=>{
   assert.match(main,/function broadcastSidebar/);assert.match(main,/collection:create[\s\S]{0,180}broadcastSidebar\(\)/);assert.match(main,/smart-folder:create[\s\S]{0,180}broadcastSidebar\(\)/);assert.match(preload,/onSidebarChanged/);assert.match(renderer,/window\.pigeon\.onSidebarChanged/);
-  assert.match(main,/showProgress=!\['database','thumbnail'\]\.includes\(type\)/);assert.match(main,/if\(showProgress\)reportBackgroundProgress/);assert.match(main,/worker complete/);
+  assert.match(main,/showProgress=!\['database','thumbnail','index-scan','fingerprint'\]\.includes\(type\)/);assert.match(main,/if\(showProgress\)reportBackgroundProgress/);assert.match(main,/worker complete/);
   assert.match(renderer,/if\(input===elements\.tags\)/);assert.match(renderer,/addTagsToAssets\(targets,\[tag\]\)/);assert.match(renderer,/event\.key === 'Enter'.*applyTagSuggestion/);
 });
 
