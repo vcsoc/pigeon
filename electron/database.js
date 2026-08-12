@@ -47,6 +47,8 @@ function createLibraryStore(databaseFile) {
     deletes: Object.fromEntries(TABLES.map((table) => [table, database.prepare(`DELETE FROM ${table} WHERE id=?`)]))
   };
 
+  const saveBatch = ({ location, assets = [] }) => { database.exec('BEGIN IMMEDIATE'); try { if(location){ const payload=JSON.stringify(location); statements.locations.run(...rowValues('locations',location,payload)); caches.locations.set(location.id,payload); } for(const item of assets){ const payload=JSON.stringify(item); statements.assets.run(...rowValues('assets',item,payload)); caches.assets.set(item.id,payload); } database.exec('COMMIT'); return true; } catch(error){ try{database.exec('ROLLBACK');}catch{} throw error; } };
+
   const save = (input) => {
     const library = libraryCore.migrateLibrary(input), { locations, assets, collections, smartFolders, ...metadata } = library;
     database.exec('BEGIN IMMEDIATE');
@@ -72,7 +74,7 @@ function createLibraryStore(databaseFile) {
     const metadata = JSON.parse(row.value), read = (table) => database.prepare(`SELECT payload FROM ${table} ORDER BY rowid`).all().map((item) => JSON.parse(item.payload));
     return libraryCore.migrateLibrary({ ...metadata, locations: read('locations'), assets: read('assets'), collections: read('collections'), smartFolders: read('smart_folders') });
   }
-  return { database, load, save, close: () => database.close() };
+  return { database, load, save, saveBatch, close: () => database.close() };
 }
 
 function importLegacyJson(store, legacyJsonFile) {

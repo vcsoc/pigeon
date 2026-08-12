@@ -39,6 +39,7 @@ let legacyJsonFile;
 let databaseWorker;
 let databaseRequestId = 0;
 const databaseRequests = new Map();
+let databaseSaveInFlight = null, pendingDatabaseSnapshot = null;
 let thumbnailDir;
 let importsDir;
 let backupDir;
@@ -62,6 +63,9 @@ const MAX_BACKGROUND_THREADS = 12;
 const INDEX_WORKER_COUNT = Math.max(2, Math.min(MAX_BACKGROUND_THREADS, Math.max(2, os.cpus().length - 1)));
 const THUMBNAIL_WORKER_COUNT = Math.max(2, Math.min(MAX_BACKGROUND_THREADS, Math.max(1, os.cpus().length - 1)));
 const BACKGROUND_HASH_WORKERS = Math.max(2, Math.min(MAX_BACKGROUND_THREADS, Math.max(1, os.cpus().length - 1)));
+const PDF_WORKER_LIMIT = 2;
+let activePdfWorkers = 0;
+const pdfWorkerWaiters = [];
 let diagnosticsFile;
 let diagnosticEntries = [];
 const originalConsoleError = console.error.bind(console), originalConsoleWarn = console.warn.bind(console);
@@ -254,16 +258,25 @@ function startDatabaseWorker() {
   databaseWorker.on('message', ({ id, ok, message }) => { const request = databaseRequests.get(id); if (!request) return; databaseRequests.delete(id); ok ? request.resolve(true) : request.reject(new Error(message)); });
   databaseWorker.on('error', (error) => { recordDiagnostic('error', 'Database worker failed', error); for (const request of databaseRequests.values()) request.reject(error); databaseRequests.clear(); databaseWorker = null; });
 }
+function sendDatabaseRequest(action,snapshot) { if (!databaseWorker) startDatabaseWorker(); return new Promise((resolve,reject)=>{ const id=++databaseRequestId; databaseRequests.set(id,{resolve,reject}); databaseWorker.postMessage({id,action,library:snapshot}); }); }
+function sendDatabaseSave(snapshot){ return sendDatabaseRequest('save',snapshot); }
+function persistScanBatch(location,assets){ return sendDatabaseRequest('save-batch',{location:{...location,scanning:false,checking:false},assets}); }
 function persistLibrary(snapshot = library) {
-  if (!databaseWorker) startDatabaseWorker();
-  return new Promise((resolve, reject) => { const id = ++databaseRequestId; databaseRequests.set(id, { resolve, reject }); databaseWorker.postMessage({ id, action: 'save', library: snapshot }); });
+  pendingDatabaseSnapshot = snapshot; if(databaseSaveInFlight) return databaseSaveInFlight;
+  databaseSaveInFlight=(async()=>{ while(pendingDatabaseSnapshot){ const next=pendingDatabaseSnapshot; pendingDatabaseSnapshot=null; await sendDatabaseSave(next); } })().finally(()=>{databaseSaveInFlight=null;}); return databaseSaveInFlight;
 }
+async function acquirePdfWorkerSlot(){ if(activePdfWorkers>=PDF_WORKER_LIMIT) await new Promise((resolve)=>pdfWorkerWaiters.push(resolve)); activePdfWorkers+=1; }
+function releasePdfWorkerSlot(){ activePdfWorkers=Math.max(0,activePdfWorkers-1); pdfWorkerWaiters.shift()?.(); }
 function scheduleSave() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => { try { await persistLibrary(library); if (Date.now() - lastBackupAt > 60 * 60 * 1000) await writeBackup(); } catch (error) { recordDiagnostic('error', 'Could not save SQLite library', error); } }, 120);
 }
 
 function portfolioDatabasePath(id) { return id === 'default' ? path.join(app.getPath('userData'), 'library.db') : path.join(app.getPath('userData'), 'portfolios', `${id}.db`); }
+function scanQueuePath(portfolioId,locationId){ return path.join(app.getPath('userData'),'scan-queues',portfolioId,`${locationId}.json`); }
+async function saveScanQueue(portfolioId,locationId,filePaths){ const target=scanQueuePath(portfolioId,locationId); await fsp.mkdir(path.dirname(target),{recursive:true}); await fsp.writeFile(`${target}.tmp`,JSON.stringify(filePaths)); await fsp.rename(`${target}.tmp`,target); }
+async function loadScanQueue(portfolioId,locationId){ try{return JSON.parse(await fsp.readFile(scanQueuePath(portfolioId,locationId),'utf8'));}catch{return null;} }
+async function removeScanQueue(portfolioId,locationId){ await fsp.rm(scanQueuePath(portfolioId,locationId),{force:true}); }
 function portfolioLegacyJsonPath(portfolio) { return portfolio?.legacyFile || (portfolio?.file?.toLowerCase().endsWith('.json') ? portfolio.file : null); }
 function initializeStoragePaths() {
   const legacyFile = path.join(app.getPath('userData'), 'library.json');
@@ -420,7 +433,7 @@ async function createAudioThumbnail(asset, target) {
 async function createDocumentThumbnail(asset, target) {
   if (asset.thumbnailPath && await pathAvailable(asset.thumbnailPath)) return { ok: true, target: asset.thumbnailPath };
   if (asset.extension !== 'PDF') { const ready = await runVideoFfmpeg(['-hide_banner', '-loglevel', 'error', '-i', asset.path, '-frames:v', '1', '-vf', 'scale=512:512:force_original_aspect_ratio=decrease', '-q:v', '5', '-y', target], 9000); return ready ? { ok: true, target } : null; }
-  return new Promise((resolve) => { const worker = new Worker(path.join(__dirname, 'pdf-thumbnail-worker.js'), { workerData: { source: asset.path, target } }), telemetry = trackWorker(worker, 'pdf-preview', { filesTotal: 1 }); telemetry.currentFile = asset.path; let settled = false; const finish = (result) => { if (settled) return; settled = true; clearTimeout(timer); telemetry.filesCompleted = result?.ok ? 1 : 0; telemetry.status = result?.ok ? 'completed' : 'failed'; worker.terminate().catch(() => {}); resolve(result?.ok ? result : null); }; const timer = setTimeout(() => { recordDiagnostic('warning', 'PDF preview timed out', { file: asset.path }); finish(null); }, 20000); worker.once('message', finish); worker.once('error', (error) => { recordDiagnostic('error', 'PDF preview worker failed', error); finish(null); }); worker.once('exit', () => finish(null)); });
+  await acquirePdfWorkerSlot(); try { return await new Promise((resolve) => { const worker = new Worker(path.join(__dirname, 'pdf-thumbnail-worker.js'), { workerData: { source: asset.path, target }, resourceLimits: { maxOldGenerationSizeMb: 192 } }), telemetry = trackWorker(worker, 'pdf-preview', { filesTotal: 1 }); telemetry.currentFile = asset.path; let settled = false; const finish = (result) => { if (settled) return; settled = true; clearTimeout(timer); telemetry.filesCompleted = result?.ok ? 1 : 0; telemetry.status = result?.ok ? 'completed' : 'failed'; worker.terminate().catch(() => {}); resolve(result?.ok ? result : null); }; const timer = setTimeout(() => { recordDiagnostic('warning', 'PDF preview timed out', { file: asset.path }); finish(null); }, 30000); worker.once('message', finish); worker.once('error', (error) => { recordDiagnostic('error', 'PDF preview worker failed', error); finish(null); }); worker.once('exit', () => finish(null)); }); } finally { releasePdfWorkerSlot(); }
 }
 async function createVideoProxy(asset) {
   if (asset.proxyVersion === 2 && asset.proxyPath && await pathAvailable(asset.proxyPath) && !(await fileContainsAtom(asset.proxyPath, 'moof'))) { asset.proxyVersion = 3; scheduleSave(); return asset.proxyPath; }
@@ -590,43 +603,43 @@ async function scanLocation(locationId, { notify = true, resume = false } = {}) 
   const jobLibrary = run.library, progressId = run.progressId; location.unstable = Boolean(location.unstable || location.removable || /[\\/]OneDrive[\\/]|[\\/]Dropbox[\\/]|[\\/]Google Drive[\\/]/i.test(location.path));
   if (!resume) location.scanCheckpoint = null;
   const checkpoint = resume && location.scanCheckpoint?.root === location.path ? location.scanCheckpoint : null;
-  location.scanning = true; location.scanProgress = { discovered: checkpoint?.filePaths?.length || 0, inspected: checkpoint?.nextIndex || 0, resumed: Boolean(checkpoint) }; reportBackgroundProgress(progressId, { label: `Scanning ${location.name}`, detail: checkpoint ? `Resuming at file ${(checkpoint.nextIndex || 0).toLocaleString()}…` : 'Discovering files…' }); location.checking = true; if (notify) broadcast();
+  location.scanning = true; location.scanProgress = { discovered: checkpoint?.discovered || 0, inspected: checkpoint?.nextIndex || 0, resumed: Boolean(checkpoint) }; reportBackgroundProgress(progressId, { label: `Scanning ${location.name}`, detail: checkpoint ? `Resuming at file ${(checkpoint.nextIndex || 0).toLocaleString()}…` : 'Discovering files…' }); location.checking = true; if (notify) broadcast();
   try {
     location.online = await pathAvailable(location.path); location.checking = false;
     if (!backgroundRunActive(run)) return;
     if (!location.online) { reportBackgroundProgress(progressId, { label: `Scanning ${location.name}`, detail: 'Location is offline', done: true }); scheduleSave(); if (notify) broadcast(); return; }
     const previousAssets = jobLibrary.assets.filter((asset) => asset.locationId === location.id), previous = new Map(previousAssets.map((asset) => [asset.path, asset])); let scanComplete = checkpoint?.complete !== false;
-    let filePaths = checkpoint?.filePaths;
+    let filePaths = checkpoint ? await loadScanQueue(run.portfolioId,location.id) : null;
     if (!filePaths) {
       filePaths = [];
       if (location.type === 'folder') { const walked = await walkFolder(location.path, (filePath) => { if (backgroundRunActive(run)) { const relativeFolder = normalizedSubfolder(path.dirname(path.relative(location.path, filePath))); if (!folderExcluded(location.id, relativeFolder)) { filePaths.push(filePath); location.scanProgress.discovered += 1; } } }, location.unstable ? 3500 : 8000); scanComplete = walked.complete; }
       else filePaths.push(location.path);
       if (!backgroundRunActive(run)) return;
-      location.scanCheckpoint = { root: location.path, filePaths, nextIndex: 0, complete: scanComplete, startedAt: Date.now() }; await persistLibrary(jobLibrary);
+      await saveScanQueue(run.portfolioId,location.id,filePaths); location.scanCheckpoint = { root: location.path, nextIndex: 0, discovered:filePaths.length, complete: scanComplete, startedAt: Date.now() }; await persistLibrary(jobLibrary);
     }
     const workerCount = location.unstable ? 2 : Math.min(INDEX_WORKER_COUNT, Math.ceil(Math.max(1, filePaths.length - location.scanCheckpoint.nextIndex) / INDEX_BATCH_SIZE));
     reportBackgroundProgress(progressId, { label: `Adding files from ${location.name}`, detail: `${filePaths.length.toLocaleString()} files · ${workerCount} index threads · ${INDEX_CPU_LIMIT}% CPU ceiling`, completed: location.scanCheckpoint.nextIndex, total: filePaths.length });
-    let lastCheckpointAt = Date.now();
+    let lastCheckpointAt = Date.now(), assetsSinceCheckpoint=[];
     while (location.scanCheckpoint.nextIndex < filePaths.length && backgroundRunActive(run)) {
       if (!(await waitForIndexCpuBudget(run))) break;
       const waveStart = location.scanCheckpoint.nextIndex, batches = [];
       for (let slot = 0; slot < workerCount; slot += 1) { const start = waveStart + slot * INDEX_BATCH_SIZE; if (start >= filePaths.length) break; batches.push(filePaths.slice(start, start + INDEX_BATCH_SIZE)); }
       const inspectedBatches = await Promise.all(batches.map((batch, index) => inspectScanBatch(batch, location, previous, run, Math.floor(waveStart / INDEX_BATCH_SIZE) + index + 1)));
       if (!backgroundRunActive(run)) break;
-      for (const result of inspectedBatches.flat()) { if (result.error) continue; const existing = previous.get(path.resolve(result.filePath)), asset = await inspectFile(result.filePath, location, existing, { deferHash: location.unstable, inspection: result }); if (!asset) continue; const index = jobLibrary.assets.findIndex((item) => item.id === asset.id); if (index >= 0) jobLibrary.assets[index] = asset; else jobLibrary.assets.push(asset); previous.set(asset.path, asset); }
+      for (const result of inspectedBatches.flat()) { if (result.error) continue; const existing = previous.get(path.resolve(result.filePath)), asset = await inspectFile(result.filePath, location, existing, { deferHash: location.unstable, inspection: result }); if (!asset) continue; const index = jobLibrary.assets.findIndex((item) => item.id === asset.id); if (index >= 0) jobLibrary.assets[index] = asset; else jobLibrary.assets.push(asset); previous.set(asset.path, asset); assetsSinceCheckpoint.push(asset); }
       location.scanCheckpoint.nextIndex = Math.min(filePaths.length, waveStart + batches.reduce((sum, batch) => sum + batch.length, 0)); location.scanProgress.inspected = location.scanCheckpoint.nextIndex; location.assetCount = jobLibrary.assets.filter((asset) => asset.locationId === location.id).length;
-      if (Date.now() - lastCheckpointAt >= 2000) { lastCheckpointAt = Date.now(); persistLibrary(jobLibrary).catch((error)=>recordDiagnostic('error','Index checkpoint save failed',error)); }
+      if (Date.now() - lastCheckpointAt >= 5000) { lastCheckpointAt = Date.now(); const checkpointAssets=assetsSinceCheckpoint.splice(0); persistScanBatch(location,checkpointAssets).catch((error)=>recordDiagnostic('error','Index batch checkpoint failed',error)); }
       reportBackgroundProgress(progressId, { label: `Adding files from ${location.name}`, detail: `${location.scanProgress.inspected.toLocaleString()} of ${filePaths.length.toLocaleString()} · ${workerCount} threads`, completed: location.scanProgress.inspected, total: filePaths.length }); if (notify) scheduleBroadcast(250); await new Promise((resolve) => setImmediate(resolve));
     }
     if (!backgroundRunActive(run)) return;
     const foundPaths = new Set(filePaths.map((filePath) => path.resolve(filePath))), currentAssets = jobLibrary.assets.filter((asset) => asset.locationId === location.id), retained = currentAssets.map((asset) => foundPaths.has(asset.path) ? asset : scanComplete ? ({ ...asset, sourceMissing: true, sourcePending: false, missingSince: asset.missingSince || Date.now() }) : ({ ...asset, sourcePending: true, sourceMissing: false }));
-    jobLibrary.assets = jobLibrary.assets.filter((asset) => asset.locationId !== location.id).concat(retained); location.partialScan = !scanComplete; location.assetCount = retained.length; location.lastScanned = Date.now(); location.scanProgress.done = true; location.scanCheckpoint = null;
+    jobLibrary.assets = jobLibrary.assets.filter((asset) => asset.locationId !== location.id).concat(retained); location.partialScan = !scanComplete; location.assetCount = retained.length; location.lastScanned = Date.now(); location.scanProgress.done = true; location.scanCheckpoint = null; await removeScanQueue(run.portfolioId,location.id);
     reportBackgroundProgress(progressId, { label: `${location.name} scan complete`, detail: `${foundPaths.size.toLocaleString()} files indexed`, completed: filePaths.length, total: filePaths.length, done: true });
     const rerun = location.rescanRequested; location.rescanRequested = false; await persistLibrary(jobLibrary); if (notify) broadcast(); schedulePortfolioBackground(warmThumbnailCache, 0); if (rerun) schedulePortfolioBackground(() => scanLocation(location.id), location.unstable ? 1200 : 250);
   } catch (error) { recordDiagnostic('error', `Scan failed for ${location.name}`, error); reportBackgroundProgress(progressId, { label: `Scan failed: ${location.name}`, detail: error.message, done: true, status: 'failed' }); }
   finally { location.scanning = false; location.checking = false; finishBackgroundRun(run); }
 }
-function resumePendingScans() { for (const location of library.locations.filter((item) => item.scanCheckpoint?.filePaths?.length)) schedulePortfolioBackground(() => scanLocation(location.id, { notify: true, resume: true }), 150); }
+function resumePendingScans() { for (const location of library.locations.filter((item) => item.scanCheckpoint?.discovered || item.scanCheckpoint?.nextIndex)) schedulePortfolioBackground(() => scanLocation(location.id, { notify: true, resume: true }), 150); }
 
 function watchLocation(location) {
   watchers.get(location.id)?.close();

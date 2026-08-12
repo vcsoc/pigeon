@@ -381,13 +381,27 @@ test('indexed folders scroll on hover and preview failures terminate cleanly', (
   assert.match(renderer, /asset\.thumbnailPath \? asset\.previewUrl : asset\.mediaUrl/);
 });
 
+test('large indexing avoids full-library checkpoint clones and caps PDF memory concurrency', () => {
+  assert.match(main,/PDF_WORKER_LIMIT = 2/);
+  assert.match(main,/maxOldGenerationSizeMb: 192/);
+  assert.match(main,/databaseSaveInFlight/);
+  assert.match(main,/pendingDatabaseSnapshot/);
+  assert.match(main,/saveScanQueue/);
+  assert.match(main,/loadScanQueue/);
+  assert.match(main,/scan-queues/);
+  assert.doesNotMatch(main,/scanCheckpoint = \{ root: location\.path, filePaths/);
+  assert.match(main,/Date\.now\(\) - lastCheckpointAt >= 5000/);
+  assert.match(main,/persistScanBatch/);
+  assert.match(main,/save-batch/);
+});
+
 test('frequent indexing progress avoids full renderer and database rebuilds', () => {
   assert.match(renderer,/function updateLocationProgressUI/);
   assert.match(renderer,/if\(structureChanged\)/);
   assert.match(renderer,/setTimeout\(\(\) => \{ renderGrid\(\); updateLocationProgressUI\(\); \}, 240\)/);
   assert.match(renderer,/similarityRefreshPromise/);
   assert.match(renderer,/Date\.now\(\)-lastSimilarityRefreshAt<5000/);
-  assert.match(main,/Date\.now\(\) - lastCheckpointAt >= 2000/);
+  assert.match(main,/Date\.now\(\) - lastCheckpointAt >= 5000/);
   assert.match(main,/scheduleBroadcast\(250\)/);
 });
 

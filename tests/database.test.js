@@ -17,6 +17,8 @@ test('SQLite store round-trips and incrementally deletes library records', () =>
   assert.equal(loaded.assets.length, 0); assert.equal(loaded.collections.length, 0); store.close();
 });
 
+test('incremental scan batches persist without cloning a full library', () => { const file=temporary('batch.db'),store=createLibraryStore(file); store.save(core.migrateLibrary({locations:[{id:'l',path:'/root'}]})); store.saveBatch({location:{id:'l',path:'/root',scanCheckpoint:{nextIndex:2,discovered:4}},assets:[{id:'a',locationId:'l',path:'/root/a.jpg'},{id:'b',locationId:'l',path:'/root/b.jpg'}]}); const loaded=store.load(); assert.equal(loaded.assets.length,2); assert.equal(loaded.locations[0].scanCheckpoint.nextIndex,2); store.close(); });
+
 test('separate portfolio databases can receive transferred records', () => {
   const firstFile = temporary('first.db'), secondFile = path.join(path.dirname(firstFile), 'second.db'), first = createLibraryStore(firstFile), second = createLibraryStore(secondFile);
   first.save(core.migrateLibrary({ assets: [{ id: 'shared', path: '/shared.jpg', collectionIds: ['c'] }], collections: [{ id: 'c', name: 'Shared' }] }));
