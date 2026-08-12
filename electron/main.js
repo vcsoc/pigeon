@@ -1607,6 +1607,11 @@ ipcMain.handle('library:add-folder', async () => {
   const result = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory', 'multiSelections'], title: 'Index folders in Pigeon' });
   return result.canceled ? publicLibrarySummary() : addLocations(result.filePaths, 'folder');
 });
+ipcMain.handle('library:add-default-pictures', async () => {
+  const picturesPath = app.getPath('pictures');
+  await fsp.mkdir(picturesPath, { recursive: true });
+  return addLocations([picturesPath], 'folder');
+});
 ipcMain.handle('library:add-files', async () => {
   const result = await dialog.showOpenDialog(mainWindow, { properties: ['openFile', 'multiSelections'], title: 'Index files in Pigeon' });
   return result.canceled ? publicLibrarySummary() : addLocations(result.filePaths, 'file');

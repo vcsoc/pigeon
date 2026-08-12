@@ -758,6 +758,7 @@ function renderGrid() {
   const assets = allAssets.slice(0, state.renderLimit),stackCounts=new Map(); for(const item of state.library.assets)if(item.stackId&&!item.deletedAt)stackCounts.set(item.stackId,(stackCounts.get(item.stackId)||0)+1);
   const loading = state.library.loading === true;
   const noLibrary = !loading && (state.library.totalAssets ?? state.library.assets.length) === 0;
+  const noSources=noLibrary&&(state.library.locations||[]).length===0;
   const tagMode = !loading && state.view === 'tags' && !state.locationId && !state.collectionId && !state.smartFolderId;
   const duplicateMode = !loading && state.view === 'duplicates' && !state.locationId && !state.collectionId && !state.smartFolderId;
   elements.tagBrowser.classList.toggle('hidden', !tagMode); $('#duplicate-controls').classList.toggle('hidden', !duplicateMode);
@@ -772,10 +773,11 @@ function renderGrid() {
     saveNavigationState(); return;
   }
   elements.empty.classList.toggle('hidden', !loading && !noLibrary);
-  elements.emptyTitle.textContent = loading ? 'Opening your portfolio' : 'Build your visual portfolio';
+  elements.emptyTitle.textContent = loading?'Opening your portfolio':noSources?'Your portfolio is ready':'No files found';
   elements.emptyDescription.textContent = loading
     ? 'Pigeon is ready. Sources and previews are loading safely in the background.'
-    : 'Add folders or individual files. Pigeon catalogs them in place—nothing is copied, moved, or renamed.';
+    : noSources?'Start with the Pictures folder on this computer, or choose another source.':'This portfolio has an indexed source, but it does not contain any supported files yet.';
+  $('#empty-add-pictures').classList.toggle('hidden',loading||!noSources);
   elements.emptyActions.classList.toggle('hidden', loading);
   elements.grid.classList.toggle('hidden', loading || noLibrary);
   elements.gridWrap.classList.toggle('layout-list', state.layout === 'list');
@@ -1334,6 +1336,7 @@ async function applyWindowZoom(value, announce = true) {
 }
 
 async function addFolder() { elements.addMenu.classList.add('hidden'); await window.pigeon.addFolder(); }
+async function addDefaultPictures(){elements.addMenu.classList.add('hidden');await window.pigeon.addDefaultPictures();}
 async function addFiles() { elements.addMenu.classList.add('hidden'); await window.pigeon.addFiles(); }
 
 function countValues(values) {
@@ -1713,6 +1716,7 @@ document.addEventListener('click', (event) => {
 });
 $('#menu-add-folder').addEventListener('click', addFolder);
 $('#menu-add-files').addEventListener('click', addFiles);
+$('#empty-add-pictures').addEventListener('click',addDefaultPictures);
 $('#empty-add-folder').addEventListener('click', addFolder);
 $('#empty-add-files').addEventListener('click', addFiles);
 const collapsedSidebarSections = (() => { try { return new Set(JSON.parse(localStorage.getItem('pigeon.collapsedSidebarSections') || '[]')); } catch { return new Set(); } })();

@@ -23,6 +23,17 @@ test('UI exposes collection, smart-folder, batch, trash, media, metadata and edi
   }
 });
 
+test('empty portfolios offer one-click indexing of the default Pictures folder',()=>{
+  assert.match(html,/id="empty-add-pictures"/);
+  assert.match(html,/Click here to add your default Pictures folder to get started/);
+  assert.match(html,/empty-folder-back/);
+  assert.match(styles,/\.empty-photo/);
+  assert.match(preload,/addDefaultPictures:.*library:add-default-pictures/);
+  assert.match(main,/library:add-default-pictures/);
+  assert.match(main,/app\.getPath\('pictures'\)/);
+  assert.match(renderer,/addDefaultPictures/);
+});
+
 test('preload exposes local-first ingestion, sync, plugin, batch and editing APIs', () => {
   for (const api of ['setCollectionAutoTags', 'setFolderAutoTags', 'copyText', 'copyAssets', 'pasteAssets', 'pathForDroppedFile', 'importDroppedFiles', 'searchMap', 'suggestMap', 'createPortfolio', 'renamePortfolio', 'switchPortfolio', 'removePortfolio', 'createCollection', 'batchUpdateAssets', 'findDuplicates', 'autoTag', 'importUrl', 'importClipboard', 'captureScreen', 'backupLibrary', 'configureSync', 'syncNow', 'exportAnnotated', 'runPlugin', 'openAssetWith', 'ensurePlayable', 'setWindowZoom', 'setCollectionPassword', 'unlockCollection', 'lockCollectionNow', 'removeCollectionPassword', 'renameAssetFile', 'applyInlineCrop', 'resetInlineEdits', 'duplicateAsset', 'stackAssets', 'unstackAssets']) assert.match(preload, new RegExp(`${api}:`));
   assert.match(preload, /webUtils\.getPathForFile/);

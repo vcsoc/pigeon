@@ -320,11 +320,17 @@ html[data-theme="midnight"] { --bg: #151a25; --panel: #1d2230; --sidebar: #191e2
 .analytics-heatmap { width:max-content; display:grid; grid-template-rows:repeat(7,10px); grid-auto-flow:column; grid-auto-columns:10px; gap:3px; }
 .heat-cell { width:10px; height:10px; display:inline-block; border-radius:2px; background:#2b2f36; }.heat-cell.level-1{background:#294c49}.heat-cell.level-2{background:#327568}.heat-cell.level-3{background:#43a17f}.heat-cell.level-4{background:#62d59b}
 .heatmap-key { min-width:690px; margin-top:9px; display:flex; justify-content:flex-end; align-items:center; gap:4px; color:#747c89; font-size:8px; }
-.empty-state { position: absolute; inset: 0; margin: auto; width: min(440px, calc(100% - 40px)); height: max-content; text-align: center; color: var(--muted); }
-.empty-art { width: 82px; height: 82px; margin: 0 auto 22px; border-radius: 24px; display: grid; place-items: center; font-size: 36px; color: #9fb2ff; background: linear-gradient(145deg, #34394b, #232630); border: 1px solid rgba(255,255,255,.08); box-shadow: 0 24px 60px rgba(0,0,0,.22); }
-.empty-state h2 { margin: 0 0 10px; color: #e0e2e9; font-size: 18px; }
-.empty-state p { max-width: 410px; margin: 0 auto; font-size: 12px; line-height: 1.65; }
-.empty-actions { margin-top: 20px; display: flex; justify-content: center; gap: 9px; }
+.empty-state { position: absolute; inset: 0; margin: auto; width: min(500px, calc(100% - 40px)); height: max-content; text-align: center; color: var(--muted); }
+.empty-art { width:132px; height:112px; margin:0 auto 24px; position:relative; filter:drop-shadow(0 20px 28px rgba(0,0,0,.34)); }
+.empty-folder-back,.empty-folder-front { position:absolute; left:5px; right:5px; border:1px solid rgba(255,255,255,.13); background:linear-gradient(145deg,#596a9e,#303955); }
+.empty-folder-back { top:18px; height:76px; border-radius:10px 10px 14px 14px; }.empty-folder-back::before { content:""; position:absolute; left:9px; top:-13px; width:49px; height:20px; border-radius:8px 8px 0 0; background:#53628f; }
+.empty-folder-front { bottom:3px; height:61px; z-index:3; border-radius:8px 8px 14px 14px; background:linear-gradient(160deg,#6679b5,#394568); box-shadow:inset 0 1px rgba(255,255,255,.15); transform:perspective(180px) rotateX(-5deg); transform-origin:bottom; }
+.empty-photo { position:absolute; z-index:2; left:34px; top:12px; width:73px; height:70px; overflow:hidden; border:4px solid #e9ecf5; border-radius:5px; background:linear-gradient(145deg,#92b9d7 0 53%,#496b64 54%); box-shadow:0 6px 15px rgba(0,0,0,.28); transform:rotate(4deg); }.empty-photo::before { content:""; position:absolute; width:18px; height:18px; right:9px; top:8px; border-radius:50%; background:#f1d582; }.empty-photo i { position:absolute; left:5px; right:5px; bottom:-15px; height:43px; background:#2e514d; transform:rotate(31deg); border-radius:5px; }
+.empty-art b { position:absolute; z-index:4; right:-4px; bottom:-3px; width:34px; height:34px; display:grid; place-items:center; border:3px solid #191a1c; border-radius:50%; color:white; background:linear-gradient(#6f98ff,#456bd7); font-size:21px; font-weight:400; box-shadow:0 6px 14px rgba(40,74,170,.42); }
+.empty-state h2 { margin: 0 0 8px; color: #e7e9ef; font-size: 18px; }
+.empty-state p { max-width: 410px; margin: 0 auto; font-size: 11px; line-height: 1.65; }
+.empty-start-action { margin:18px auto 0; padding:9px 14px; border:1px solid rgba(111,145,255,.6); border-radius:8px; color:#dce5ff; background:linear-gradient(145deg,rgba(70,91,146,.5),rgba(39,46,66,.7)); box-shadow:0 8px 22px rgba(0,0,0,.2); font-size:11px; }.empty-start-action:hover { border-color:#83a4ff; background:linear-gradient(145deg,#526aa8,#323d5c); transform:translateY(-1px); }
+.empty-actions { margin-top: 10px; display: flex; justify-content: center; gap: 9px; }
 .primary-button, .secondary-button { border-radius: 7px; height: 31px; padding: 0 13px; font-size: 11px; }
 .primary-button { border: 1px solid #6f91ff; color: white; background: linear-gradient(#668cff, #4a71e4); }
 .secondary-button { border: 1px solid var(--line-strong); color: #c1c5d0; background: #282b36; }

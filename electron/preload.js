@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('pigeon', {
   removePortfolio: (id) => ipcRenderer.invoke('portfolio:remove', id),
   transferToPortfolio: (payload) => ipcRenderer.invoke('portfolio:transfer', payload),
   addFolder: () => ipcRenderer.invoke('library:add-folder'),
+  addDefaultPictures: () => ipcRenderer.invoke('library:add-default-pictures'),
   addFiles: () => ipcRenderer.invoke('library:add-files'),
   pathForDroppedFile: (file) => { try { return webUtils.getPathForFile(file); } catch { return ''; } },
   importDroppedFiles: (paths, target = {}) => ipcRenderer.invoke('library:import-dropped-files', { paths: Array.from(paths || []).filter((value) => typeof value === 'string' && value.trim()), target }),
