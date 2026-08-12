@@ -395,10 +395,24 @@ test('large indexing avoids full-library checkpoint clones and caps PDF memory c
   assert.match(main,/save-batch/);
 });
 
-test('frequent indexing progress avoids full renderer and database rebuilds', () => {
+test('indexing keeps main and renderer interaction paths responsive', () => {
   assert.match(renderer,/function updateLocationProgressUI/);
   assert.match(renderer,/if\(structureChanged\)/);
-  assert.match(renderer,/setTimeout\(\(\) => \{ renderGrid\(\); updateLocationProgressUI\(\); \}, 240\)/);
+  assert.match(renderer,/requestIdleCallback/);
+  assert.match(renderer,/lastUserInteractionAt/);
+  assert.match(renderer,/if\(done\).*scheduleScanGridRender/);
+  assert.match(renderer,/else if\(wasEmpty&&added\)scheduleScanGridRender/);
+  assert.match(renderer,/rendererAssetIndexes/);
+  assert.match(renderer,/onScanAssets/);
+  assert.match(preload,/onScanAssets/);
+  assert.match(main,/broadcastScanAssets/);
+  assert.match(main,/assetIndexes=new Map/);
+  assert.match(main,/locationAssetCount/);
+  assert.match(main,/let cursor=0/);
+  assert.match(main,/scanLocation\(location\.id, \{ notify: true \}\)/);
+  assert.doesNotMatch(main,/jobLibrary\.assets\.findIndex\(\(item\) => item\.id === asset\.id\)/);
+  assert.doesNotMatch(main,/location\.assetCount = jobLibrary\.assets\.filter/);
+  assert.doesNotMatch(renderer,/state\.library\.assets\.filter\(\(item\) => item\.stackId === asset\.stackId/);
   assert.match(renderer,/similarityRefreshPromise/);
   assert.match(renderer,/Date\.now\(\)-lastSimilarityRefreshAt<5000/);
   assert.match(main,/Date\.now\(\) - lastCheckpointAt >= 5000/);

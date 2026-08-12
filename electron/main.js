@@ -182,6 +182,8 @@ async function startMediaServer() {
 }
 function compatibilityStreamUrl(asset) { return `pigeon-asset://asset/${asset.id}?original=1&stream=1&duration=${asset.duration || 0}&v=${asset.modified || 0}&session=${Date.now()}`; }
 
+function publicAssetForRenderer(asset,location){ const {encryptedMediaPaths,encryptedThumbnailPaths,...publicAsset}=asset; return {...publicAsset,locked:isAssetLocked(asset),previewUrl:previewUrlFor(asset,location),mediaUrl:mediaUrlFor(asset)}; }
+function broadcastScanAssets(location,assets,done=false){ if(!mainWindow||mainWindow.isDestroyed()||!assets.length&&!done)return; mainWindow.webContents.send('scan:assets',{portfolioId:activePortfolioId,locationId:location.id,assets:assets.map((asset)=>publicAssetForRenderer(asset,location)),done}); }
 function broadcast() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   const generation = ++libraryStreamGeneration;
@@ -190,10 +192,7 @@ function broadcast() {
   let offset = 0;
   const sendNextBatch = () => {
     if (generation !== libraryStreamGeneration || !mainWindow || mainWindow.isDestroyed()) return;
-    const assets = library.assets.slice(offset, offset + 500).map((asset) => {
-      const { encryptedMediaPaths, encryptedThumbnailPaths, ...publicAsset } = asset;
-      return { ...publicAsset, locked: isAssetLocked(asset), previewUrl: previewUrlFor(asset, locationsById.get(asset.locationId)), mediaUrl: mediaUrlFor(asset) };
-    });
+    const assets = library.assets.slice(offset, offset + 500).map((asset) => publicAssetForRenderer(asset,locationsById.get(asset.locationId)));
     offset += assets.length;
     const done = offset >= library.assets.length;
     mainWindow.webContents.send('library:assets', { generation, assets, done });
@@ -577,9 +576,9 @@ function inspectScanBatch(batch, location, previous, run, batchNumber) {
 }
 
 async function walkFolder(folderPath, callback, timeout = 8000) {
-  const queue = [folderPath]; let complete = true;
-  while (queue.length) {
-    const current = queue.shift();
+  const queue = [folderPath]; let cursor=0,processedEntries=0, complete = true;
+  while (cursor<queue.length) {
+    const current = queue[cursor++];
     let entries;
     try {
       entries = await withTimeout(fsp.readdir(current, { withFileTypes: true }), timeout, 'Folder read timed out');
@@ -590,7 +589,8 @@ async function walkFolder(folderPath, callback, timeout = 8000) {
       if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
       const fullPath = path.join(current, entry.name);
       if (entry.isDirectory()) queue.push(fullPath);
-      else if (entry.isFile()) await callback(fullPath);
+      else if (entry.isFile()) callback(fullPath);
+      processedEntries+=1; if(processedEntries%512===0)await new Promise((resolve)=>setImmediate(resolve));
     }
   }
   return { complete };
@@ -603,12 +603,12 @@ async function scanLocation(locationId, { notify = true, resume = false } = {}) 
   const jobLibrary = run.library, progressId = run.progressId; location.unstable = Boolean(location.unstable || location.removable || /[\\/]OneDrive[\\/]|[\\/]Dropbox[\\/]|[\\/]Google Drive[\\/]/i.test(location.path));
   if (!resume) location.scanCheckpoint = null;
   const checkpoint = resume && location.scanCheckpoint?.root === location.path ? location.scanCheckpoint : null;
-  location.scanning = true; location.scanProgress = { discovered: checkpoint?.discovered || 0, inspected: checkpoint?.nextIndex || 0, resumed: Boolean(checkpoint) }; reportBackgroundProgress(progressId, { label: `Scanning ${location.name}`, detail: checkpoint ? `Resuming at file ${(checkpoint.nextIndex || 0).toLocaleString()}…` : 'Discovering files…' }); location.checking = true; if (notify) broadcast();
+  location.scanning = true; location.scanProgress = { discovered: checkpoint?.discovered || 0, inspected: checkpoint?.nextIndex || 0, resumed: Boolean(checkpoint) }; reportBackgroundProgress(progressId, { label: `Scanning ${location.name}`, detail: checkpoint ? `Resuming at file ${(checkpoint.nextIndex || 0).toLocaleString()}…` : 'Discovering files…' }); location.checking = true; if (notify) broadcastLocations();
   try {
     location.online = await pathAvailable(location.path); location.checking = false;
     if (!backgroundRunActive(run)) return;
-    if (!location.online) { reportBackgroundProgress(progressId, { label: `Scanning ${location.name}`, detail: 'Location is offline', done: true }); scheduleSave(); if (notify) broadcast(); return; }
-    const previousAssets = jobLibrary.assets.filter((asset) => asset.locationId === location.id), previous = new Map(previousAssets.map((asset) => [asset.path, asset])); let scanComplete = checkpoint?.complete !== false;
+    if (!location.online) { reportBackgroundProgress(progressId, { label: `Scanning ${location.name}`, detail: 'Location is offline', done: true }); scheduleSave(); if (notify) broadcastLocations(); return; }
+    const previousAssets = jobLibrary.assets.filter((asset) => asset.locationId === location.id), previous = new Map(previousAssets.map((asset) => [asset.path, asset])), assetIndexes=new Map(jobLibrary.assets.map((asset,index)=>[asset.id,index])); let locationAssetCount=previousAssets.length, scanComplete = checkpoint?.complete !== false;
     let filePaths = checkpoint ? await loadScanQueue(run.portfolioId,location.id) : null;
     if (!filePaths) {
       filePaths = [];
@@ -626,8 +626,8 @@ async function scanLocation(locationId, { notify = true, resume = false } = {}) 
       for (let slot = 0; slot < workerCount; slot += 1) { const start = waveStart + slot * INDEX_BATCH_SIZE; if (start >= filePaths.length) break; batches.push(filePaths.slice(start, start + INDEX_BATCH_SIZE)); }
       const inspectedBatches = await Promise.all(batches.map((batch, index) => inspectScanBatch(batch, location, previous, run, Math.floor(waveStart / INDEX_BATCH_SIZE) + index + 1)));
       if (!backgroundRunActive(run)) break;
-      for (const result of inspectedBatches.flat()) { if (result.error) continue; const existing = previous.get(path.resolve(result.filePath)), asset = await inspectFile(result.filePath, location, existing, { deferHash: location.unstable, inspection: result }); if (!asset) continue; const index = jobLibrary.assets.findIndex((item) => item.id === asset.id); if (index >= 0) jobLibrary.assets[index] = asset; else jobLibrary.assets.push(asset); previous.set(asset.path, asset); assetsSinceCheckpoint.push(asset); }
-      location.scanCheckpoint.nextIndex = Math.min(filePaths.length, waveStart + batches.reduce((sum, batch) => sum + batch.length, 0)); location.scanProgress.inspected = location.scanCheckpoint.nextIndex; location.assetCount = jobLibrary.assets.filter((asset) => asset.locationId === location.id).length;
+      const waveAssets=[]; for (const result of inspectedBatches.flat()) { if (result.error) continue; const existing = previous.get(path.resolve(result.filePath)), asset = await inspectFile(result.filePath, location, existing, { deferHash: location.unstable, inspection: result }); if (!asset) continue; const index=assetIndexes.get(asset.id); if(index!==undefined)jobLibrary.assets[index]=asset; else{assetIndexes.set(asset.id,jobLibrary.assets.length);jobLibrary.assets.push(asset);locationAssetCount+=1;} previous.set(asset.path, asset); assetsSinceCheckpoint.push(asset); waveAssets.push(asset); }
+      location.scanCheckpoint.nextIndex = Math.min(filePaths.length, waveStart + batches.reduce((sum, batch) => sum + batch.length, 0)); location.scanProgress.inspected = location.scanCheckpoint.nextIndex; location.assetCount = locationAssetCount; if(notify)broadcastScanAssets(location,waveAssets);
       if (Date.now() - lastCheckpointAt >= 5000) { lastCheckpointAt = Date.now(); const checkpointAssets=assetsSinceCheckpoint.splice(0); persistScanBatch(location,checkpointAssets).catch((error)=>recordDiagnostic('error','Index batch checkpoint failed',error)); }
       reportBackgroundProgress(progressId, { label: `Adding files from ${location.name}`, detail: `${location.scanProgress.inspected.toLocaleString()} of ${filePaths.length.toLocaleString()} · ${workerCount} threads`, completed: location.scanProgress.inspected, total: filePaths.length }); if (notify) scheduleBroadcast(250); await new Promise((resolve) => setImmediate(resolve));
     }
@@ -635,7 +635,7 @@ async function scanLocation(locationId, { notify = true, resume = false } = {}) 
     const foundPaths = new Set(filePaths.map((filePath) => path.resolve(filePath))), currentAssets = jobLibrary.assets.filter((asset) => asset.locationId === location.id), retained = currentAssets.map((asset) => foundPaths.has(asset.path) ? asset : scanComplete ? ({ ...asset, sourceMissing: true, sourcePending: false, missingSince: asset.missingSince || Date.now() }) : ({ ...asset, sourcePending: true, sourceMissing: false }));
     jobLibrary.assets = jobLibrary.assets.filter((asset) => asset.locationId !== location.id).concat(retained); location.partialScan = !scanComplete; location.assetCount = retained.length; location.lastScanned = Date.now(); location.scanProgress.done = true; location.scanCheckpoint = null; await removeScanQueue(run.portfolioId,location.id);
     reportBackgroundProgress(progressId, { label: `${location.name} scan complete`, detail: `${foundPaths.size.toLocaleString()} files indexed`, completed: filePaths.length, total: filePaths.length, done: true });
-    const rerun = location.rescanRequested; location.rescanRequested = false; await persistLibrary(jobLibrary); if (notify) broadcast(); schedulePortfolioBackground(warmThumbnailCache, 0); if (rerun) schedulePortfolioBackground(() => scanLocation(location.id), location.unstable ? 1200 : 250);
+    const rerun = location.rescanRequested; location.rescanRequested = false; await persistLibrary(jobLibrary); if (notify){broadcastScanAssets(location,retained.filter((asset)=>asset.sourceMissing||asset.sourcePending),true);broadcastLocations();} schedulePortfolioBackground(warmThumbnailCache, 0); if (rerun) schedulePortfolioBackground(() => scanLocation(location.id), location.unstable ? 1200 : 250);
   } catch (error) { recordDiagnostic('error', `Scan failed for ${location.name}`, error); reportBackgroundProgress(progressId, { label: `Scan failed: ${location.name}`, detail: error.message, done: true, status: 'failed' }); }
   finally { location.scanning = false; location.checking = false; finishBackgroundRun(run); }
 }
@@ -800,7 +800,7 @@ async function addLocations(paths, type) {
       };
       library.locations.push(location);
     }
-    await scanLocation(location.id, { notify: false });
+    broadcastLocations(); await scanLocation(location.id, { notify: true });
     watchLocation(location);
   }
   scheduleSave();

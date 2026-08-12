@@ -109,7 +109,9 @@ function finishStartupSplash(immediate = false) {
   const hide = () => { splash.classList.add('finishing'); setTimeout(() => splash.classList.add('hidden'), 150); };
   immediate ? hide() : setTimeout(hide, 80);
 }
-let streamRenderTimer;
+let streamRenderTimer,scanRenderHandle=null,lastUserInteractionAt=0;
+const rendererAssetIndexes=new Map();
+for(const eventName of ['pointerdown','keydown','wheel','input'])window.addEventListener(eventName,()=>{lastUserInteractionAt=performance.now();},{capture:true,passive:true});
 let annotationStart;
 let viewerPanStart;
 let viewerCropDrag;
@@ -734,7 +736,7 @@ function renderGrid() {
   const analyticsMode = state.view === 'analytics'; elements.analyticsView.classList.toggle('hidden', !analyticsMode); $('.content-area').classList.toggle('analytics-active', analyticsMode);
   if (analyticsMode) { elements.grid.classList.add('hidden'); elements.empty.classList.add('hidden'); elements.tagBrowser.classList.add('hidden'); elements.sentinel.classList.add('hidden'); $('#duplicate-controls').classList.add('hidden'); renderAnalytics(); saveNavigationState(); return; }
   const allAssets = filteredAssets();
-  const assets = allAssets.slice(0, state.renderLimit);
+  const assets = allAssets.slice(0, state.renderLimit),stackCounts=new Map(); for(const item of state.library.assets)if(item.stackId&&!item.deletedAt)stackCounts.set(item.stackId,(stackCounts.get(item.stackId)||0)+1);
   const loading = state.library.loading === true;
   const noLibrary = !loading && (state.library.totalAssets ?? state.library.assets.length) === 0;
   const tagMode = !loading && state.view === 'tags' && !state.locationId && !state.collectionId && !state.smartFolderId;
@@ -772,7 +774,7 @@ function renderGrid() {
         : ['image', 'video', 'audio'].includes(asset.kind)
           ? '<div class="asset-image-placeholder" aria-label="Thumbnail loading"></div>'
           : `<div class="asset-file"><span class="file-glyph">${iconFor(asset.kind)}</span><span class="file-ext">${escapeHtml(asset.extension)}</span></div>`;
-    const stackCount = asset.stackId ? state.library.assets.filter((item) => item.stackId === asset.stackId && !item.deletedAt).length : 0;
+    const stackCount = asset.stackId ? stackCounts.get(asset.stackId)||0 : 0;
     const stackBadge = stackCount > 1 ? `<button class="stack-badge" data-stack-id="${asset.stackId}" title="${state.expandedStackIds.has(asset.stackId) ? 'Collapse stack' : 'Preview stack'}">▱ ${stackCount}</button>` : '';
     const titleLines = state.thumbnailTitleLines.filter((field) => field !== 'none').map((field) => ({ field, text: thumbnailTitle(asset, field) })).filter((line) => line.text);
     const titleHtml = titleLines.map((line, index) => `<span class="card-title-line ${index === 0 ? 'card-name' : ''}" data-title-field="${line.field}" title="${escapeHtml(line.text)}">${escapeHtml(line.text)}</span>`).join('');
@@ -816,7 +818,7 @@ function renderGrid() {
     card.addEventListener('auxclick', (event) => { if (event.button === 1) { event.preventDefault(); window.pigeon.openAsset(card.dataset.assetId); } });
     card.addEventListener('contextmenu', (event) => showAssetContextMenu(event, card.dataset.assetId));
     card.addEventListener('keydown', (event) => { if (event.key === 'Enter') openInternalViewer(card.dataset.assetId); });
-    const asset = state.library.assets.find((item) => item.id === card.dataset.assetId); if (asset) attachHoverMediaPreview(card, asset);
+    const asset = state.library.assets[rendererAssetIndexes.get(card.dataset.assetId)]; if (asset) attachHoverMediaPreview(card, asset);
   });
   elements.grid.querySelectorAll('.asset-preview.quarter-turned img').forEach((image) => {
     if (image.complete && image.naturalWidth) fitRotatedThumbnail(image); else image.addEventListener('load', () => fitRotatedThumbnail(image), { once: true });
@@ -2185,6 +2187,7 @@ loadMoreObserver.observe(elements.sentinel);
 
 applyStaticIcons(); populatePreferenceInputs(); applyPreferences(false);
 window.pigeon.onLibraryChanged((library) => {
+  if(scanRenderHandle!==null){(window.cancelIdleCallback||clearTimeout)(scanRenderHandle);scanRenderHandle=null;} rendererAssetIndexes.clear();
   if (backgroundTaskPortfolioId && library.activePortfolioId && backgroundTaskPortfolioId !== library.activePortfolioId) { backgroundTasks.clear(); renderBackgroundProgress(); }
   backgroundTaskPortfolioId = library.activePortfolioId || backgroundTaskPortfolioId;
   state.streamGeneration = library.streamGeneration || 0;
@@ -2197,12 +2200,14 @@ window.pigeon.onLibraryChanged((library) => {
 window.pigeon.onLibraryAssets(({ generation, assets, done }) => {
   if (generation !== state.streamGeneration) return;
   const firstBatch = state.library.assets.length === 0;
-  state.library.assets.push(...assets);
+  for(const asset of assets){rendererAssetIndexes.set(asset.id,state.library.assets.length);state.library.assets.push(asset);}
   if (done) { state.library.totalAssets = state.library.assets.length; refreshDuplicateIds(); refreshSimilarityGroups(state.view === 'duplicates'); finishStartupSplash(); scheduleFolderTreeBuild(); }
   clearTimeout(streamRenderTimer);
   if (firstBatch || done) { render(); if (done && isInternalViewerOpen()) renderInternalViewer(); }
   else streamRenderTimer = setTimeout(() => { renderGrid(); updateLocationProgressUI(); }, 240);
 });
+function scheduleScanGridRender(){ if(scanRenderHandle!==null)return; const run=()=>{scanRenderHandle=null;if(performance.now()-lastUserInteractionAt<250){scheduleScanGridRender();return;}renderGrid();updateLocationProgressUI();}; scanRenderHandle=window.requestIdleCallback?requestIdleCallback(run,{timeout:1500}):setTimeout(run,750); }
+window.pigeon.onScanAssets(({portfolioId,locationId,assets,done})=>{ if(portfolioId!==state.library.activePortfolioId)return; const wasEmpty=state.library.assets.length===0; let added=0; for(const asset of assets){const index=rendererAssetIndexes.get(asset.id);if(index===undefined){rendererAssetIndexes.set(asset.id,state.library.assets.length);state.library.assets.push(asset);added+=1;}else state.library.assets[index]=asset;} state.library.totalAssets=state.library.assets.length; const location=state.library.locations.find((item)=>item.id===locationId);if(location)location.assetCount=(location.assetCount||0)+added; updateLocationProgressUI(); if(done){refreshDuplicateIds();scheduleFolderTreeBuild();scheduleScanGridRender();}else if(wasEmpty&&added)scheduleScanGridRender(); });
 function updateLocationProgressUI() { for (const location of state.library.locations) { const row=elements.locationList.querySelector(`[data-location-id="${location.id}"]`); if (!row) continue; row.classList.toggle('offline',!location.online); row.classList.toggle('scanning',Boolean(location.scanning)); const count=row.querySelector('.location-root-button small'); if(count) count.textContent=location.assetCount||0; } const scanning=state.library.locations.find((location)=>location.scanning),progress=scanning?.scanProgress; if(scanning) elements.status.textContent=`Indexing ${scanning.name}… ${progress?.inspected||0}${progress?.discovered?` / ${progress.discovered}`:''}`; }
 window.pigeon.onLocationsChanged(({ locations, loading, totalAssets }) => {
   const structureChanged = locations.length !== state.library.locations.length || locations.some((location,index)=>location.id!==state.library.locations[index]?.id || location.path!==state.library.locations[index]?.path);
@@ -2210,7 +2215,7 @@ window.pigeon.onLocationsChanged(({ locations, loading, totalAssets }) => {
   if(structureChanged){ renderSidebar(false); scheduleFolderTreeBuild(); } else updateLocationProgressUI();
 });
 window.pigeon.onThumbnailReady(({ id, previewUrl, mediaUrl, width, height, duration, failed, error, dominantColor, histogram, palette, perceptualHash, exif, technicalMetadata }) => {
-  const asset = state.library.assets.find((item) => item.id === id);
+  const asset = state.library.assets[rendererAssetIndexes.get(id)];
   if (asset) {
     if (failed) { asset.thumbnailPath = null; asset.thumbnailFailedAt = Date.now(); asset.thumbnailFailedModified = asset.modified; asset.thumbnailError = error || 'Preview unavailable'; }
     else { asset.thumbnailPath = asset.thumbnailPath || 'cached'; asset.thumbnailFailedAt = null; asset.thumbnailFailedModified = null; asset.thumbnailError = null; }

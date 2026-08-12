@@ -117,6 +117,11 @@ contextBridge.exposeInMainWorld('pigeon', {
     ipcRenderer.on('library:assets', handler);
     return () => ipcRenderer.removeListener('library:assets', handler);
   },
+  onScanAssets: (callback) => {
+    const handler = (_event, value) => callback(value);
+    ipcRenderer.on('scan:assets', handler);
+    return () => ipcRenderer.removeListener('scan:assets', handler);
+  },
   onLocationsChanged: (callback) => {
     const handler = (_event, value) => callback(value);
     ipcRenderer.on('locations:changed', handler);
