@@ -93,7 +93,8 @@ test('justified rows, tag autocomplete, and viewer editing controls are wired', 
 test('startup uses the transparent Pigeon logo everywhere', async () => {
   assert.match(html, /id="startup-splash"[^>]*>[\s\S]*?pigeon-logo\.png/);
   assert.match(html, /rel="icon"[^>]*pigeon-logo\.png/);
-  assert.match(styles, /\.startup-splash \{[^}]*background: transparent/);
+  assert.match(styles, /\.startup-splash \{[^}]*background: var\(--bg\)/);
+  assert.match(styles,/\.app-shell\.startup-active > :not\(\.startup-splash\)/);
   assert.match(styles, /\.brand-mark \{[^}]*background: transparent/);
   assert.doesNotMatch(html, /pigeon\.png/);
   assert.match(main, /icon: path\.join\([^\n]*'pigeon-logo\.png'/);
@@ -102,7 +103,7 @@ test('startup uses the transparent Pigeon logo everywhere', async () => {
   assert.equal((await logo.metadata()).hasAlpha, true);
   assert.equal((await logo.stats()).isOpaque, false);
   assert.match(renderer, /finishStartupSplash/);
-  assert.match(renderer, /2500/);
+  assert.match(renderer, /STARTUP_SPLASH_MINIMUM_MS=2000/);
   assert.match(styles, /max-width: 350px/);
   assert.match(styles, /border: 0/);
 });
@@ -596,12 +597,14 @@ test('nested collection trees, smart subfolders, and inline unlocking are wired'
   assert.match(styles, /\.collection-item::before/);
 });
 
-test('availability refresh and About Pigeon dialog are wired', () => {
+test('availability refresh and inline About Pigeon view are wired', () => {
   assert.match(main, /fsp\.access\(targetPath, fs\.constants\.F_OK\)/);
   assert.doesNotMatch(main, /Test-Path -LiteralPath/);
   assert.match(renderer, /if \(location\?\.checking\) return false/);
   assert.doesNotMatch(renderer, /asset\?\.sourcePending \|\|/);
-  for (const id of ['about-dialog','about-title','about-version','about-github','close-about']) assert.match(html, new RegExp(`id="${id}"`));
+  for (const id of ['about-dialog','about-title','about-version','about-github']) assert.match(html, new RegExp(`id="${id}"`));
+  assert.doesNotMatch(html,/<dialog id="about-dialog"/);
+  assert.match(html,/about-dismiss-hint/);
   assert.match(html, /sees all/);
   assert.match(html, /Chris Visser/);
   assert.match(preload, /getAppInfo/);
@@ -610,8 +613,11 @@ test('availability refresh and About Pigeon dialog are wired', () => {
   assert.match(main, /app:open-external/);
   assert.match(main, /url\.hostname !== 'github\.com'/);
   assert.match(renderer, /openAboutDialog/);
+  assert.match(renderer,/closeAboutView/);
+  assert.match(renderer,/event\.key==='Escape'/);
+  assert.match(renderer,/\$\('#about-dialog'\)\.addEventListener\('click',closeAboutView\)/);
   assert.match(icons, /github:/);
-  assert.match(styles, /\.about-dialog/);
+  assert.match(styles, /\.about-dialog \{ position:fixed; inset:0/);
 });
 
 test('global background progress and scoped analytics are wired', () => {

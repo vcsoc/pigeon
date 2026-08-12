@@ -9,8 +9,8 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div class="app-shell">
-      <div id="startup-splash" class="startup-splash" aria-label="Pigeon is loading"><img src="../pigeon-logo.png" alt="Pigeon" /></div>
+    <div class="app-shell startup-active">
+      <div id="startup-splash" class="startup-splash" aria-label="Pigeon is loading" role="status"><img src="../pigeon-logo.png" alt="Pigeon" /></div>
       <aside class="sidebar">
         <div class="window-drag">
           <button id="app-menu-button" class="sidebar-menu-glyph" title="Pigeon menu" aria-label="Open Pigeon menu">☰</button>
@@ -243,14 +243,16 @@
     <div id="app-submenu" class="app-menu app-submenu hidden"></div>
     <div id="tag-autocomplete" class="tag-autocomplete hidden" popover="manual" role="listbox" aria-label="Existing tag suggestions"></div>
     <div id="asset-context-menu" class="app-menu context-menu hidden"></div>
-    <dialog id="about-dialog" class="about-dialog" aria-labelledby="about-title">
-      <button id="close-about" class="about-close" title="Close" aria-label="Close">×</button>
-      <img src="../pigeon-logo.png" alt="Pigeon logo" />
-      <h2 id="about-title">pigeon</h2><p class="about-subtitle">sees all</p>
-      <span id="about-version" class="about-version">Version</span>
-      <p class="about-credit">Developed by <strong>Chris Visser</strong></p>
-      <button id="about-github" class="about-github" type="button"><span id="about-github-icon"></span><span>github.com/vcsoc/pigeon</span></button>
-    </dialog>
+    <section id="about-dialog" class="about-dialog hidden" aria-labelledby="about-title" aria-modal="true" role="dialog" tabindex="-1">
+      <div class="about-content">
+        <img src="../pigeon-logo.png" alt="Pigeon logo" />
+        <h2 id="about-title">pigeon</h2><p class="about-subtitle">sees all</p>
+        <span id="about-version" class="about-version">Version</span>
+        <p class="about-credit">Developed by <strong>Chris Visser</strong></p>
+        <button id="about-github" class="about-github" type="button"><span id="about-github-icon"></span><span>github.com/vcsoc/pigeon</span></button>
+        <p class="about-dismiss-hint">Click anywhere or press Esc to close</p>
+      </div>
+    </section>
     <dialog id="tag-assignment-dialog" class="settings-dialog tag-assignment-dialog">
       <header><strong>Assign tags</strong><button id="close-tag-assignment">×</button></header>
       <div class="settings-content"><label for="batch-tag-input">Tags</label><p>Type or select existing tags. Separate multiple tags with commas.</p><input id="batch-tag-input" class="text-field" autocomplete="off" aria-autocomplete="list" aria-controls="tag-autocomplete" placeholder="Add tags…" /><footer><button id="cancel-tag-assignment">Cancel</button><button id="apply-tag-assignment" class="primary-button">Apply tags</button></footer></div>

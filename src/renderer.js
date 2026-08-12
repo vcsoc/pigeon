@@ -101,13 +101,13 @@ const rotatedThumbnailObserver = new ResizeObserver((entries) => {
 });
 let resizeTimer;
 let lastFilenameClick = { assetId: null, time: 0 };
-let startupSplashFinished = false;
-const startupSplashDeadline = setTimeout(() => finishStartupSplash(true), 2500);
-function finishStartupSplash(immediate = false) {
-  if (startupSplashFinished) return; startupSplashFinished = true; clearTimeout(startupSplashDeadline);
-  const splash = $('#startup-splash'); if (!splash) return;
-  const hide = () => { splash.classList.add('finishing'); setTimeout(() => splash.classList.add('hidden'), 150); };
-  immediate ? hide() : setTimeout(hide, 80);
+let startupSplashFinished = false,startupReady=false;
+const startupStartedAt=performance.now(),STARTUP_SPLASH_MINIMUM_MS=2000;
+const startupSplashDeadline = setTimeout(() => {startupReady=true;finishStartupSplash();},10000);
+function finishStartupSplash() {
+  startupReady=true;if(startupSplashFinished)return; const remaining=Math.max(0,STARTUP_SPLASH_MINIMUM_MS-(performance.now()-startupStartedAt));
+  if(remaining){setTimeout(finishStartupSplash,remaining);return;} startupSplashFinished=true;clearTimeout(startupSplashDeadline);
+  const splash=$('#startup-splash');if(!splash)return; splash.classList.add('finishing');setTimeout(()=>{splash.classList.add('hidden');$('.app-shell').classList.remove('startup-active');},180);
 }
 let streamRenderTimer,scanRenderHandle=null,lastUserInteractionAt=0;
 const rendererAssetIndexes=new Map();
@@ -1164,8 +1164,9 @@ function finishTextEntry(confirmed) {
   hideTagAutocomplete(); const resolver = textEntryResolve, confirmation = textEntryConfirmation, tagMode = textEntryTagMode; if (confirmed && tagMode) addTextEntryTags($('#text-entry-input').value.split(',')); const tagResult = [...textEntryTagValues.values()]; textEntryResolve = null; textEntryConfirmation = false; textEntryTagMode = false; if ($('#text-entry-dialog').open) $('#text-entry-dialog').close(); resolver?.(confirmed ? (confirmation ? true : tagMode ? tagResult : $('#text-entry-input').value) : null);
 }
 async function openAboutDialog() {
-  const dialog = $('#about-dialog'), info = await window.pigeon.getAppInfo(); $('#about-version').textContent = `Version ${info.version}`; $('#about-github-icon').innerHTML = iconSvg('github'); dialog.dataset.repository = info.repository; if (!dialog.open) dialog.showModal();
+  const about=$('#about-dialog'),info=await window.pigeon.getAppInfo();$('#about-version').textContent=`Version ${info.version}`;$('#about-github-icon').innerHTML=iconSvg('github');about.dataset.repository=info.repository;about.classList.remove('hidden');about.focus();
 }
+function closeAboutView(){const about=$('#about-dialog');if(!about.classList.contains('hidden'))about.classList.add('hidden');}
 let portfolioTransferTarget = null, portfolioTransferDestination = null;
 function openPortfolioTransfer(target) {
   portfolioTransferTarget = target; portfolioTransferDestination = null; hideInternalViewer();
@@ -2046,9 +2047,9 @@ $('#add-model-provider').addEventListener('click', async () => { const endpoint 
 $('#import-model-config').addEventListener('click', () => showToast('Model configuration import is available through the plugin folder'));
 $('#regenerate-developer-token').addEventListener('click', () => { const token = crypto.randomUUID().replace(/-/g, ''); localStorage.setItem('pigeon.developerToken', token); $('#developer-token').value = token; });
 $('#close-settings').addEventListener('click', () => $('#settings-dialog').close());
-$('#close-about').addEventListener('click', () => $('#about-dialog').close());
-$('#about-dialog').addEventListener('click', (event) => { if (event.target === event.currentTarget) event.currentTarget.close(); });
-$('#about-github').addEventListener('click', () => window.pigeon.openExternal($('#about-dialog').dataset.repository));
+$('#about-dialog').addEventListener('click',closeAboutView);
+$('#about-github').addEventListener('click',()=>window.pigeon.openExternal($('#about-dialog').dataset.repository));
+window.addEventListener('keydown',(event)=>{if(event.key==='Escape'&&!$('#about-dialog').classList.contains('hidden')){event.preventDefault();closeAboutView();}},true);
 $('#encrypt-locked-folders').addEventListener('change', (event) => { state.encryptLockedFolders = event.target.checked; localStorage.setItem('pigeon.encryptLockedFolders', String(state.encryptLockedFolders)); });
 $('#confirm-folder-moves').addEventListener('change', (event) => { state.confirmFolderMoves = event.target.checked; localStorage.setItem('pigeon.confirmFolderMoves', String(state.confirmFolderMoves)); });
 $$('[id^="thumbnail-title-line-"]').forEach((select, index) => select.addEventListener('change', (event) => { state.thumbnailTitleLines[index] = event.target.value; localStorage.setItem(`pigeon.thumbnailTitleLine${index + 1}`, event.target.value); renderGrid(); }));
