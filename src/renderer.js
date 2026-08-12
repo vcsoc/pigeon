@@ -273,16 +273,17 @@ function refreshDuplicateIds() {
 }
 let similarityRefreshGeneration = 0, similarityRefreshPromise = null, lastSimilarityRefreshAt = 0;
 async function refreshSimilarityGroups(renderAfter = true) {
-  if (similarityRefreshPromise) return similarityRefreshPromise; if (!renderAfter && Date.now()-lastSimilarityRefreshAt<5000) return;
-  const generation = ++similarityRefreshGeneration; similarityRefreshPromise = (async()=>{
-  try {
-    const groups = await window.pigeon.findSimilarGroups(state.duplicateSimilarity, state.duplicateSourceId);
-    if (generation !== similarityRefreshGeneration) return;
-    state.duplicateGroups = groups; state.duplicateIds = new Set(groups.flat());
-    lastSimilarityRefreshAt=Date.now(); if (renderAfter && state.view === 'duplicates') { resetRenderLimit(); render(); }
-    else { $('#duplicates-count').textContent=state.duplicateIds.size; }
-  } catch (error) { showToast(error.message); } finally { similarityRefreshPromise=null; }
-  })(); return similarityRefreshPromise;
+  if (!renderAfter&&!state.duplicateSourceId&&Date.now()-lastSimilarityRefreshAt<5000) return;
+  const generation=++similarityRefreshGeneration,sourceId=state.duplicateSourceId,request=(async()=>{
+    try {
+      const groups=await window.pigeon.findSimilarGroups(state.duplicateSimilarity,sourceId);
+      if(generation!==similarityRefreshGeneration||sourceId!==state.duplicateSourceId)return;
+      state.duplicateGroups=groups;state.duplicateIds=new Set(groups.flat());
+      lastSimilarityRefreshAt=Date.now();if(renderAfter&&state.view==='duplicates'){resetRenderLimit();render();}
+      else $('#duplicates-count').textContent=state.duplicateIds.size;
+    } catch(error){if(generation===similarityRefreshGeneration)showToast(error.message);}
+    finally{if(similarityRefreshPromise===request)similarityRefreshPromise=null;}
+  })();similarityRefreshPromise=request;return request;
 }
 
 function filteredAssets() {
@@ -1038,6 +1039,7 @@ function selectView(view, title, options = {}) {
   hideInternalViewer();
   state.view = view; state.locationId = null; state.collectionId = null; state.smartFolderId = null; state.similarIds = null; state.selectedId = null; state.gridScrollTop = 0; clearSelection(); resetRenderLimit();
   state.duplicateSourceId = view === 'duplicates' ? options.sourceId || null : null;
+  if(view==='duplicates'&&state.duplicateSourceId){similarityRefreshGeneration+=1;state.duplicateGroups=[];state.duplicateIds.clear();}
   elements.title.textContent = title; renderNavigationDestination();
   if (view === 'duplicates') refreshSimilarityGroups();
 }

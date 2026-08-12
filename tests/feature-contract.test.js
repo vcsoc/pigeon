@@ -23,6 +23,14 @@ test('UI exposes collection, smart-folder, batch, trash, media, metadata and edi
   }
 });
 
+test('thumbnail Find Similar supersedes global grouping and remains scoped to its source image',()=>{
+  assert.match(renderer,/sourceId=state\.duplicateSourceId/);
+  assert.match(renderer,/sourceId!==state\.duplicateSourceId/);
+  assert.match(renderer,/similarityRefreshGeneration\+=1;state\.duplicateGroups=\[\];state\.duplicateIds\.clear\(\)/);
+  assert.doesNotMatch(renderer,/if \(similarityRefreshPromise\) return similarityRefreshPromise/);
+  assert.match(renderer,/action === 'similar'\) selectView\('duplicates'.*sourceId: id/);
+});
+
 test('common interactions paint immediately and defer expensive renderer work',()=>{
   assert.match(renderer,/function paintActiveNavigation/);
   assert.match(renderer,/function renderNavigationDestination/);
