@@ -4,7 +4,7 @@ const core = require('../electron/library-core');
 
 function library() {
   return core.migrateLibrary({ assets: [
-    { id: 'a', filename: 'red-mountain.jpg', extension: 'JPG', kind: 'image', size: 20, contentHash: 'same', width: 1600, height: 900, dominantColor: '#bf4545', tags: ['travel'], rating: 5, locationId: 'l1' },
+    { id: 'a', filename: 'red-mountain.jpg', extension: 'JPG', kind: 'image', size: 20, contentHash: 'same', width: 1600, height: 900, dominantColor: '#bf4545', tags: ['travel'], rating: 5, collectionIds: ['collection-a'], locationId: 'l1' },
     { id: 'b', filename: 'copy.jpg', extension: 'JPG', kind: 'image', size: 20, contentHash: 'same', width: 1590, height: 900, dominantColor: '#c44848', tags: [], locationId: 'l1' },
     { id: 'c', filename: 'notes.txt', extension: 'TXT', kind: 'file', size: 2, tags: [], locationId: 'l2' }
   ], locations: [{ id: 'l1' }, { id: 'l2' }] });
@@ -123,6 +123,10 @@ test('evaluates serialized smart-folder filters', () => {
   assert.deepEqual(core.evaluateSmartFolder(data, { filters: { extensions: ['jpg'], ratings: [5], tags: ['travel'] } }).map((asset) => asset.id), ['a']);
   assert.deepEqual(core.evaluateSmartFolder(data, { filters: { ruleMatch: 'all', rules: [{ field: 'name', operator: 'begins', value: 'red' }, { field: 'tags', operator: 'contains', value: 'travel' }] } }).map((asset) => asset.id), ['a']);
   assert.deepEqual(core.evaluateSmartFolder(data, { filters: { ruleMatch: 'any', rules: [{ field: 'tags', operator: 'contains', value: 'missing' }, { field: 'rating', operator: 'equals', value: '5' }] } }).map((asset) => asset.id), ['a']);
+  assert.deepEqual(core.evaluateSmartFolder(data, { filters: { rules: [{ field: 'collection', operator: 'not-null', value: '' }] } }).map((asset) => asset.id), ['a']);
+  assert.deepEqual(core.evaluateSmartFolder(data, { filters: { rules: [{ field: 'collection', operator: 'null', value: '' }] } }).map((asset) => asset.id), ['b', 'c']);
+  assert.deepEqual(core.evaluateSmartFolder(data, { filters: { rules: [{ field: 'rating', operator: 'greater-than-equal', value: '5' }] } }).map((asset) => asset.id), ['a']);
+  assert.deepEqual(core.evaluateSmartFolder(data, { filters: { rules: [{ field: 'rating', operator: 'less-than', value: '5' }] } }).map((asset) => asset.id), ['b', 'c']);
 });
 
 test('renaming a tag to an existing tag merges memberships case-insensitively', () => {

@@ -146,6 +146,15 @@ test('left-panel section headings collapse, expand, and persist', () => {
   assert.match(styles, /sidebar-section-content\.collapsed/);
 });
 
+test('smart folders support collection presence and numeric rating comparisons', () => {
+  assert.match(renderer,/\['collection','Collection'\]/);
+  for(const operator of ['less-than','less-than-equal','greater-than','greater-than-equal']) assert.match(renderer,new RegExp(operator));
+  assert.match(renderer,/operatorsForSmartField/);
+  assert.match(renderer,/rule\.field === 'collection' \? asset\.collectionIds/);
+  assert.match(libraryCore,/rule\.field === 'collection' \? asset\.collectionIds/);
+  assert.match(libraryCore,/Number\.isFinite\(target\)/);
+});
+
 test('portfolio, collection, and smart-folder creation use in-app dialogs', () => {
   assert.doesNotMatch(renderer, /\bprompt\s*\(/);
   assert.doesNotMatch(renderer, /\bconfirm\s*\(/);
