@@ -85,7 +85,7 @@ const elements = {
   mapView: $('#map-view'), mapCanvas: $('#location-map'), histogram: $('#asset-histogram'), palette: $('#asset-palette'),
   status: $('#status-text'), addMenu: $('#add-menu'), toast: $('#toast'), gridWrap: $('#grid-wrap'),
   facetPopover: $('#facet-popover'), appMenu: $('#app-menu'), appSubmenu: $('#app-submenu'), contextMenu: $('#asset-context-menu'),
-  batchBar: $('#batch-bar'), batchCount: $('#batch-count'), annotationDialog: $('#annotation-dialog'), annotationStage: $('#annotation-stage'),
+  batchBar: $('#batch-bar'), batchCount: $('#batch-count'), annotationView: $('#annotation-view'), annotationStage: $('#annotation-stage'),
   mediaViewer: $('#media-viewer'), viewerImage: $('#viewer-image'), viewerVideo: $('#viewer-video'), viewerAudio: $('#viewer-audio'), viewerFile: $('#viewer-file'),
   viewerMinimap: $('#viewer-minimap'), viewerMinimapImage: $('#viewer-minimap-image'), viewerMinimapViewport: $('#viewer-minimap-viewport'),
   sentinel: $('#grid-sentinel'), emptyTitle: $('#empty-title'), emptyDescription: $('#empty-description'), emptyActions: $('#empty-actions'),
@@ -747,6 +747,7 @@ function renderAnalytics() {
 function openAnalytics(scope = { type: 'portfolio', id: null, subfolder: '' }) { rememberTemporaryViewOrigin(); hideInternalViewer(); closeFloatingMenus(); state.analyticsScope = { type: 'portfolio', id: null, subfolder: '', ...scope }; state.analyticsTab = 'overview'; state.view = 'analytics'; state.locationId = null; state.collectionId = null; state.smartFolderId = null; elements.title.textContent = 'Analytics'; render(); }
 
 function renderGrid() {
+  elements.annotationView.classList.add('hidden');
   const lockedCollection = state.collectionId ? state.library.collections.find((item) => item.id === state.collectionId && item.locked) : null;
   elements.lockedContent.classList.toggle('hidden', !lockedCollection);
   if (lockedCollection) {
@@ -1030,6 +1031,7 @@ function paintActiveNavigation(){
   let target;if(state.collectionId)target=document.querySelector(`[data-collection-id="${CSS.escape(state.collectionId)}"]`);else if(state.smartFolderId)target=document.querySelector(`[data-smart-folder-id="${CSS.escape(state.smartFolderId)}"]`);else if(state.locationId){const row=elements.locationList.querySelector(`.location-item[data-location-id="${CSS.escape(state.locationId)}"]`);target=state.locationSubfolder?row?.querySelector(`[data-subfolder="${CSS.escape(encodeURIComponent(state.locationSubfolder))}"]`):row?.querySelector('.location-root-button');}else target=document.querySelector(`.nav-item[data-view="${CSS.escape(state.view)}"]`);target?.classList.add('active');
 }
 function renderNavigationDestination(){
+  elements.annotationView.classList.add('hidden');
   const generation=++navigationRenderGeneration;paintActiveNavigation();updateSubfolderContentToggle();elements.gridWrap.classList.add('navigation-pending');
   if(navigationPaintFrame)cancelAnimationFrame(navigationPaintFrame);
   navigationPaintFrame=requestAnimationFrame(()=>requestAnimationFrame(()=>{if(generation!==navigationRenderGeneration)return;navigationPaintFrame=null;renderGrid();renderInspector();elements.gridWrap.classList.remove('navigation-pending');}));
@@ -1635,19 +1637,14 @@ function renderAnnotations() {
     elements.annotationStage.insertAdjacentHTML('beforeend', `<span class="annotation-mark crop-mark" style="left:${crop.x / asset.width * 100}%;top:${crop.y / asset.height * 100}%;width:${crop.width / asset.width * 100}%;height:${crop.height / asset.height * 100}%"></span>`);
   }
 }
-function openAnnotationEditor() {
-  const asset = state.library.assets.find((item) => item.id === state.selectedId);
-  if (!asset || asset.kind !== 'image' || !asset.width || !asset.height) { showToast('Select an online image with dimensions first'); return; }
-  state.workingAnnotations = structuredClone(asset.annotations || []);
-  state.workingEdits = { rotate: 0, flip: false, brightness: 1, crop: null };
-  $('#edit-brightness').value = 100;
-  elements.annotationStage.style.transform = '';
-  elements.annotationStage.style.filter = '';
-  elements.annotationStage.style.backgroundImage = `url("${asset.mediaUrl || asset.previewUrl}")`;
-  elements.annotationStage.style.aspectRatio = `${asset.width} / ${asset.height}`;
-  elements.annotationDialog.showModal();
-  renderAnnotations();
+function openAnnotationEditor(id=state.selectedId) {
+  const asset=state.library.assets.find((item)=>item.id===id);
+  if(!asset||asset.kind!=='image'||!asset.width||!asset.height){showToast('Select an online image with dimensions first');return;}
+  state.selectedId=id;state.workingAnnotations=structuredClone(asset.annotations||[]);state.workingEdits={rotate:0,flip:false,brightness:1,crop:null};
+  $('#edit-brightness').value=100;elements.annotationStage.style.transform='';elements.annotationStage.style.filter='';elements.annotationStage.style.backgroundImage=`url("${asset.mediaUrl||asset.previewUrl}")`;elements.annotationStage.style.aspectRatio=`${asset.width} / ${asset.height}`;
+  elements.annotationView.classList.remove('hidden');elements.grid.classList.add('hidden');elements.empty.classList.add('hidden');elements.tagBrowser.classList.add('hidden');elements.sentinel.classList.add('hidden');$('#duplicate-controls').classList.add('hidden');elements.count.textContent='Editing';elements.status.textContent=`Annotating ${asset.filename}`;renderAnnotations();
 }
+function closeAnnotationEditor(){elements.annotationView.classList.add('hidden');renderGrid();renderInspector();}
 
 function showAssetContextMenu(event, id) {
   event.preventDefault();
@@ -1657,7 +1654,7 @@ function showAssetContextMenu(event, id) {
   if (!state.selectedIds.has(id)) state.selectedIds = new Set([id]);
   updateCardSelectionStyles(); renderInspector();
   const selectedImageIds = [...state.selectedIds].filter((assetId) => state.library.assets.find((item) => item.id === assetId)?.kind === 'image'), rotationTargetLabel = selectedImageIds.length > 1 ? `Rotate ${selectedImageIds.length} images` : 'Rotate';
-  elements.contextMenu.innerHTML = `<button data-context-action="open"><span>Open in Pigeon</span><kbd>Enter</kbd></button><button data-context-action="open-default"><span>Open with default app</span></button><button data-context-action="open-with"><span>Open with…</span></button><button data-context-action="reveal"><span>Reveal in folder</span></button>${asset.kind === 'image' ? '<button data-context-action="similar"><span>Find similar</span></button>' : ''}${asset.kind === 'image' ? '<button data-context-action="location"><span>Location…</span><span>⌖</span></button>' : ''}${asset.kind === 'image' ? '<button data-context-action="rotate-left"><span>' + rotationTargetLabel + ' left</span></button><button data-context-action="rotate-right"><span>' + rotationTargetLabel + ' right</span></button><button data-context-action="duplicate"><span>Duplicate</span><kbd>Ctrl+D</kbd></button>' : ''}<hr /><button data-context-action="favorite"><span>${asset.favorite ? 'Remove from favorites' : 'Add to favorites'}</span><span>♡</span></button><button data-context-action="five-stars"><span>Rate 5 stars</span><span>★★★★★</span></button><button data-context-action="auto-tag"><span>Generate local tags</span></button>${state.selectedIds.size > 1 ? '<button data-context-action="stack"><span>Stack selected assets</span></button>' : ''}${asset.stackId ? '<button data-context-action="unstack"><span>Unstack group</span></button>' : ''}${state.collectionId ? '<hr /><button data-context-action="remove-from-collection"><span>Remove from collection</span></button>' : ''}<hr /><button data-context-action="trash"><span>${asset.deletedAt ? 'Restore reference' : 'Move reference to trash'}</span></button>`;
+  elements.contextMenu.innerHTML = `<button data-context-action="open"><span>Open in Pigeon</span><kbd>Enter</kbd></button><button data-context-action="open-default"><span>Open with default app</span></button><button data-context-action="open-with"><span>Open with…</span></button><button data-context-action="reveal"><span>Reveal in folder</span></button>${asset.kind === 'image' ? '<button data-context-action="similar"><span>Find similar</span></button><button data-context-action="annotate"><span>Annotate…</span></button>' : ''}${asset.kind === 'image' ? '<button data-context-action="location"><span>Location…</span><span>⌖</span></button>' : ''}${asset.kind === 'image' ? '<button data-context-action="rotate-left"><span>' + rotationTargetLabel + ' left</span></button><button data-context-action="rotate-right"><span>' + rotationTargetLabel + ' right</span></button><button data-context-action="duplicate"><span>Duplicate</span><kbd>Ctrl+D</kbd></button>' : ''}<hr /><button data-context-action="favorite"><span>${asset.favorite ? 'Remove from favorites' : 'Add to favorites'}</span><span>♡</span></button><button data-context-action="five-stars"><span>Rate 5 stars</span><span>★★★★★</span></button><button data-context-action="auto-tag"><span>Generate local tags</span></button>${state.selectedIds.size > 1 ? '<button data-context-action="stack"><span>Stack selected assets</span></button>' : ''}${asset.stackId ? '<button data-context-action="unstack"><span>Unstack group</span></button>' : ''}${state.collectionId ? '<hr /><button data-context-action="remove-from-collection"><span>Remove from collection</span></button>' : ''}<hr /><button data-context-action="trash"><span>${asset.deletedAt ? 'Restore reference' : 'Move reference to trash'}</span></button>`;
   elements.contextMenu.querySelectorAll('[data-context-action]').forEach((button) => button.addEventListener('click', async () => {
     const action = button.dataset.contextAction;
     if (action === 'open') openInternalViewer(id);
@@ -1666,6 +1663,7 @@ function showAssetContextMenu(event, id) {
     if (action === 'reveal') window.pigeon.revealAsset(id);
     const selectedIds = [...state.selectedIds];
     if (action === 'location') openMapView(selectedIds);
+    if(action==='annotate')openAnnotationEditor(id);
     if (action === 'favorite') await window.pigeon.batchUpdateAssets(selectedIds, { favorite: !asset.favorite });
     if (action === 'five-stars') await window.pigeon.batchUpdateAssets(selectedIds, { rating: 5 });
     if (action === 'auto-tag') await window.pigeon.autoTag(selectedIds);
@@ -1873,8 +1871,6 @@ async function commitTagInput() {
 }
 elements.tags.addEventListener('change', commitTagInput);
 elements.tags.addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); commitTagInput(); } });
-$('#open-asset').addEventListener('click', () => { if (state.selectedId) openInternalViewer(state.selectedId); });
-$('#reveal-asset').addEventListener('click', () => window.pigeon.revealAsset(state.selectedId));
 $('#viewer-previous').addEventListener('click', () => navigateViewer(-1));
 $('#viewer-next').addEventListener('click', () => navigateViewer(1));
 $('#viewer-fit').addEventListener('click', toggleViewerFit);
@@ -2020,13 +2016,7 @@ $('#duplicate-similarity').addEventListener('input', (event) => {
   clearTimeout(refreshSimilarityGroups.sliderTimer); refreshSimilarityGroups.sliderTimer = setTimeout(() => refreshSimilarityGroups(), 180);
 });
 $('#show-all-duplicate-groups').addEventListener('click', () => selectView('duplicates', 'Duplicates'));
-$('#find-similar').addEventListener('click', () => {
-  if (!state.selectedId) return;
-  const source = state.library.assets.find((asset) => asset.id === state.selectedId);
-  selectView('duplicates', `Similar to ${source?.name || 'selected image'}`, { sourceId: state.selectedId });
-});
-$('#annotate-asset').addEventListener('click', openAnnotationEditor);
-$('#close-annotations').addEventListener('click', () => elements.annotationDialog.close());
+$('#close-annotations').addEventListener('click',closeAnnotationEditor);
 $$('[data-tool]').forEach((button) => button.addEventListener('click', () => { state.annotationTool = button.dataset.tool; }));
 $('#undo-annotation').addEventListener('click', () => { if (state.workingEdits.crop) state.workingEdits.crop = null; else state.workingAnnotations.pop(); renderAnnotations(); });
 const previewEditRotation = () => { elements.annotationStage.style.transform = `rotate(${state.workingEdits.rotate}deg) scale(${state.workingEdits.rotate % 180 ? .72 : 1}) scaleX(${state.workingEdits.flip ? -1 : 1})`; };
@@ -2054,7 +2044,7 @@ elements.annotationStage.addEventListener('pointerup', async (event) => {
   }
   renderAnnotations();
 });
-$('#save-annotations').addEventListener('click', async () => { await window.pigeon.updateAsset(state.selectedId, { annotations: state.workingAnnotations }); elements.annotationDialog.close(); });
+$('#save-annotations').addEventListener('click',async()=>{const updated=await window.pigeon.updateAsset(state.selectedId,{annotations:state.workingAnnotations}),asset=state.library.assets.find((item)=>item.id===state.selectedId);if(asset&&updated)Object.assign(asset,updated);closeAnnotationEditor();showToast('Annotations saved');});
 $('#export-annotations').addEventListener('click', async () => { const target = await window.pigeon.exportAnnotated(state.selectedId, state.workingAnnotations, state.workingEdits); if (target) showToast(`Exported ${target}`); });
 $('#subfolder-content-toggle').addEventListener('click', () => { state.includeSubfolderContent = !state.includeSubfolderContent; localStorage.setItem('pigeon.includeSubfolderContent', String(state.includeSubfolderContent)); resetRenderLimit(); render(); });
 $('#settings-button').addEventListener('click', openSettings);

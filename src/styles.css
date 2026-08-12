@@ -526,13 +526,11 @@ textarea { resize: vertical; min-height: 68px; padding: 8px; line-height: 1.5; }
 @media (max-width: 700px) { .preferences-shell { grid-template-columns: 165px minmax(0,1fr); } .preferences-nav { padding-inline: 8px; } }
 .settings-options label { display: flex; align-items: flex-start; gap: 8px; color: #c8cbd0; font-size: 11px; font-weight: 400; line-height: 1.4; }
 .settings-options input { margin-top: 1px; accent-color: #5796ea; }
-.annotation-dialog { width: min(900px, calc(100vw - 50px)); height: min(700px, calc(100vh - 50px)); padding: 0; border: 1px solid #50545c; border-radius: 9px; background: #202226; color: #e6e7e9; box-shadow: 0 25px 80px rgba(0,0,0,.65); }
-.annotation-dialog::backdrop { background: rgba(0,0,0,.68); }
-.annotation-dialog header, .annotation-dialog footer, .annotation-toolbar { height: 44px; padding: 0 12px; display: flex; align-items: center; gap: 7px; border-bottom: 1px solid #383b41; }
-.annotation-dialog header { justify-content: space-between; }
-.annotation-dialog footer { justify-content: flex-end; border-top: 1px solid #383b41; border-bottom: 0; }
-.annotation-dialog button { min-height: 28px; }
-.annotation-stage { height: calc(100% - 132px); position: relative; overflow: auto; background: #111214 center/contain no-repeat; }
+.annotation-view { position:absolute; inset:0; z-index:9; min-height:0; display:grid; grid-template-rows:44px 44px minmax(0,1fr) 46px; overflow:hidden; background:#191a1c; color:#e6e7e9; }
+.annotation-view header,.annotation-view footer,.annotation-toolbar { padding:0 12px; display:flex; align-items:center; gap:7px; border-bottom:1px solid #383b41; background:#202226; }
+.annotation-view header { justify-content:space-between; }.annotation-view footer { justify-content:flex-end; border-top:1px solid #383b41; border-bottom:0; }.annotation-view footer>span { margin-right:auto; color:#777e8a; font-size:9px; }.annotation-view button { min-height:28px; }
+.annotation-canvas { min-height:0; overflow:auto; display:grid; place-items:center; padding:18px; background:#111214; }
+.annotation-stage { width:min(100%,1200px); max-height:100%; position:relative; background:#111214 center/contain no-repeat; box-shadow:0 12px 38px rgba(0,0,0,.42); touch-action:none; }
 .annotation-mark { position: absolute; border: 3px solid var(--annotation-color); color: var(--annotation-color); font-weight: 700; pointer-events: none; }
 .annotation-mark.crop-mark { border: 2px dashed #fff; outline: 9999px solid rgba(0,0,0,.48); box-shadow: 0 0 0 1px #111; }
 

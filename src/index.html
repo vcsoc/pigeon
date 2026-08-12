@@ -131,6 +131,12 @@
               <header class="map-toolbar"><strong>Set image location</strong><span id="map-selection-count"></span><div class="map-search"><input id="map-search-input" type="search" placeholder="Search an address or place" autocomplete="off" aria-autocomplete="list" aria-controls="map-search-results" /><button id="map-search-button">Search</button><div id="map-search-results" class="map-search-results hidden" role="listbox" aria-label="Address suggestions"></div></div><div class="map-mode"><button id="map-globe-mode" class="active">3D globe</button><button id="map-street-mode">Street map</button></div><button id="map-cancel">Cancel</button><button id="map-save" class="primary-button">Set location</button></header>
               <div class="map-canvas-wrap"><canvas id="location-map"></canvas><div class="map-crosshair">＋</div><div id="map-coordinates" class="map-coordinates">Select a location</div><div class="map-attribution">Street tiles © OpenStreetMap contributors · cached locally</div></div>
             </section>
+            <section id="annotation-view" class="annotation-view hidden" aria-label="Inline annotation editor">
+              <header><strong>Non-destructive annotations</strong><button id="close-annotations" class="secondary-button">Close</button></header>
+              <div class="annotation-toolbar"><button data-tool="rect">Rectangle</button><button data-tool="text">Text</button><button data-tool="crop">Crop</button><input id="annotation-color" type="color" value="#ff3b30" /><button id="undo-annotation">Undo</button><span class="toolbar-divider"></span><button id="rotate-left">↶ Rotate</button><button id="rotate-right">↷ Rotate</button><button id="flip-image">⇋ Flip</button><label>Brightness <input id="edit-brightness" type="range" min="50" max="150" value="100" /></label></div>
+              <div class="annotation-canvas"><div id="annotation-stage" class="annotation-stage"></div></div>
+              <footer><span>Changes are non-destructive</span><button id="save-annotations" class="secondary-button">Save metadata</button><button id="export-annotations" class="primary-button">Export derivative</button></footer>
+            </section>
             <section id="media-viewer" class="media-viewer hidden">
               <div class="viewer-stage">
                 <img id="viewer-image" class="hidden" alt="Asset preview" />
@@ -196,12 +202,7 @@
                 <div><dt>Exposure</dt><dd id="meta-exposure"></dd></div>
                 <div><dt>Map</dt><dd id="meta-geo"></dd></div>
               </dl>
-              <div class="inspector-actions">
-                <button id="open-asset" class="primary-button">Open</button>
-                <button id="reveal-asset" class="secondary-button">Reveal</button>
-                <button id="find-similar" class="secondary-button">Find similar</button>
-                <button id="annotate-asset" class="secondary-button">Annotate</button>
-              </div>
+
             </div>
           </aside>
         </section>
@@ -290,12 +291,6 @@
       </div>
     </dialog>
     <dialog id="shortcut-action-dialog" class="settings-dialog shortcut-action-dialog"><header><strong id="shortcut-action-title">Create Action</strong><button id="close-shortcut-action" type="button">×</button></header><div class="settings-content"><div class="shortcut-action-identity"><input id="shortcut-action-name" class="text-field" placeholder="Action name" maxlength="80" /><input id="shortcut-action-key" class="text-field" readonly placeholder="Shortcut (optional)" /></div><p>Select the thumbnails first, then press this shortcut anywhere outside an editable field.</p><div id="shortcut-action-steps" class="shortcut-action-steps"></div><button id="add-shortcut-step" class="shortcut-add-step" type="button">＋ Add Step</button><footer><button id="cancel-shortcut-action" type="button">Cancel</button><button id="save-shortcut-action" class="primary-button" type="button">Create Action</button></footer></div></dialog>
-    <dialog id="annotation-dialog" class="annotation-dialog">
-      <header><strong>Non-destructive annotations</strong><button id="close-annotations">×</button></header>
-      <div class="annotation-toolbar"><button data-tool="rect">Rectangle</button><button data-tool="text">Text</button><button data-tool="crop">Crop</button><input id="annotation-color" type="color" value="#ff3b30" /><button id="undo-annotation">Undo</button><span class="toolbar-divider"></span><button id="rotate-left">↶ Rotate</button><button id="rotate-right">↷ Rotate</button><button id="flip-image">⇋ Flip</button><label>Brightness <input id="edit-brightness" type="range" min="50" max="150" value="100" /></label></div>
-      <div id="annotation-stage" class="annotation-stage"></div>
-      <footer><button id="save-annotations" class="secondary-button">Save metadata</button><button id="export-annotations" class="primary-button">Export derivative</button></footer>
-    </dialog>
     <div id="toast" class="toast hidden"></div>
     <script src="icons.js"></script>
     <script src="world-land.js"></script>
