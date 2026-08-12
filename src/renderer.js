@@ -1007,11 +1007,12 @@ function updateSubfolderContentToggle() { const button = $('#subfolder-content-t
 function render() { updateSubfolderContentToggle(); renderTagSuggestions(); renderSidebar(false); renderGrid(); renderInspector(); }
 function resetRenderLimit() { state.renderLimit = 240; }
 function clearSelection() { state.selectedIds.clear(); state.selectionAnchorId = null; }
+let selectionInspectorFrame=null;
+function paintCardSelection(card){if(!card)return;const selected=state.selectedIds.has(card.dataset.assetId);card.classList.toggle('selected',selected&&card.dataset.assetId===state.selectedId);card.classList.toggle('multi-selected',selected);card.setAttribute('aria-selected',String(selected));}
+function paintChangedSelectionCards(ids){for(const id of new Set(ids.filter(Boolean)))paintCardSelection(elements.grid.querySelector(`[data-asset-id="${CSS.escape(id)}"]`));renderBatchBar();}
+function scheduleSelectionInspector(){if(selectionInspectorFrame)cancelAnimationFrame(selectionInspectorFrame);selectionInspectorFrame=requestAnimationFrame(()=>{selectionInspectorFrame=null;renderInspector();});}
 function updateCardSelectionStyles() {
-  $$('.asset-card').forEach((card) => {
-    card.classList.toggle('selected', card.dataset.assetId === state.selectedId);
-    card.classList.toggle('multi-selected', state.selectedIds.has(card.dataset.assetId));
-  });
+  $$('.asset-card').forEach(paintCardSelection);
   renderBatchBar();
 }
 function selectView(view, title, options = {}) {
@@ -1049,17 +1050,18 @@ function selectSmartFolder(id) {
 }
 function selectAsset(id) { state.selectedId = id; updateCardSelectionStyles(); renderInspector(); }
 function selectAssetWithEvent(id, event) {
-  const visibleIds = filteredAssets().map((asset) => asset.id);
-  if (event.shiftKey && state.selectionAnchorId) {
-    const start = visibleIds.indexOf(state.selectionAnchorId), end = visibleIds.indexOf(id);
-    if (start >= 0 && end >= 0) for (const selectedId of visibleIds.slice(Math.min(start, end), Math.max(start, end) + 1)) state.selectedIds.add(selectedId);
-  } else if (event.ctrlKey || event.metaKey) {
-    state.selectedIds.has(id) ? state.selectedIds.delete(id) : state.selectedIds.add(id);
-    state.selectionAnchorId = id;
-  } else {
-    state.selectedIds.clear(); state.selectedIds.add(id); state.selectionAnchorId = id;
+  const previousPrimary=state.selectedId;
+  if (event.ctrlKey || event.metaKey) {
+    if(state.selectedIds.has(id)){state.selectedIds.delete(id);state.selectedId=state.selectedIds.values().next().value||null;}
+    else{state.selectedIds.add(id);state.selectedId=id;}
+    state.selectionAnchorId=state.selectedId;paintChangedSelectionCards([previousPrimary,id,state.selectedId]);scheduleSelectionInspector();return;
   }
-  state.selectedId = id; updateCardSelectionStyles(); renderInspector();
+  if (event.shiftKey && state.selectionAnchorId) {
+    const visibleIds=filteredAssets().map((asset)=>asset.id),start=visibleIds.indexOf(state.selectionAnchorId),end=visibleIds.indexOf(id),changed=[previousPrimary];
+    if(start>=0&&end>=0)for(const selectedId of visibleIds.slice(Math.min(start,end),Math.max(start,end)+1)){if(!state.selectedIds.has(selectedId))changed.push(selectedId);state.selectedIds.add(selectedId);}
+    state.selectedId=id;changed.push(id);paintChangedSelectionCards(changed);scheduleSelectionInspector();return;
+  }
+  const previouslySelected=[...elements.grid.querySelectorAll('.asset-card.selected,.asset-card.multi-selected')].map((card)=>card.dataset.assetId);state.selectedIds=new Set([id]);state.selectedId=id;state.selectionAnchorId=id;paintChangedSelectionCards([...previouslySelected,id]);scheduleSelectionInspector();
 }
 async function removeSelectedFromCurrentCollection() {
   if (!state.collectionId) return false;

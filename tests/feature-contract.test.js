@@ -305,6 +305,18 @@ test('collection drag updates smart-folder thumbnails without a full grid refres
   assert.match(main,/if \(!options\.silent\) broadcast\(\)/);
 });
 
+test('Ctrl-click deselection clears stale borders and repaints only changed thumbnail cards',()=>{
+  assert.match(renderer,/function paintCardSelection/);
+  assert.match(renderer,/card\.setAttribute\('aria-selected',String\(selected\)\)/);
+  assert.match(renderer,/if\(state\.selectedIds\.has\(id\)\)\{state\.selectedIds\.delete\(id\);state\.selectedId=state\.selectedIds\.values\(\)\.next\(\)\.value\|\|null/);
+  assert.match(renderer,/paintChangedSelectionCards\(\[previousPrimary,id,state\.selectedId\]\)/);
+  assert.match(renderer,/scheduleSelectionInspector\(\);return/);
+  const ctrlBranch=renderer.match(/if \(event\.ctrlKey \|\| event\.metaKey\) \{[\s\S]*?scheduleSelectionInspector\(\);return;\n  \}/)?.[0]||'';
+  assert.doesNotMatch(ctrlBranch,/filteredAssets\(/);
+  assert.doesNotMatch(ctrlBranch,/updateCardSelectionStyles\(/);
+  assert.doesNotMatch(ctrlBranch,/renderInspector\(/);
+});
+
 test('collection assignment and multi-selection context actions preserve batch intent', () => {
   assert.match(renderer, /application\/x-pigeon-assets/);
   assert.doesNotMatch(renderer, /title: 'Move Assets'/);
