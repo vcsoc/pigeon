@@ -2276,7 +2276,7 @@ window.pigeon.onLibraryAssets(({ generation, assets, done }) => {
   if (generation !== state.streamGeneration) return;
   const firstBatch = state.library.assets.length === 0;
   for(const asset of assets){rendererAssetIndexes.set(asset.id,state.library.assets.length);state.library.assets.push(asset);}
-  if (done) { state.library.totalAssets = state.library.assets.length; refreshDuplicateIds(); refreshSimilarityGroups(state.view === 'duplicates'); finishStartupSplash(); scheduleFolderTreeBuild(); }
+  if (done) { state.library.totalAssets = state.library.assets.length; refreshDuplicateIds(); if(state.view==='duplicates'&&state.duplicateSourceId)refreshSimilarityGroups(); finishStartupSplash(); scheduleFolderTreeBuild(); }
   clearTimeout(streamRenderTimer);
   if (firstBatch || done) { render(); if (done && isInternalViewerOpen()) renderInternalViewer(); }
   else streamRenderTimer = setTimeout(() => { renderGrid(); updateLocationProgressUI(); }, 240);
@@ -2305,7 +2305,7 @@ window.pigeon.onThumbnailReady(({ id, previewUrl, mediaUrl, width, height, durat
     asset.perceptualHash = perceptualHash || asset.perceptualHash;
     asset.exif = exif || asset.exif;
     asset.technicalMetadata = technicalMetadata || asset.technicalMetadata;
-    if (perceptualHash) { clearTimeout(refreshSimilarityGroups.thumbnailTimer); refreshSimilarityGroups.thumbnailTimer = setTimeout(() => refreshSimilarityGroups(state.view === 'duplicates'), 450); }
+    if(perceptualHash&&state.view==='duplicates'&&state.duplicateSourceId){clearTimeout(refreshSimilarityGroups.thumbnailTimer);refreshSimilarityGroups.thumbnailTimer=setTimeout(()=>refreshSimilarityGroups(),450);}
   }
   if (isInternalViewerOpen() && state.viewerAssetId === id) renderInternalViewer();
   const card = elements.grid.querySelector(`[data-asset-id="${id}"]`);

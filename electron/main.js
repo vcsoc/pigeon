@@ -69,6 +69,7 @@ const LARGE_SCAN_WORKER_LIMIT = 2;
 const MIN_FREE_MEMORY_BYTES = 2 * 1024 * 1024 * 1024;
 let activePdfWorkers = 0;
 const pdfWorkerWaiters = [];
+let activeSimilarityJob=null;
 let diagnosticsFile;
 let diagnosticEntries = [];
 const fatalDiagnosticsFile=path.join(app.getPath('userData'),'fatal-errors.jsonl');
@@ -255,6 +256,7 @@ async function cancelPortfolioBackground(reason = 'Portfolio switched') {
   for (const worker of thumbnailWorkers.splice(0)) { clearTimeout(worker.jobTimer); worker.currentJob?.resolve({ ok: false, cancelled: true, message: reason }); worker.currentJob = null; worker.terminate().catch(() => {}); }
   for (const worker of backgroundHashWorkers) worker.terminate().catch(() => {}); backgroundHashWorkers.clear();
   for (const child of activeFfmpegChildren) child.kill();
+  if(activeSimilarityJob){activeSimilarityJob.resolve([]);activeSimilarityJob.worker.terminate().catch(()=>{});activeSimilarityJob=null;}
 }
 
 async function writeBackup(reason = 'automatic') {
@@ -1753,8 +1755,9 @@ ipcMain.handle('assets:similar', (_event, id) => {
   return asset ? libraryCore.similarAssets(library.assets, asset).map((item) => item.id) : [];
 });
 ipcMain.handle('assets:similar-groups', (_event, { accuracy = 78, sourceId = null } = {}) => new Promise((resolve) => {
-  const worker = new Worker(path.join(__dirname, 'similarity-worker.js'), { workerData: { assets: library.assets.map(({ id, kind, deletedAt, locked, contentHash, perceptualHash, dominantColor, width, height }) => ({ id, kind, deletedAt, locked, contentHash, perceptualHash, dominantColor, width, height })), accuracy: Math.max(35, Math.min(100, Number(accuracy) || 78)), sourceId } }); trackWorker(worker, 'similarity', { filesTotal: library.assets.length });
-  worker.once('message', (message) => resolve(message.groups || [])); worker.once('error', () => resolve([]));
+  if(activeSimilarityJob){activeSimilarityJob.resolve([]);activeSimilarityJob.worker.terminate().catch(()=>{});activeSimilarityJob=null;}
+  const images=library.assets.filter((asset)=>asset.kind==='image'&&!asset.deletedAt&&!isAssetLocked(asset)).map(({id,kind,contentHash,perceptualHash,dominantColor,width,height})=>({id,kind,contentHash,perceptualHash,dominantColor,width,height})),worker=new Worker(path.join(__dirname,'similarity-worker.js'),{workerData:{assets:images,accuracy:Math.max(35,Math.min(100,Number(accuracy)||78)),sourceId},resourceLimits:{maxOldGenerationSizeMb:192}}),telemetry=trackWorker(worker,'similarity',{filesTotal:images.length});let settled=false;
+  const finish=(groups=[])=>{if(settled)return;settled=true;telemetry.filesCompleted=images.length;telemetry.status='completed';if(activeSimilarityJob?.worker===worker)activeSimilarityJob=null;resolve(groups);worker.terminate().catch(()=>{});};activeSimilarityJob={worker,resolve:finish};worker.once('message',(message)=>finish(message.groups||[]));worker.once('error',(error)=>{recordDiagnostic('error','Similarity worker failed',error);finish([]);});worker.once('exit',()=>finish([]));
 }));
 ipcMain.handle('assets:set-order',(_event,{scope,order})=>{if(!/^(collection|smart|location|view):/.test(String(scope))||!['modified','indexedAt','name','size','rating'].includes(order?.field)||!['asc','desc'].includes(order?.direction))throw new Error('Invalid item order');library.settings.assetOrders={...(library.settings.assetOrders||{}),[scope]:{field:order.field,direction:order.direction}};scheduleSave();return library.settings.assetOrders[scope];});
 ipcMain.handle('assets:auto-tag', (_event, ids) => {

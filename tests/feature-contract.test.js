@@ -23,6 +23,11 @@ test('UI exposes collection, smart-folder, batch, trash, media, metadata and edi
   }
 });
 
+test('global similarity never runs automatically and explicit requests supersede and terminate workers',()=>{
+  assert.match(main,/let activeSimilarityJob=null/);assert.match(main,/if\(activeSimilarityJob\)/);assert.match(main,/worker\.terminate\(\)\.catch/);assert.match(main,/resourceLimits:\{maxOldGenerationSizeMb:192\}/);
+  assert.doesNotMatch(renderer,/refreshSimilarityGroups\(state\.view === 'duplicates'\)/);assert.match(renderer,/state\.view==='duplicates'&&state\.duplicateSourceId/);assert.match(main,/cancelPortfolioBackground[\s\S]*activeSimilarityJob/);
+});
+
 test('modified thumbnail clicks bypass marquee and all heavy background work uses laptop-safe limits',()=>{
   assert.match(renderer,/event\.target\.closest\('\.asset-card,button,input,textarea,select,a,\.stack-badge'\)/);assert.match(renderer,/event\.ctrlKey \|\| event\.metaKey/);assert.match(renderer,/event\.shiftKey && state\.selectionAnchorId/);
   assert.match(main,/const INDEX_CPU_LIMIT = 20/);assert.match(main,/const MAX_BACKGROUND_THREADS = 4/);assert.match(main,/const THUMBNAIL_WORKER_COUNT = 2/);assert.match(main,/const BACKGROUND_HASH_WORKERS = 2/);assert.match(main,/const PDF_WORKER_LIMIT = 1/);assert.match(main,/const LARGE_SCAN_WORKER_LIMIT = 2/);assert.match(main,/Background work yielding to your laptop/);
