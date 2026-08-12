@@ -42,7 +42,7 @@
         </nav>
 
         <div id="sidebar-tree-scroll" class="sidebar-tree-scroll">
-        <div class="section-label collapsible-section-label" data-section-toggle="smart-folders" role="button" tabindex="0" aria-expanded="true"><span>Smart folders</span><button id="save-smart-folder" class="tiny-button" title="Save current filters">＋</button></div>
+        <div class="section-label collapsible-section-label" data-section-toggle="smart-folders" role="button" tabindex="0" aria-expanded="true"><span>Smart folders</span><button class="tiny-button sidebar-sort-button" data-sidebar-sort="smartFolders" title="Change smart-folder order">⇅</button><button id="save-smart-folder" class="tiny-button" title="Save current filters">＋</button></div>
         <div id="sidebar-section-smart-folders" class="sidebar-section-content">
           <nav id="smart-folder-list" class="library-nav compact"></nav>
           <nav class="library-nav compact">
@@ -52,7 +52,7 @@
           </nav>
         </div>
 
-        <div class="section-label collapsible-section-label" data-section-toggle="collections" role="button" tabindex="0" aria-expanded="true"><span>Collections</span><button id="add-collection" class="tiny-button" title="New collection">＋</button></div>
+        <div class="section-label collapsible-section-label" data-section-toggle="collections" role="button" tabindex="0" aria-expanded="true"><span>Collections</span><button class="tiny-button sidebar-sort-button" data-sidebar-sort="collections" title="Change collection order">⇅</button><button id="add-collection" class="tiny-button" title="New collection">＋</button></div>
         <div id="sidebar-section-collections" class="sidebar-section-content"><nav id="collection-list" class="library-nav collection-list"></nav></div>
 
         <div class="section-label collapsible-section-label" data-section-toggle="indexed-locations" role="button" tabindex="0" aria-expanded="true"><span>Indexed locations</span><button id="add-folder-mini" class="tiny-button" title="Index a folder">＋</button></div>
@@ -84,6 +84,7 @@
             <button id="settings-button" class="icon-button toolbar-settings" title="Settings">♧</button>
             <button id="quick-action-button" class="icon-button" title="Quick actions">ϟ</button>
             <button id="layout-button" class="icon-button" title="Toggle layout">▱</button>
+            <button id="order-by-button" class="icon-button" title="Order items" aria-haspopup="true" aria-expanded="false">⇅</button>
             <button id="inspector-toggle" class="icon-button" title="Toggle inspector">▣</button>
             <button id="filter-button" class="icon-button selected funnel-button" title="Toggle filters">▽</button>
             <label class="search-box">
@@ -107,7 +108,7 @@
           <button class="filter-chip" data-facet="shape"><span>▤</span> Shape</button>
           <button class="filter-chip" data-facet="rating"><span>☆</span> Rating</button>
           <button class="filter-chip" data-facet="types"><span>▧</span> Types</button>
-          <button id="clear-filters" class="filter-chip add-filter" title="Clear filters"><span>＋</span></button>
+          <button id="clear-filters" class="filter-chip add-filter" title="Reset all filters" aria-label="Reset all filters"></button>
         </div>
 
         <section class="content-area">
@@ -226,6 +227,7 @@
       <button id="menu-add-files"><span>＋</span><span><strong>Add files</strong><small>Reference selected files</small></span></button>
     </div>
     <div id="facet-popover" class="facet-popover hidden"></div>
+    <section id="order-by-popover" class="order-by-popover hidden" aria-label="Order items"><header><strong>Order by</strong><small id="order-by-scope"></small></header><label><span>Sort field</span><select id="order-by-field"><option value="modified">Date modified</option><option value="indexedAt">Date added</option><option value="name">Name</option><option value="size">File size</option><option value="rating">Rating</option></select></label><div class="order-direction" role="group" aria-label="Sort direction"><button id="order-ascending" title="Ascending">↑ Ascending</button><button id="order-descending" title="Descending">↓ Descending</button></div><button id="reset-item-order" class="secondary-button">Reset this view</button></section>
     <div id="app-menu" class="app-menu hidden">
       <button data-menu-group="library"><span>Portfolio</span><span>›</span></button>
       <button data-menu-group="file"><span>File</span><span>›</span></button>

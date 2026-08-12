@@ -28,8 +28,8 @@ function migrateLibrary(input = {}) {
     trash: Array.isArray(source.trash) ? source.trash : [],
     settings: { ...DEFAULT_LIBRARY.settings, ...(source.settings || {}) }
   };
-  library.collections = library.collections.map((collection) => ({ id: collection.id || idFor('collection'), name: collection.name || 'Untitled', parentId: collection.parentId || null, createdAt: collection.createdAt || Date.now(), lock: collection.lock || null, icon: collection.icon || null }));
-  library.smartFolders = library.smartFolders.map((folder) => ({ id: folder.id || idFor('smart-folder'), name: folder.name || 'Saved filter', parentId: folder.parentId || null, filters: folder.filters || {}, createdAt: folder.createdAt || Date.now(), icon: folder.icon || null }));
+  library.collections = library.collections.map((collection,index) => ({ id: collection.id || idFor('collection'), name: collection.name || 'Untitled', parentId: collection.parentId || null, createdAt: collection.createdAt || Date.now(), updatedAt:collection.updatedAt||collection.createdAt||Date.now(),order:Number.isFinite(collection.order)?collection.order:index, lock: collection.lock || null, icon: collection.icon || null }));
+  library.smartFolders = library.smartFolders.map((folder,index) => ({ id: folder.id || idFor('smart-folder'), name: folder.name || 'Saved filter', parentId: folder.parentId || null, filters: folder.filters || {}, createdAt: folder.createdAt || Date.now(),updatedAt:folder.updatedAt||folder.createdAt||Date.now(),order:Number.isFinite(folder.order)?folder.order:index, icon: folder.icon || null }));
   library.assets = library.assets.map((asset) => ({
     ...asset,
     tags: Array.isArray(asset.tags) ? [...new Set(asset.tags.filter(Boolean))] : [],
@@ -49,7 +49,7 @@ function createCollection(library, name, parentId = null) {
   if (parentId && !library.collections.some((item) => item.id === parentId)) throw new Error('Parent collection does not exist');
   const duplicate = library.collections.some((item) => item.parentId === parentId && item.name.toLowerCase() === trimmed.toLowerCase());
   if (duplicate) throw new Error('A collection with that name already exists here');
-  const collection = { id: idFor('collection'), name: trimmed, parentId, createdAt: Date.now(), icon: null };
+  const now=Date.now(),siblings=library.collections.filter((item)=>item.parentId===parentId);const collection = { id: idFor('collection'), name: trimmed, parentId, createdAt:now,updatedAt:now,order:siblings.length, icon: null };
   library.collections.push(collection);
   return collection;
 }
@@ -60,7 +60,7 @@ function renameCollection(library, id, name) {
   const trimmed = String(name || '').trim();
   if (!trimmed) throw new Error('Collection name is required');
   if (library.collections.some((item) => item.id !== id && item.parentId === collection.parentId && item.name.toLowerCase() === trimmed.toLowerCase())) throw new Error('A collection with that name already exists here');
-  collection.name = trimmed;
+  collection.name = trimmed;collection.updatedAt=Date.now();
   return collection;
 }
 
@@ -74,7 +74,7 @@ function moveCollection(library, id, parentId = null) {
     if (cursor === id) throw new Error('A collection cannot move inside its descendant');
     cursor = library.collections.find((item) => item.id === cursor)?.parentId || null;
   }
-  collection.parentId = parentId;
+  collection.parentId = parentId;collection.updatedAt=Date.now();collection.order=library.collections.filter((item)=>item.parentId===parentId&&item.id!==id).length;
   return collection;
 }
 
@@ -95,7 +95,7 @@ function createSmartFolder(library, name, filters = {}, parentId = null) {
   if (!trimmed) throw new Error('Smart folder name is required');
   if (parentId && !library.smartFolders.some((item) => item.id === parentId)) throw new Error('Parent smart folder does not exist');
   if (library.smartFolders.some((item) => item.parentId === parentId && item.name.toLowerCase() === trimmed.toLowerCase())) throw new Error('A smart folder with that name already exists here');
-  const folder = { id: idFor('smart-folder'), name: trimmed, parentId, filters: filters || {}, createdAt: Date.now(), icon: null };
+  const now=Date.now(),siblings=library.smartFolders.filter((item)=>item.parentId===parentId);const folder = { id: idFor('smart-folder'), name: trimmed, parentId, filters: filters || {}, createdAt:now,updatedAt:now,order:siblings.length, icon: null };
   library.smartFolders.push(folder); return folder;
 }
 function renameSmartFolder(library, id, name) {
@@ -103,7 +103,7 @@ function renameSmartFolder(library, id, name) {
   if (!folder) throw new Error('Smart folder does not exist');
   if (!trimmed) throw new Error('Smart folder name is required');
   if (library.smartFolders.some((item) => item.id !== id && item.parentId === folder.parentId && item.name.toLowerCase() === trimmed.toLowerCase())) throw new Error('A smart folder with that name already exists here');
-  folder.name = trimmed; return folder;
+  folder.name = trimmed;folder.updatedAt=Date.now(); return folder;
 }
 function moveSmartFolder(library, id, parentId = null) {
   const folder = library.smartFolders.find((item) => item.id === id);
@@ -111,7 +111,7 @@ function moveSmartFolder(library, id, parentId = null) {
   if (parentId && !library.smartFolders.some((item) => item.id === parentId)) throw new Error('Parent smart folder does not exist');
   if (id === parentId) throw new Error('A smart folder cannot contain itself');
   let cursor = parentId; while (cursor) { if (cursor === id) throw new Error('A smart folder cannot move inside its descendant'); cursor = library.smartFolders.find((item) => item.id === cursor)?.parentId || null; }
-  folder.parentId = parentId; return folder;
+  folder.parentId = parentId;folder.updatedAt=Date.now();folder.order=library.smartFolders.filter((item)=>item.parentId===parentId&&item.id!==id).length; return folder;
 }
 function removeSmartFolder(library, id) {
   const descendants = new Set([id]); let changed = true;

@@ -53,8 +53,8 @@ html[data-theme="midnight"] { --bg: #151a25; --panel: #1d2230; --sidebar: #191e2
 .app-shell.startup-active > :not(.startup-splash) { visibility:hidden; }
 .startup-splash { position: fixed; inset: 0; z-index: 1000; background: var(--bg); opacity: 1; transition: opacity 180ms ease; }
 .startup-brand { position:absolute; left:0; bottom:0; display:flex; align-items:flex-end; gap:18px; margin:0; padding:0; text-align:left; }
-.startup-brand img { display:block; width:210px; height:210px; object-fit:contain; border:0; border-radius:0; box-shadow:none; background:transparent; }
-.startup-brand div { display:grid; gap:15px; padding-bottom:30px; }.startup-brand strong { color:#f1f3f7; font-size:58px; line-height:.92; letter-spacing:.015em; text-transform:lowercase; }.startup-brand span { color:#8995b3; font-size:23px; line-height:1; font-style:italic; letter-spacing:.13em; text-transform:lowercase; }
+.startup-brand img { display:block; width:270px; height:270px; object-fit:contain; border:0; border-radius:0; box-shadow:none; background:transparent; }
+.startup-brand div { display:grid; gap:18px; padding-bottom:38px; }.startup-brand strong { color:#f1f3f7; font-size:72px; line-height:.92; letter-spacing:.015em; text-transform:lowercase; }.startup-brand span { color:#8995b3; font-size:29px; line-height:1; font-style:italic; letter-spacing:.13em; text-transform:lowercase; }
 .startup-splash.finishing { opacity: 0; pointer-events: none; }
 .startup-splash.hidden { display: none; }
 .app-shell.sidebar-collapsed { --sidebar-width: 0px; }
@@ -186,7 +186,7 @@ html[data-theme="midnight"] { --bg: #151a25; --panel: #1d2230; --sidebar: #191e2
 .filter-chip.has-selection { background: #31343a; color: white; }
 .filter-chip.has-selection::after { content: ""; width: 5px; height: 5px; margin-left: 6px; display: inline-block; border-radius: 50%; background: #4f9cff; }
 .color-wheel { color: #ef596f !important; text-shadow: -3px 0 #f0c645, 3px 0 #46bf87, 0 3px #4e83e7; }
-.add-filter { width: 28px; padding: 0; }
+.add-filter { width: 28px; padding: 0; }.add-filter svg { width:14px; height:14px; }.sidebar-sort-button { margin-left:auto!important; font-size:13px!important; }
 
 .content-area { grid-row: 3; min-height: 0; overflow: hidden; display: grid; grid-template-columns: minmax(0, 1fr) var(--inspector-width); }
 .content-area.analytics-active { grid-template-columns: minmax(0,1fr); }
@@ -550,6 +550,7 @@ textarea { resize: vertical; min-height: 68px; padding: 8px; line-height: 1.5; }
 .popover strong, .popover small { display: block; }
 .popover strong { font-size: 11px; }
 .popover small { color: #777e8e; font-size: 9px; margin-top: 3px; }
+.order-by-popover { position:fixed; z-index:45; width:284px; padding:14px; display:grid; gap:13px; border:1px solid #454950; border-radius:8px; background:#202226; color:#e6e8ec; box-shadow:0 16px 44px rgba(0,0,0,.58); }.order-by-popover header { display:flex; align-items:baseline; justify-content:space-between; }.order-by-popover header small { max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#777f8d; }.order-by-popover label { display:grid; grid-template-columns:75px minmax(0,1fr); align-items:center; gap:8px; font-size:10px; }.order-by-popover select { height:31px; padding:0 8px; border:1px solid #484c53; border-radius:6px; background:#181a1e; color:#e7e9ed; }.order-direction { display:grid; grid-template-columns:1fr 1fr; gap:7px; }.order-direction button { height:31px; border:1px solid #454950; border-radius:6px; background:#292c31; color:#aeb4bf; }.order-direction button.active { border-color:#568ce1; background:#315d95; color:white; }.order-by-popover>#reset-item-order { width:100%; }
 .facet-popover, .app-menu { position: fixed; z-index: 40; width: 220px; max-height: min(430px, calc(100vh - 90px)); overflow: auto; padding: 6px; border: 1px solid #44474d; border-radius: 7px; background: #222428; color: #e1e2e4; box-shadow: 0 12px 35px rgba(0,0,0,.55); font-size: 11px; }
 .facet-search { width: 100%; height: 29px; margin-bottom: 5px; padding: 0 8px; border: 1px solid #42454b; border-radius: 5px; outline: 0; background: #191b1e; color: #e4e5e7; }
 .facet-title { padding: 5px 7px; color: #858a92; font-size: 9px; text-transform: uppercase; letter-spacing: .06em; }

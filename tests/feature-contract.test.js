@@ -23,6 +23,14 @@ test('UI exposes collection, smart-folder, batch, trash, media, metadata and edi
   }
 });
 
+test('trash progress, PDF first-page refresh, sidebar ordering, reset icon, and larger branding are wired',()=>{
+  assert.match(main,/Clearing Trash/);assert.match(main,/reportBackgroundProgress\(progressId/);assert.match(main,/pdfPreviewVersion!==2/);assert.match(main,/timeout: asset\.extension==='PDF'\?35000:11000/);
+  assert.match(fs.readFileSync(path.join(root,'electron','pdf-thumbnail-child.js'),'utf8'),/standardFontDataUrl/);
+  assert.match(preload,/reorderSidebarItems/);assert.match(preload,/setSidebarSort/);assert.match(main,/sidebar:reorder-items/);assert.match(main,/sidebar:set-sort/);assert.match(renderer,/sidebarSortedSiblings/);assert.match(renderer,/data-sidebar-sort/);
+  assert.match(html,/id="clear-filters"[^>]*Reset all filters/);assert.match(renderer,/\['#clear-filters','refresh'\]/);assert.match(styles,/width:270px/);assert.match(styles,/font-size:72px/);assert.match(styles,/font-size:29px/);
+  assert.match(html,/id="order-by-button"/);assert.match(html,/id="order-by-popover"/);assert.match(preload,/setAssetOrder/);assert.match(main,/assets:set-order/);assert.match(renderer,/function assetOrderScopeKey/);assert.match(renderer,/function currentAssetOrder/);assert.match(styles,/\.order-by-popover/);
+});
+
 test('inspector actions live in the thumbnail menu and annotations edit inline',()=>{
   assert.doesNotMatch(html,/id="(?:open-asset|reveal-asset|find-similar|annotate-asset)"/);
   assert.match(renderer,/data-context-action="open"/);
@@ -155,9 +163,9 @@ test('startup uses the transparent Pigeon logo everywhere', async () => {
   assert.match(styles,/\.app-shell\.startup-active > :not\(\.startup-splash\)/);
   assert.match(html,/startup-brand[\s\S]*?<strong>pigeon<\/strong><span>sees all<\/span>/);
   assert.match(styles,/\.startup-brand \{ position:absolute; left:0; bottom:0/);
-  assert.match(styles,/\.startup-brand img \{[^}]*width:210px/);
-  assert.match(styles,/\.startup-brand strong \{[^}]*font-size:58px/);
-  assert.match(styles,/\.startup-brand span \{[^}]*font-size:23px/);
+  assert.match(styles,/\.startup-brand img \{[^}]*width:270px/);
+  assert.match(styles,/\.startup-brand strong \{[^}]*font-size:72px/);
+  assert.match(styles,/\.startup-brand span \{[^}]*font-size:29px/);
   assert.match(styles, /\.brand-mark \{[^}]*background: transparent/);
   assert.doesNotMatch(html, /pigeon\.png/);
   assert.match(main, /icon: path\.join\([^\n]*'pigeon-logo\.png'/);
@@ -167,7 +175,7 @@ test('startup uses the transparent Pigeon logo everywhere', async () => {
   assert.equal((await logo.stats()).isOpaque, false);
   assert.match(renderer, /finishStartupSplash/);
   assert.match(renderer, /STARTUP_SPLASH_MINIMUM_MS=2000/);
-  assert.match(styles, /\.startup-brand img \{[^}]*width:210px/);
+  assert.match(styles, /\.startup-brand img \{[^}]*width:270px/);
   assert.match(styles, /border: 0/);
 });
 

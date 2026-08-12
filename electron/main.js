@@ -447,7 +447,7 @@ async function createAudioThumbnail(asset, target) {
   return ready ? { ok: true, target: asset.thumbnailPath || target, duration: asset.duration } : null;
 }
 async function createDocumentThumbnail(asset, target) {
-  if (asset.thumbnailPath && await pathAvailable(asset.thumbnailPath)) return { ok: true, target: asset.thumbnailPath };
+  if (asset.thumbnailPath && await pathAvailable(asset.thumbnailPath) && !(asset.extension==='PDF'&&asset.pdfPreviewVersion!==2)) return { ok: true, target: asset.thumbnailPath };
   if (asset.extension !== 'PDF') { const ready = await runVideoFfmpeg(['-hide_banner', '-loglevel', 'error', '-i', asset.path, '-frames:v', '1', '-vf', 'scale=512:512:force_original_aspect_ratio=decrease', '-q:v', '5', '-y', target], 9000); return ready ? { ok: true, target } : null; }
   await acquirePdfWorkerSlot(); try { return await new Promise((resolve) => { const child=utilityProcess.fork(path.join(__dirname,'pdf-thumbnail-child.js'),[],{serviceName:'Pigeon PDF preview'}); let settled=false; const finish=(result)=>{if(settled)return;settled=true;clearTimeout(timer);try{child.kill();}catch{} resolve(result?.ok?result:null);}; const timer=setTimeout(()=>{recordDiagnostic('warning','PDF preview timed out',{file:asset.path});finish(null);},30000); child.on('message',finish); child.on('error',(error)=>{recordDiagnostic('error','Isolated PDF preview failed',error);finish(null);}); child.on('exit',(code)=>{if(code!==0)recordDiagnostic('warning','Isolated PDF preview process exited',{code,file:asset.path});finish(null);}); child.postMessage({source:asset.path,target}); }); } finally { releasePdfWorkerSlot(); }
 }
@@ -738,10 +738,10 @@ async function warmCompatibilityVideoCache() {
 }
 
 function thumbnailWorkRequired(asset) {
-  if (asset.thumbnailFailedAt && asset.thumbnailFailedModified === asset.modified) return false;
+  if (asset.thumbnailFailedAt && asset.thumbnailFailedModified === asset.modified && !(asset.extension==='PDF'&&asset.pdfPreviewVersion!==2)) return false;
   if (asset.kind === 'video') return !asset.thumbnailPath || !asset.width || !asset.height || !asset.duration;
   if (asset.kind === 'audio') return !asset.thumbnailPath || !asset.duration;
-  if (asset.kind === 'document') return PREVIEWABLE_DOCUMENT_EXTENSIONS.has(asset.extension) && !asset.thumbnailPath;
+  if (asset.kind === 'document') return PREVIEWABLE_DOCUMENT_EXTENSIONS.has(asset.extension) && (!asset.thumbnailPath || (asset.extension==='PDF'&&asset.pdfPreviewVersion!==2));
   return asset.kind === 'image' && (!asset.thumbnailPath || !asset.width || !asset.height || !asset.dominantColor || !asset.histogram || !asset.palette || !asset.perceptualHash || !asset.technicalMetadata);
 }
 async function warmThumbnailCache() {
@@ -754,14 +754,14 @@ async function warmThumbnailCache() {
     while (pending.length && backgroundRunActive(run)) {
       if(scanWorkActive()&&!(await waitForScanIdle(run)))break;
       const asset = pending.shift();
-      const thumbnail = await retryBackground(async () => { const value = asset.kind === 'video' ? await prepareVideoFiles(asset) : await createThumbnail(asset); if (!value?.ok) throw new Error(value?.message || 'Preview unavailable'); return value; }, run, { attempts: 3, timeout: 11000, baseDelay: 120, label: `Preview ${asset.filename}` });
+      const thumbnail = await retryBackground(async () => { const value = asset.kind === 'video' ? await prepareVideoFiles(asset) : await createThumbnail(asset); if (!value?.ok) throw new Error(value?.message || 'Preview unavailable'); return value; }, run, { attempts: 3, timeout: asset.extension==='PDF'?35000:11000, baseDelay: 120, label: `Preview ${asset.filename}` });
       if (!backgroundRunActive(run)) break; completed += 1; if (completed % 5 === 0 || completed === total) reportBackgroundProgress(progressId, { label: 'Building media previews', detail: `${completed.toLocaleString()} of ${total.toLocaleString()}`, completed, total });
       if (!thumbnail?.ok) {
         failed += 1; asset.thumbnailFailedAt = Date.now(); asset.thumbnailFailedModified = asset.modified; asset.thumbnailError = thumbnail?.message || 'This format could not be previewed';
         if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('thumbnail:ready', { id: asset.id, failed: true, error: asset.thumbnailError });
         completedSinceSave += 1; changedPreviewAssets.push(asset); continue;
       }
-      asset.thumbnailFailedAt = null; asset.thumbnailFailedModified = null; asset.thumbnailError = null; asset.thumbnailPath = thumbnail.target;
+      asset.thumbnailFailedAt = null; asset.thumbnailFailedModified = null; asset.thumbnailError = null; asset.thumbnailPath = thumbnail.target;if(asset.extension==='PDF')asset.pdfPreviewVersion=2;
       asset.proxyPath = thumbnail.proxyPath || asset.proxyPath || null;
       asset.width = thumbnail.width || asset.width || null;
       asset.height = thumbnail.height || asset.height || null;
@@ -1699,6 +1699,8 @@ ipcMain.handle('smart-folder:move', (_event, { id, parentId }) => {
 ipcMain.handle('smart-folder:remove', (_event, id) => {
   const removed = libraryCore.removeSmartFolder(library, id); scheduleSave(); broadcast(); return removed;
 });
+ipcMain.handle('sidebar:set-sort',(_event,{type,sort})=>{if(!['collections','smartFolders'].includes(type)||!['manual','name-asc','name-desc','updated-asc','updated-desc'].includes(sort))throw new Error('Invalid sidebar sort');library.settings.sidebarSort={...(library.settings.sidebarSort||{}),[type]:sort};scheduleSave();broadcast();return sort;});
+ipcMain.handle('sidebar:reorder-items',(_event,{type,parentId=null,orderedIds=[]})=>{const items=type==='collections'?library.collections:type==='smartFolders'?library.smartFolders:null;if(!items)throw new Error('Invalid sidebar type');const siblings=items.filter((item)=>item.parentId===parentId),valid=new Set(siblings.map((item)=>item.id));if(orderedIds.length!==siblings.length||orderedIds.some((id)=>!valid.has(id)))throw new Error('Invalid sidebar order');orderedIds.forEach((id,index)=>{const item=items.find((entry)=>entry.id===id);item.order=index;item.updatedAt=Date.now();});library.settings.sidebarSort={...(library.settings.sidebarSort||{}),[type]:'manual'};scheduleSave();broadcast();return true;});
 ipcMain.handle('item:set-icon', (_event, { type, id, icon }) => {
   const value = icon && /^[a-z0-9-]{1,32}$/.test(icon) ? icon : null;
   if (type === 'collection') { const item = library.collections.find((entry) => entry.id === id); if (item) item.icon = value; }
@@ -1749,6 +1751,7 @@ ipcMain.handle('assets:similar-groups', (_event, { accuracy = 78, sourceId = nul
   const worker = new Worker(path.join(__dirname, 'similarity-worker.js'), { workerData: { assets: library.assets.map(({ id, kind, deletedAt, locked, contentHash, perceptualHash, dominantColor, width, height }) => ({ id, kind, deletedAt, locked, contentHash, perceptualHash, dominantColor, width, height })), accuracy: Math.max(35, Math.min(100, Number(accuracy) || 78)), sourceId } }); trackWorker(worker, 'similarity', { filesTotal: library.assets.length });
   worker.once('message', (message) => resolve(message.groups || [])); worker.once('error', () => resolve([]));
 }));
+ipcMain.handle('assets:set-order',(_event,{scope,order})=>{if(!/^(collection|smart|location|view):/.test(String(scope))||!['modified','indexedAt','name','size','rating'].includes(order?.field)||!['asc','desc'].includes(order?.direction))throw new Error('Invalid item order');library.settings.assetOrders={...(library.settings.assetOrders||{}),[scope]:{field:order.field,direction:order.direction}};scheduleSave();return library.settings.assetOrders[scope];});
 ipcMain.handle('assets:auto-tag', (_event, ids) => {
   let count = 0;
   for (const asset of library.assets) if (ids.includes(asset.id)) { asset.tags = [...new Set([...(asset.tags || []), ...libraryCore.suggestTags(asset)])]; count += 1; }
@@ -1764,12 +1767,15 @@ ipcMain.handle('tags:delete', (_event, tag) => {
   scheduleSave(); broadcast();
 });
 ipcMain.handle('trash:empty', async (_event, request = {}) => {
-  const requestedMode=typeof request==='string'?request:request.mode,selectedIds=Array.isArray(request.ids)?new Set(request.ids):null,mode=requestedMode === 'recycle' ? 'recycle' : 'permanent', trashed = library.assets.filter((asset) => asset.deletedAt&&(!selectedIds||selectedIds.has(asset.id))), removed = new Set(), failures = [];
-  for (const asset of trashed) {
+  const requestedMode=typeof request==='string'?request:request.mode,selectedIds=Array.isArray(request.ids)?new Set(request.ids):null,mode=requestedMode === 'recycle' ? 'recycle' : 'permanent', trashed = library.assets.filter((asset) => asset.deletedAt&&(!selectedIds||selectedIds.has(asset.id))), removed = new Set(), failures = [],progressId=`${activePortfolioId}:trash-empty:${Date.now()}`,total=trashed.length;
+  reportBackgroundProgress(progressId,{label:mode==='recycle'?'Moving Trash to Recycle Bin':'Clearing Trash',detail:`0 of ${total.toLocaleString()} files`,completed:0,total});
+  for (let index=0;index<trashed.length;index+=1) {const asset=trashed[index];
     try { if (await pathAvailable(asset.path)) { if (mode === 'recycle') await shell.trashItem(asset.path); else await fsp.rm(asset.path, { force: true }); } removed.add(asset.id); }
     catch (error) { failures.push({ id: asset.id, filename: asset.filename, error: error.message }); recordDiagnostic('error', 'Trash source deletion failed', { assetId: asset.id, path: asset.path, mode, error: error.message }); }
+    reportBackgroundProgress(progressId,{label:mode==='recycle'?'Moving Trash to Recycle Bin':'Clearing Trash',detail:`${(index+1).toLocaleString()} of ${total.toLocaleString()} files${failures.length?` · ${failures.length} failed`:''}`,completed:index+1,total});
+    if(index%5===4)await new Promise((resolve)=>setImmediate(resolve));
   }
-  library.assets = library.assets.filter((asset) => !removed.has(asset.id)); scheduleSave(); broadcast(); return { deleted: removed.size, deletedIds: [...removed], failed: failures.length, failures };
+  library.assets = library.assets.filter((asset) => !removed.has(asset.id)); scheduleSave(); broadcast();reportBackgroundProgress(progressId,{label:failures.length?'Trash cleared with issues':'Trash cleared',detail:`${removed.size.toLocaleString()} files removed${failures.length?` · ${failures.length} failed`:''}`,completed:total,total,done:true,status:failures.length?'warning':'completed'}); return { deleted: removed.size, deletedIds: [...removed], failed: failures.length, failures };
 });
 ipcMain.handle('library:import-url', async (_event, url) => importUrl(url));
 ipcMain.handle('clipboard:write-text', (_event, value) => { clipboard.writeText(String(value || '').slice(0, 32768)); return true; });

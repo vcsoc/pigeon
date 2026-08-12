@@ -6,7 +6,8 @@ globalThis.DOMMatrix = DOMMatrix; globalThis.ImageData = ImageData; globalThis.P
 (async () => {
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
   const bytes = new Uint8Array(await fs.readFile(workerData.source));
-  const document = await pdfjs.getDocument({ data: bytes, disableFontFace: true, isEvalSupported: false, useSystemFonts: true }).promise;
+  const standardFontDataUrl = require('node:url').pathToFileURL(require('node:path').join(require.resolve('pdfjs-dist/package.json'), '..', 'standard_fonts') + require('node:path').sep).href;
+  const document = await pdfjs.getDocument({ data: bytes, disableFontFace: false, isEvalSupported: false, useSystemFonts: true, standardFontDataUrl }).promise;
   const page = await document.getPage(1), initial = page.getViewport({ scale: 1 }), scale = Math.min(2, 720 / Math.max(initial.width, initial.height)), viewport = page.getViewport({ scale });
   const canvas = createCanvas(Math.max(1, Math.ceil(viewport.width)), Math.max(1, Math.ceil(viewport.height))), context = canvas.getContext('2d'); context.fillStyle = '#fff'; context.fillRect(0, 0, canvas.width, canvas.height);
   await page.render({ canvasContext: context, viewport }).promise; await fs.writeFile(workerData.target, await canvas.encode('jpeg', 82)); const pages = document.numPages; await page.cleanup();

@@ -71,7 +71,7 @@ function applyStaticIcons() {
   for (const [view, icon] of Object.entries(views)) { const target = document.querySelector(`[data-view="${view}"] .nav-icon`); if (target) target.innerHTML = iconSvg(icon); }
   const preferenceIcons = { general:'settings', sidebar:'folder', controls:'filter', preview:'eye', screenshot:'camera', shortcuts:'key', notifications:'bell', password:'lock', 'auto-import':'download', 'ai-search':'search', 'ai-models':'smart', mcp:'link', developer:'code' };
   for (const [page, icon] of Object.entries(preferenceIcons)) { const button = document.querySelector(`[data-preference-page="${page}"]`); if (!button || button.querySelector('svg')) continue; button.innerHTML = `${iconSvg(icon)}<span>${button.textContent.replace(/^[^A-Za-z]+/, '')}</span>`; }
-  const buttonIcons = [['#app-menu-button','menu'],['#navigation-back','back'],['#navigation-forward','forward'],['#refresh-button','refresh'],['#subfolder-content-toggle','folder-tree'],['#settings-button','settings'],['#quick-action-button','bolt'],['#layout-button','layout'],['#inspector-toggle','inspector'],['#filter-button','filter'],['#pin-button','pin'],['#sidebar-collapse','sidebar'],['#add-button','plus'],['#rescan-button','refresh'],['#save-smart-folder','plus'],['#add-collection','plus'],['#add-folder-mini','plus'],['#clear-filters','plus']]; for (const [selector, icon] of buttonIcons) { const button = $(selector); if (button) button.innerHTML = iconSvg(icon); }
+  const buttonIcons = [['#app-menu-button','menu'],['#navigation-back','back'],['#navigation-forward','forward'],['#refresh-button','refresh'],['#subfolder-content-toggle','folder-tree'],['#settings-button','settings'],['#quick-action-button','bolt'],['#layout-button','layout'],['#order-by-button','menu'],['#inspector-toggle','inspector'],['#filter-button','filter'],['#pin-button','pin'],['#sidebar-collapse','sidebar'],['#add-button','plus'],['#rescan-button','refresh'],['#save-smart-folder','plus'],['#add-collection','plus'],['#add-folder-mini','plus'],['#clear-filters','refresh']]; for (const [selector, icon] of buttonIcons) { const button = $(selector); if (button) button.innerHTML = iconSvg(icon); }
   const searchIcon = $('.search-box > span:first-child'), cameraIcon = $('.search-camera'); if (searchIcon) searchIcon.innerHTML = iconSvg('search'); if (cameraIcon) cameraIcon.innerHTML = iconSvg('camera');
 }
 const elements = {
@@ -286,6 +286,8 @@ async function refreshSimilarityGroups(renderAfter = true) {
   })();similarityRefreshPromise=request;return request;
 }
 
+function assetOrderScopeKey(){if(state.collectionId)return`collection:${state.collectionId}`;if(state.smartFolderId)return`smart:${state.smartFolderId}`;if(state.locationId)return`location:${state.locationId}:${state.locationSubfolder||''}`;return`view:${state.view}`;}
+function currentAssetOrder(){return state.library.settings?.assetOrders?.[assetOrderScopeKey()]||{field:'modified',direction:'desc'};}
 function filteredAssets() {
   let assets = state.library.assets.filter((asset) => !asset.locked);
   assets = assets.filter((asset) => state.view === 'trash' ? Boolean(asset.deletedAt) : !asset.deletedAt);
@@ -322,7 +324,7 @@ function filteredAssets() {
     const query = state.query.trim().toLowerCase();
     assets = assets.filter((asset) => [asset.filename, asset.path, asset.note, ...(asset.tags || [])].join(' ').toLowerCase().includes(query));
   }
-  const sorted = assets.sort((a, b) => b.modified - a.modified);
+  const order=currentAssetOrder(),factor=order.direction==='asc'?1:-1,sorted=assets.sort((a,b)=>{const first=order.field==='name'?String(a.name||a.filename||'').toLowerCase():Number(a[order.field])||0,second=order.field==='name'?String(b.name||b.filename||'').toLowerCase():Number(b[order.field])||0,difference=typeof first==='string'?first.localeCompare(second):first-second;return difference*factor||String(a.id).localeCompare(String(b.id));});
   if (state.view === 'duplicates') return sorted;
   const seenStacks = new Set();
   return sorted.filter((asset) => {
@@ -561,6 +563,7 @@ function handleSidebarTreeKeys(event) { const row = event.target.closest('.colle
 function wireSidebarKeyboard() { for (const tree of [$('#collection-list'),$('#smart-folder-list'),$('#location-list')]) { if (tree.dataset.keyboardWired) continue; tree.dataset.keyboardWired = 'true'; tree.addEventListener('keydown', handleSidebarTreeKeys); } }
 const folderTreeCache = new Map(), folderTreeLimits = new Map(); let folderTreeGeneration = 0, folderTreeTimer = null;
 function scheduleFolderTreeBuild() { clearTimeout(folderTreeTimer); const generation = ++folderTreeGeneration; folderTreeTimer = setTimeout(async () => { const limits = Object.fromEntries(state.library.locations.map((location)=>[location.id,folderTreeLimits.get(location.id)||300])); try { const result = await window.pigeon.buildFolderTree({ collapsedKeys:[...collapsedFolders()], limits }); if (generation !== folderTreeGeneration) return; folderTreeCache.clear(); for (const entry of result) folderTreeCache.set(entry.locationId,entry); renderSidebar(false); } catch (error) { window.pigeon.logDiagnostic('error','Folder tree calculation failed',error.message); } }, 80); }
+function sidebarSortedSiblings(items,parentId,type){const sort=state.library.settings?.sidebarSort?.[type]||'manual',siblings=items.filter((item)=>item.parentId===parentId);return siblings.sort((a,b)=>sort==='name-asc'?a.name.localeCompare(b.name):sort==='name-desc'?b.name.localeCompare(a.name):sort==='updated-asc'?(a.updatedAt||a.createdAt||0)-(b.updatedAt||b.createdAt||0):sort==='updated-desc'?(b.updatedAt||b.createdAt||0)-(a.updatedAt||a.createdAt||0):(a.order??0)-(b.order??0)||a.name.localeCompare(b.name));}
 function renderSidebar(rebuildFolderTree = false) {
   const activePortfolio = (state.library.portfolios || []).find((item) => item.id === state.library.activePortfolioId);
   $('#active-portfolio-name').textContent = activePortfolio?.name || 'My Portfolio';
@@ -576,7 +579,7 @@ function renderSidebar(rebuildFolderTree = false) {
   $('#trash-count').textContent = assets.filter((asset) => asset.deletedAt).length;
   const collectionRows = [];
   const appendCollections = (parentId = null, depth = 0) => {
-    for (const collection of (state.library.collections || []).filter((item) => item.parentId === parentId)) {
+    for (const collection of sidebarSortedSiblings(state.library.collections||[],parentId,'collections')) {
       const count = collection.locked?0:assets.filter((asset) => !asset.deletedAt&&!asset.locked&&(asset.collectionIds || []).includes(collection.id)).length, hasChildren = (state.library.collections || []).some((item) => item.parentId === collection.id), collapseKey = collectionCollapseKey(collection.id), collapsed = hasChildren && isFolderCollapsed(collapseKey);
       collectionRows.push(`<button class="nav-item collection-item ${state.collectionId === collection.id ? 'active' : ''}" style="--depth:${depth}" data-collection-id="${collection.id}" draggable="true"><span class="folder-tree-toggle ${hasChildren ? '' : 'empty'}" data-collapse-key="${collapseKey}" role="button" aria-label="${collapsed ? 'Expand' : 'Collapse'} ${escapeHtml(collection.name)}" aria-expanded="${!collapsed}">${hasChildren ? (collapsed ? '▸' : '▾') : ''}</span><span class="nav-icon tree-folder-icon">${iconSvg(itemIcon(collection, hasChildren && !collapsed ? 'folder-open' : 'folder'))}${collection.locked ? `<i class="tree-lock-badge">${iconSvg('lock')}</i>` : ''}</span><span>${escapeHtml(collection.name)}</span><small>${count}</small></button>`);
       if (!collapsed&&!collection.locked) appendCollections(collection.id, depth + 1);
@@ -585,7 +588,7 @@ function renderSidebar(rebuildFolderTree = false) {
   appendCollections();
   $('#collection-list').innerHTML = collectionRows.join('') || '<div class="facet-empty">No collections</div>';
   const smartRows = [], appendSmartFolders = (parentId = null, depth = 0) => {
-    for (const folder of (state.library.smartFolders || []).filter((item) => item.parentId === parentId)) {
+    for (const folder of sidebarSortedSiblings(state.library.smartFolders||[],parentId,'smartFolders')) {
       const count = assets.filter((asset) => !asset.deletedAt && !asset.locked && matchesSavedFilters(asset, folder.filters)).length, hasChildren = state.library.smartFolders.some((item) => item.parentId === folder.id), collapseKey = smartFolderCollapseKey(folder.id), collapsed = hasChildren && isFolderCollapsed(collapseKey);
       smartRows.push(`<button class="nav-item smart-folder-item ${state.smartFolderId === folder.id ? 'active' : ''}" style="--depth:${depth}" data-smart-folder-id="${folder.id}" draggable="true"><span class="folder-tree-toggle ${hasChildren ? '' : 'empty'}" data-collapse-key="${collapseKey}" role="button" aria-label="${collapsed ? 'Expand' : 'Collapse'} ${escapeHtml(folder.name)}">${hasChildren ? (collapsed ? '▸' : '▾') : ''}</span><span class="nav-icon">${iconSvg(itemIcon(folder, 'smart'))}</span><span>${escapeHtml(folder.name)}</span><small>${count}</small></button>`);
       if (!collapsed) appendSmartFolders(folder.id, depth + 1);
@@ -606,7 +609,7 @@ function renderSidebar(rebuildFolderTree = false) {
     button.addEventListener('drop', async (event) => {
       event.preventDefault(); button.classList.remove('drag-over');
       const movedCollectionId = event.dataTransfer.getData('application/x-pigeon-collection');
-      if (movedCollectionId) { try { await window.pigeon.moveCollection(movedCollectionId, button.dataset.collectionId); } catch (error) { showToast(error.message); } return; }
+      if(movedCollectionId){try{const target=state.library.collections.find((item)=>item.id===button.dataset.collectionId),source=state.library.collections.find((item)=>item.id===movedCollectionId),rect=button.getBoundingClientRect(),edge=(event.clientY-rect.top)/rect.height;if(source&&target&&source.parentId===target.parentId&&(edge<.28||edge>.72)){const siblings=sidebarSortedSiblings(state.library.collections||[],target.parentId,'collections').filter((item)=>item.id!==source.id),index=siblings.findIndex((item)=>item.id===target.id)+(edge>.72?1:0);siblings.splice(index,0,source);await window.pigeon.reorderSidebarItems('collections',target.parentId,siblings.map((item)=>item.id));}else await window.pigeon.moveCollection(movedCollectionId,button.dataset.collectionId);}catch(error){showToast(error.message);}return;}
       const target = (state.library.collections || []).find((item) => item.id === button.dataset.collectionId);
       if (!(await ensureCollectionUnlocked(target))) return;
       if (hasExternalFiles(event)) {
@@ -625,7 +628,7 @@ function renderSidebar(rebuildFolderTree = false) {
     button.addEventListener('dragstart', (event) => { event.dataTransfer.setData('application/x-pigeon-smart-folder', button.dataset.smartFolderId); event.stopPropagation(); });
     button.addEventListener('dragover', (event) => { if (!event.dataTransfer.types.includes('application/x-pigeon-smart-folder')) return; event.preventDefault(); button.classList.add('drag-over'); });
     button.addEventListener('dragleave', () => button.classList.remove('drag-over'));
-    button.addEventListener('drop', async (event) => { event.preventDefault(); button.classList.remove('drag-over'); const movedId = event.dataTransfer.getData('application/x-pigeon-smart-folder'); if (movedId) try { await window.pigeon.moveSmartFolder(movedId, button.dataset.smartFolderId); } catch (error) { showToast(error.message); } });
+    button.addEventListener('drop',async(event)=>{event.preventDefault();button.classList.remove('drag-over');const movedId=event.dataTransfer.getData('application/x-pigeon-smart-folder');if(movedId)try{const target=state.library.smartFolders.find((item)=>item.id===button.dataset.smartFolderId),source=state.library.smartFolders.find((item)=>item.id===movedId),rect=button.getBoundingClientRect(),edge=(event.clientY-rect.top)/rect.height;if(source&&target&&source.parentId===target.parentId&&(edge<.28||edge>.72)){const siblings=sidebarSortedSiblings(state.library.smartFolders||[],target.parentId,'smartFolders').filter((item)=>item.id!==source.id),index=siblings.findIndex((item)=>item.id===target.id)+(edge>.72?1:0);siblings.splice(index,0,source);await window.pigeon.reorderSidebarItems('smartFolders',target.parentId,siblings.map((item)=>item.id));}else await window.pigeon.moveSmartFolder(movedId,button.dataset.smartFolderId);}catch(error){showToast(error.message);}});
     button.addEventListener('contextmenu', (event) => {
       event.preventDefault(); const folder = state.library.smartFolders.find((item) => item.id === button.dataset.smartFolderId); if (!folder) return;
       elements.contextMenu.innerHTML = `<button data-smart-action="new-subfolder">${iconSvg('folder')}<span>New Smart Subfolder…</span></button><button data-smart-action="export">${iconSvg('download')}<span>Export Smart Folder…</span></button><button data-smart-action="rename">${iconSvg('edit')}<span>Rename Smart Folder…</span></button><button data-smart-action="change-icon">${iconSvg('palette')}<span>Change Icon…</span></button><hr /><button data-smart-action="delete">${iconSvg('trash')}<span>Delete Smart Folder</span></button>`; elements.contextMenu.classList.remove('hidden'); positionMenu(elements.contextMenu, event.clientX, event.clientY);
@@ -1708,6 +1711,7 @@ $('#add-button').addEventListener('click', (event) => { event.stopPropagation();
 document.addEventListener('click', (event) => {
   if (!elements.addMenu.contains(event.target)) elements.addMenu.classList.add('hidden');
   if (!event.target.closest('.facet-popover, .filter-chip[data-facet]')) elements.facetPopover.classList.add('hidden');
+  if(!event.target.closest('#order-by-popover,#order-by-button')){$('#order-by-popover').classList.add('hidden');$('#order-by-button').setAttribute('aria-expanded','false');}
   if (!event.target.closest('#app-menu, #app-submenu, #app-menu-button')) { elements.appMenu.classList.add('hidden'); elements.appSubmenu.classList.add('hidden'); }
   if (!event.target.closest('#asset-context-menu')) { elements.contextMenu.classList.add('hidden'); elements.contextMenu.classList.remove('sidebar-visibility-menu'); }
 });
@@ -1754,6 +1758,7 @@ async function createCollectionPrompt(parentId = null) {
 }
 $('#add-collection').addEventListener('click', () => createCollectionPrompt());
 $('#save-smart-folder').addEventListener('click', () => openSmartFolderDialog());
+$$('[data-sidebar-sort]').forEach((button)=>button.addEventListener('click',(event)=>{event.preventDefault();event.stopPropagation();const type=button.dataset.sidebarSort,current=state.library.settings?.sidebarSort?.[type]||'manual',options=[['manual','Manual order'],['name-asc','Name · A to Z'],['name-desc','Name · Z to A'],['updated-desc','Last updated · newest'],['updated-asc','Last updated · oldest']];closeFloatingMenus();elements.contextMenu.innerHTML=options.map(([value,label])=>`<button data-sort-value="${value}"><span>${label}</span><span class="menu-check">${current===value?'✓':''}</span></button>`).join('');elements.contextMenu.querySelectorAll('[data-sort-value]').forEach((item)=>item.addEventListener('click',async()=>{hideContextMenu();state.library.settings=state.library.settings||{};state.library.settings.sidebarSort={...(state.library.settings.sidebarSort||{}),[type]:item.dataset.sortValue};renderSidebar(false);await window.pigeon.setSidebarSort(type,item.dataset.sortValue);}));elements.contextMenu.classList.remove('hidden');positionMenu(elements.contextMenu,button.getBoundingClientRect().right,button.getBoundingClientRect().bottom);}));
 $('#batch-tag').addEventListener('click', () => {
   tagAssignmentTargetIds = expandedTagTargetIds(); renderTagSuggestions(); $('#batch-tag-input').value = '';
   if (!$('#tag-assignment-dialog').open) $('#tag-assignment-dialog').showModal();
@@ -1819,6 +1824,9 @@ elements.appMenu.querySelectorAll('[data-menu-action]').forEach((button) => butt
 const updateLayoutButton = () => { const labels = { grid: ['layout', 'Masonry thumbnails'], justified: ['all', 'Equal-height rows'], list: ['menu', 'List view'] }; $('#layout-button').innerHTML = iconSvg(labels[state.layout][0]); $('#layout-button').title = labels[state.layout][1]; };
 updateLayoutButton();
 $('#layout-button').addEventListener('click', () => { const layouts = ['grid', 'justified', 'list']; state.layout = layouts[(layouts.indexOf(state.layout) + 1) % layouts.length]; localStorage.setItem('pigeon.layout', state.layout); updateLayoutButton(); renderGrid(); });
+function openOrderByPopover(){const popover=$('#order-by-popover'),button=$('#order-by-button'),order=currentAssetOrder(),scope=state.collectionId?state.library.collections.find((item)=>item.id===state.collectionId)?.name:state.smartFolderId?state.library.smartFolders.find((item)=>item.id===state.smartFolderId)?.name:state.locationId?(state.locationSubfolder?.split('/').pop()||state.library.locations.find((item)=>item.id===state.locationId)?.name):elements.title.textContent;$('#order-by-field').value=order.field;$('#order-by-scope').textContent=scope||'Current view';$('#order-ascending').classList.toggle('active',order.direction==='asc');$('#order-descending').classList.toggle('active',order.direction==='desc');const rect=button.getBoundingClientRect();popover.style.left=`${Math.min(window.innerWidth-292,Math.max(8,rect.right-284))}px`;popover.style.top=`${rect.bottom+6}px`;popover.classList.toggle('hidden');button.setAttribute('aria-expanded',String(!popover.classList.contains('hidden')));}
+async function applyCurrentAssetOrder(direction=currentAssetOrder().direction){const order={field:$('#order-by-field').value,direction},scope=assetOrderScopeKey();state.library.settings=state.library.settings||{};state.library.settings.assetOrders={...(state.library.settings.assetOrders||{}),[scope]:order};$('#order-ascending').classList.toggle('active',direction==='asc');$('#order-descending').classList.toggle('active',direction==='desc');resetRenderLimit();renderGrid();await window.pigeon.setAssetOrder(scope,order);}
+$('#order-by-button').addEventListener('click',(event)=>{event.stopPropagation();openOrderByPopover();});$('#order-by-field').addEventListener('change',()=>applyCurrentAssetOrder());$('#order-ascending').addEventListener('click',()=>applyCurrentAssetOrder('asc'));$('#order-descending').addEventListener('click',()=>applyCurrentAssetOrder('desc'));$('#reset-item-order').addEventListener('click',()=>{$('#order-by-field').value='modified';applyCurrentAssetOrder('desc');});
 $('#inspector-toggle').addEventListener('click', (event) => { elements.inspector.classList.toggle('hidden-panel'); event.currentTarget.classList.toggle('selected'); });
 elements.search.addEventListener('input',()=>{state.query=elements.search.value;state.gridScrollTop=0;resetRenderLimit();if(searchRenderFrame)cancelAnimationFrame(searchRenderFrame);searchRenderFrame=requestAnimationFrame(()=>{searchRenderFrame=null;renderGrid();});});
 const acceptsManagedDrop = () => !state.locationId && !state.collectionId && !state.smartFolderId && ['all', 'uncategorized', 'tags'].includes(state.view);
