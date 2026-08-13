@@ -1,6 +1,9 @@
 const { parentPort } = require('node:worker_threads');
 const sharp = require('sharp');
 const exifReader = require('exif-reader');
+const fs=require('node:fs/promises'),zlib=require('node:zlib');
+async function pngTextMetadata(source){let bytes;try{const stat=await fs.stat(source);if(stat.size>128*1024*1024)return null;bytes=await fs.readFile(source);}catch{return null;}if(bytes.length<8||bytes.subarray(1,4).toString()!=='PNG')return null;const result={};for(let offset=8;offset+12<=bytes.length;){const length=bytes.readUInt32BE(offset),type=bytes.subarray(offset+4,offset+8).toString('ascii'),data=bytes.subarray(offset+8,offset+8+length);offset+=12+length;if(length>2*1024*1024||!['tEXt','zTXt','iTXt'].includes(type))continue;try{let zero=data.indexOf(0),key=data.subarray(0,zero).toString('latin1'),text='';if(type==='tEXt')text=data.subarray(zero+1).toString('utf8');else if(type==='zTXt')text=zlib.inflateSync(data.subarray(zero+2),{maxOutputLength:2*1024*1024}).toString('utf8');else{const compressed=data[zero+1]===1;let cursor=zero+3;cursor=data.indexOf(0,cursor)+1;cursor=data.indexOf(0,cursor)+1;const payload=data.subarray(cursor);text=(compressed?zlib.inflateSync(payload,{maxOutputLength:2*1024*1024}):payload).toString('utf8');}if(/^(prompt|workflow|parameters)$/i.test(key)||/"(?:nodes|class_type|prompt|workflow)"/.test(text))result[key]=text.slice(0,500000);}catch{}}return Object.keys(result).length?result:null;}
+function boundedEmbeddedText(buffers={}){const result={};for(const[name,value]of Object.entries(buffers)){if(!value||!Buffer.isBuffer(value)||value.length>2*1024*1024)continue;const text=value.toString('utf8').replace(/\0+$/,'').trim();if(!text||text.length>500000)continue;if(/^(prompt|workflow|parameters)$/i.test(name)||/"(?:nodes|class_type|prompt|workflow)"/.test(text))result[name]=text;}return Object.keys(result).length?result:null;}
 
 parentPort.on('message', async ({ source, target }) => {
   try {
@@ -46,6 +49,7 @@ parentPort.on('message', async ({ source, target }) => {
       const parsed = metadata.exif ? exifReader(metadata.exif) : null;
       if (parsed) exif = JSON.parse(JSON.stringify(parsed, (_key, value) => value instanceof Date ? value.toISOString() : Buffer.isBuffer(value) ? undefined : typeof value === 'bigint' ? Number(value) : value));
     } catch {}
+    const pngMetadata=metadata.format==='png'?await pngTextMetadata(source):null;
     parentPort.postMessage({
       ok: true,
       target,
@@ -55,6 +59,7 @@ parentPort.on('message', async ({ source, target }) => {
       palette,
       perceptualHash,
       exif,
+      embeddedMetadata: pngMetadata||boundedEmbeddedText({ exif:metadata.exif, xmp:metadata.xmp, iptc:metadata.iptc, tEXt:metadata.comments?Buffer.from(JSON.stringify(metadata.comments)):null }),
       technicalMetadata: { format: metadata.format, space: metadata.space, channels: metadata.channels, depth: metadata.depth, density: metadata.density || null, hasAlpha: metadata.hasAlpha, orientation: metadata.orientation || 1 },
       dominantColor: dominant ? `#${[dominant.r, dominant.g, dominant.b].map((value) => value.toString(16).padStart(2, '0')).join('')}` : null
     });

@@ -10,6 +10,8 @@ const html = fs.readFileSync(path.join(root, 'src', 'index.html'), 'utf8');
 const preload = fs.readFileSync(path.join(root, 'electron', 'preload.js'), 'utf8');
 const main = fs.readFileSync(path.join(root, 'electron', 'main.js'), 'utf8');
 const libraryCore = fs.readFileSync(path.join(root, 'electron', 'library-core.js'), 'utf8');
+const core = libraryCore;
+const thumbnailWorker = fs.readFileSync(path.join(root, 'electron', 'thumbnail-worker.js'), 'utf8');
 const database = fs.readFileSync(path.join(root, 'electron', 'database.js'), 'utf8');
 const renderer = fs.readFileSync(path.join(root, 'src', 'renderer.js'), 'utf8');
 const styles = fs.readFileSync(path.join(root, 'src', 'styles.css'), 'utf8');
@@ -21,6 +23,13 @@ test('UI exposes collection, smart-folder, batch, trash, media, metadata and edi
   for (const id of ['collection-list', 'smart-folder-list', 'batch-bar', 'duplicates-count', 'trash-count', 'inspector-video', 'inspector-audio', 'sidebar-resizer', 'inspector-resizer', 'batch-stack', 'batch-unstack', 'settings-dialog', 'text-entry-dialog', 'smart-folder-dialog', 'smart-folder-name', 'smart-folder-rules', 'favorite-shortcut', 'portfolio-switcher', 'portfolio-switcher-search', 'portfolio-switcher-list', 'portfolio-select', 'switch-portfolio', 'new-portfolio', 'rename-portfolio', 'delete-portfolio', 'encrypt-locked-folders', 'confirm-folder-moves', 'rotate-left', 'rotate-right', 'tag-suggestions', 'tag-autocomplete', 'tag-assignment-dialog', 'batch-tag-input', 'viewer-crop-overlay', 'map-view', 'location-map', 'map-search-input', 'map-globe-mode', 'map-street-mode', 'map-save', 'location-shortcut', 'duplicate-controls', 'duplicate-similarity', 'show-all-duplicate-groups', 'thumbnail-title-line-1', 'thumbnail-title-line-2', 'thumbnail-title-line-3', 'tag-browser', 'media-viewer', 'viewer-video', 'asset-histogram', 'annotation-view']) {
     assert.match(html, new RegExp(`id="${id}"`), `missing ${id}`);
   }
+});
+
+test('actions support topbar editing, reordered clearing/move/rename steps and larger fields',()=>{
+  for(const step of ['clearCollections','clearTags','clearRating','moveFolder','autoRename'])assert.match(renderer,new RegExp(step));assert.match(renderer,/data-quick-edit/);assert.match(renderer,/wireShortcutStepReordering/);assert.match(renderer,/rename-pattern-suggestions/);assert.match(renderer,/created-date-time/);assert.match(styles,/font-size:13px/);assert.match(main,/assets:auto-rename/);assert.match(main,/assets:move-to-path/);assert.match(core,/operation\.clearCollections/);
+});
+test('SVG, Sketch and Lunacy files plus embedded workflow metadata and drag export are wired',()=>{
+  assert.match(main,/\.svg/);assert.match(main,/\.sketch/);assert.match(main,/\.free/);assert.match(main,/extractZipPreview/);assert.match(thumbnailWorker,/pngTextMetadata/);assert.match(thumbnailWorker,/workflow/);assert.match(html,/showAdditionalMetadata/);assert.match(renderer,/DownloadURL/);assert.match(styles,/\.folder-tree-toggle \{ width: 18px/);assert.match(renderer,/setTimeout\(\(\)=>\{if\(!button\.matches\(':hover'\)\)/);
 });
 
 test('hovered video uses hold-Control sound and tree screenshots have terminal branches',()=>{

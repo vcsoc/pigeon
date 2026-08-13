@@ -128,7 +128,10 @@ function batchUpdateAssets(library, ids, operation = {}) {
     if (operation.removeTags) asset.tags = (asset.tags || []).filter((tag) => !operation.removeTags.includes(tag));
     if (operation.collectionId) asset.collectionIds = [...new Set([...(asset.collectionIds || []), operation.collectionId])];
     if (operation.removeCollectionId) asset.collectionIds = (asset.collectionIds || []).filter((id) => id !== operation.removeCollectionId);
+    if (operation.clearCollections) asset.collectionIds = [];
+    if (operation.clearTags) asset.tags = [];
     if (Object.hasOwn(operation, 'rating')) asset.rating = Math.max(0, Math.min(5, Number(operation.rating) || 0));
+    if (operation.clearRating) asset.rating = 0;
     if (Object.hasOwn(operation, 'favorite')) asset.favorite = Boolean(operation.favorite);
     if (Object.hasOwn(operation, 'thumbnailEffect')) asset.thumbnailEffect = Boolean(operation.thumbnailEffect);
     if (Object.hasOwn(operation, 'rotation')) asset.rotation = ((Number(operation.rotation) || 0) % 360 + 360) % 360;
