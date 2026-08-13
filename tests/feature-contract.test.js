@@ -23,6 +23,13 @@ test('UI exposes collection, smart-folder, batch, trash, media, metadata and edi
   }
 });
 
+test('animated image hover, viewport magnifier, reorder markers and sidebar-only mutation broadcasts are wired',()=>{
+  assert.match(renderer,/animatedImage=asset\.kind==='image'/);assert.match(renderer,/thumbnail-hover-media animated-image/);assert.match(styles,/\.thumbnail-hover-media\.animated-image/);assert.match(renderer,/asset\.mediaUrl\|\|asset\.previewUrl/);
+  assert.match(styles,/\.hover-fit-preview \{ position:fixed/);assert.match(styles,/background:transparent/);assert.match(renderer,/elements\.gridWrap\.getBoundingClientRect/);assert.match(renderer,/delayDone/);
+  assert.match(renderer,/function sidebarDropZone/);assert.match(renderer,/drop-before/);assert.match(renderer,/drop-after/);assert.match(renderer,/dropZone/);assert.match(styles,/\.collection-item\.drop-before::after/);assert.match(styles,/background:#66a6ff/);
+  assert.match(main,/collection:rename[\s\S]{0,180}broadcastSidebar\(\)/);assert.match(main,/collection:move[\s\S]{0,400}broadcastSidebar\(\)/);assert.match(main,/smart-folder:move[\s\S]{0,180}broadcastSidebar\(\)/);assert.match(main,/sidebar:reorder-items[\s\S]{0,1000}broadcastSidebar\(\)/);
+});
+
 test('trash isolation, analytics actions, text reader, contact export, window restore and Smart Folder editing are wired',()=>{
   assert.match(renderer,/state\.view === 'trash'&&!state\.locationId&&!state\.collectionId&&!state\.smartFolderId/);assert.match(renderer,/state\.view='all';state\.smartFolderId/);assert.match(renderer,/visibleAssets\.length/);assert.match(renderer,/filter\(\(asset\)=>!asset\.deletedAt\)\.flatMap/);
   assert.match(renderer,/data-analytics-asset/);assert.match(renderer,/View in folder/);assert.match(renderer,/Export to computer/);assert.match(renderer,/Copy path to file/);assert.match(preload,/exportAsset/);
@@ -40,7 +47,7 @@ test('preloaded magnifier, true viewer scale, scoped thumbnail sizes and matchin
 
 test('clean hierarchy, delayed fit preview, move continuity and contact sheets are wired',()=>{
   assert.doesNotMatch(styles,/background-image:repeating-linear-gradient\(to right/);assert.match(styles,/border-left:1px solid #555b64/);assert.match(styles,/\.location-folder-item\.active::before/);
-  assert.match(renderer,/hoverFitPreviewTimer=setTimeout/);assert.match(renderer,/,420\)/);assert.match(styles,/clip-path:polygon\(100% 0,100% 100%,0 100%\)/);assert.match(styles,/max-width:calc\(100% - 40px\)!important/);assert.match(styles,/object-fit:contain!important/);
+  assert.match(renderer,/hoverFitPreviewTimer=setTimeout/);assert.match(renderer,/,420\)/);assert.match(styles,/clip-path:polygon\(100% 0,100% 100%,0 100%\)/);assert.match(styles,/max-width:100%!important/);assert.match(styles,/object-fit:contain!important/);
   assert.match(renderer,/firstIndex=Math\.min/);assert.match(renderer,/focusSelectedAsset\(\)/);assert.match(html,/id="contact-sheet-view"/);assert.match(renderer,/function openContactSheet/);assert.match(renderer,/function renderContactSheet/);assert.match(renderer,/data-folder-action="contact-sheet"/);assert.match(renderer,/data-location-action="contact-sheet"/);assert.match(renderer,/data-context-action="contact-sheet"/);assert.match(styles,/@media print/);
 });
 

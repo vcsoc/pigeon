@@ -1656,12 +1656,12 @@ ipcMain.handle('group:duplicate-structure',async(_event,{type,id,subfolder=''})=
 });
 ipcMain.handle('collection:rename', (_event, { id, name }) => {
   const collection = libraryCore.renameCollection(library, id, name);
-  scheduleSave(); broadcast(); return collection;
+  scheduleSave(); broadcastSidebar(); return collection;
 });
 ipcMain.handle('collection:move', (_event, { id, parentId }) => {
   const collection = libraryCore.moveCollection(library, id, parentId), movedIds = collectionDescendants(id);
   for (const asset of library.assets) if ((asset.collectionIds || []).some((collectionId) => movedIds.has(collectionId))) asset.tags = [...new Set([...(asset.tags || []), ...configuredCollectionTags(asset.collectionIds)])];
-  scheduleSave(); broadcast(); return collection;
+  scheduleSave(); broadcastSidebar(); return collection;
 });
 ipcMain.handle('collection:set-password', async (_event, { id, password, encrypt }) => {
   const collection = library.collections.find((item) => item.id === id);
@@ -1708,17 +1708,17 @@ ipcMain.handle('smart-folder:create', (_event, { name, filters, parentId }) => {
   scheduleSave(); broadcastSidebar(); return smartFolder;
 });
 ipcMain.handle('smart-folder:rename', (_event, { id, name }) => {
-  const smartFolder = libraryCore.renameSmartFolder(library, id, name); scheduleSave(); broadcast(); return smartFolder;
+  const smartFolder = libraryCore.renameSmartFolder(library, id, name); scheduleSave(); broadcastSidebar(); return smartFolder;
 });
 ipcMain.handle('smart-folder:update',(_event,{id,name,filters})=>{const folder=libraryCore.renameSmartFolder(library,id,name);folder.filters=filters||{};folder.updatedAt=Date.now();scheduleSave();broadcastSidebar();return folder;});
 ipcMain.handle('smart-folder:move', (_event, { id, parentId }) => {
-  const smartFolder = libraryCore.moveSmartFolder(library, id, parentId); scheduleSave(); broadcast(); return smartFolder;
+  const smartFolder = libraryCore.moveSmartFolder(library, id, parentId); scheduleSave(); broadcastSidebar(); return smartFolder;
 });
 ipcMain.handle('smart-folder:remove', (_event, id) => {
   const removed = libraryCore.removeSmartFolder(library, id); scheduleSave(); broadcast(); return removed;
 });
-ipcMain.handle('sidebar:set-sort',(_event,{type,sort})=>{if(!['collections','smartFolders'].includes(type)||!['manual','name-asc','name-desc','updated-asc','updated-desc'].includes(sort))throw new Error('Invalid sidebar sort');library.settings.sidebarSort={...(library.settings.sidebarSort||{}),[type]:sort};scheduleSave();broadcast();return sort;});
-ipcMain.handle('sidebar:reorder-items',(_event,{type,parentId=null,orderedIds=[]})=>{const items=type==='collections'?library.collections:type==='smartFolders'?library.smartFolders:null;if(!items)throw new Error('Invalid sidebar type');const siblings=items.filter((item)=>item.parentId===parentId),valid=new Set(siblings.map((item)=>item.id));if(orderedIds.length!==siblings.length||orderedIds.some((id)=>!valid.has(id)))throw new Error('Invalid sidebar order');orderedIds.forEach((id,index)=>{const item=items.find((entry)=>entry.id===id);item.order=index;item.updatedAt=Date.now();});library.settings.sidebarSort={...(library.settings.sidebarSort||{}),[type]:'manual'};scheduleSave();broadcast();return true;});
+ipcMain.handle('sidebar:set-sort',(_event,{type,sort})=>{if(!['collections','smartFolders'].includes(type)||!['manual','name-asc','name-desc','updated-asc','updated-desc'].includes(sort))throw new Error('Invalid sidebar sort');library.settings.sidebarSort={...(library.settings.sidebarSort||{}),[type]:sort};scheduleSave();broadcastSidebar();return sort;});
+ipcMain.handle('sidebar:reorder-items',(_event,{type,parentId=null,orderedIds=[]})=>{const items=type==='collections'?library.collections:type==='smartFolders'?library.smartFolders:null;if(!items)throw new Error('Invalid sidebar type');const siblings=items.filter((item)=>item.parentId===parentId),valid=new Set(siblings.map((item)=>item.id));if(orderedIds.length!==siblings.length||orderedIds.some((id)=>!valid.has(id)))throw new Error('Invalid sidebar order');orderedIds.forEach((id,index)=>{const item=items.find((entry)=>entry.id===id);item.order=index;item.updatedAt=Date.now();});library.settings.sidebarSort={...(library.settings.sidebarSort||{}),[type]:'manual'};scheduleSave();broadcastSidebar();return true;});
 ipcMain.handle('item:set-icon', (_event, { type, id, icon }) => {
   const value = icon && /^[a-z0-9-]{1,32}$/.test(icon) ? icon : null;
   if (type === 'collection') { const item = library.collections.find((entry) => entry.id === id); if (item) item.icon = value; }
