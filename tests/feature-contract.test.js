@@ -26,6 +26,10 @@ test('UI exposes collection, smart-folder, batch, trash, media, metadata and edi
   }
 });
 
+test('trash and auto-tag mutations reconcile cards without full thumbnail reloads',()=>{
+  assert.match(renderer,/handleDeleteSelection[\s\S]*silent:true,returnAssets:true/);assert.match(renderer,/handleDeleteSelection[\s\S]*reconcileThumbnailCards\(ids\)/);assert.match(renderer,/selectAndRevealSuccessor\(successorId\)/);assert.match(renderer,/currentSmartFolderDependsOnTags/);assert.match(renderer,/patchTagMetadataCards/);assert.match(renderer,/reconcileThumbnailCards\(changed,\{sidebar:false\}\)/);assert.match(main,/collection:set-auto-tags[\s\S]*broadcastSidebar/);assert.match(main,/folder:set-auto-tags[\s\S]*broadcastSidebar/);
+});
+
 test('Smart Folders filter privacy effects, hotkey is editable, and level sorting targets siblings',()=>{
   assert.match(renderer,/\['privacyEffect','Blur \/ Pixelate'\]/);assert.match(renderer,/Effect applied/);assert.match(libraryCore,/rule\.field === 'privacyEffect'/);assert.match(renderer,/thumbnail-effect-shortcut'\)\.addEventListener\('keydown'/);assert.match(html,/Click and press a shortcut/);assert.match(renderer,/branch:collection\.parentId/);assert.match(renderer,/branch:folder\.parentId/);assert.match(renderer,/appendFolderLevel/);assert.match(renderer,/sidebarBranchSort/);
 });
@@ -933,7 +937,7 @@ test('Trash context menu deletes source files permanently or through the operati
 test('Delete moves selections to Trash and deletes selected Trash source files',()=>{
   assert.match(renderer,/async function handleDeleteSelection/);
   assert.match(renderer,/if\(state\.view==='trash'\)\{await deleteTrashItems\(ids\);return;\}/);
-  assert.match(renderer,/batchUpdateAssets\(ids,\{trash:true\}\)/);
+  assert.match(renderer,/batchUpdateAssets\(ids,\{trash:true\},\{silent:true,returnAssets:true\}\)/);
   assert.match(renderer,/emptyTrash\(preferences\.trashDeletionMode,ids\)/);
   assert.match(renderer,/result\.deletedIds/);
   assert.match(main,/selectedIds=Array\.isArray\(request\.ids\)\?new Set\(request\.ids\):null/);

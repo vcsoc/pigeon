@@ -1750,7 +1750,7 @@ ipcMain.handle('collection:set-auto-tags', (_event, { collectionId, tags = [] })
   const normalizedTags = canonicalTags(tags); if (normalizedTags.length) library.settings.collectionAutoTags[collectionId] = { collectionId, tags: normalizedTags, updatedAt: Date.now() }; else delete library.settings.collectionAutoTags[collectionId];
   const descendants = collectionDescendants(collectionId); let updated = 0;
   if (normalizedTags.length) for (const asset of library.assets) if ((asset.collectionIds || []).some((id) => descendants.has(id))) { asset.tags = [...new Set([...(asset.tags || []), ...normalizedTags])]; updated += 1; }
-  scheduleSave(); broadcast(); return { collectionId, tags: normalizedTags, updated };
+  const assets=normalizedTags.length?library.assets.filter((asset)=>(asset.collectionIds||[]).some((id)=>descendants.has(id))).map(({encryptedMediaPaths,encryptedThumbnailPaths,...asset})=>asset):[];scheduleSave();broadcastSidebar(); return { collectionId, tags: normalizedTags, updated, assets };
 });
 ipcMain.handle('folder:set-auto-tags', (_event, { locationId, subfolder = '', tags = [] }) => {
   const location = library.locations.find((item) => item.id === locationId); if (!location || location.type !== 'folder') throw new Error('Indexed folder does not exist');
@@ -1761,7 +1761,7 @@ ipcMain.handle('folder:set-auto-tags', (_event, { locationId, subfolder = '', ta
   else delete library.settings.folderAutoTags[key];
   let updated = 0;
   if (normalizedTags.length) for (const asset of library.assets) if (assetMatchesFolder(asset, location, folder)) { asset.tags = [...new Set([...(asset.tags || []), ...normalizedTags])]; updated += 1; }
-  scheduleSave(); broadcast(); return { locationId, subfolder: folder, tags: normalizedTags, updated };
+  const assets=normalizedTags.length?library.assets.filter((asset)=>assetMatchesFolder(asset,location,folder)).map(({encryptedMediaPaths,encryptedThumbnailPaths,...asset})=>asset):[];scheduleSave();broadcastSidebar(); return { locationId, subfolder: folder, tags: normalizedTags, updated, assets };
 });
 ipcMain.handle('assets:batch-update', (_event, { ids, operation, options = {} }) => {
   const count = libraryCore.batchUpdateAssets(library, ids, operation);
