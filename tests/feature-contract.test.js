@@ -26,8 +26,8 @@ test('UI exposes collection, smart-folder, batch, trash, media, metadata and edi
   }
 });
 
-test('every filtered asset receives a placeholder while thumbnail media loads near the viewport',()=>{
-  assert.match(renderer,/const assets = allAssets,stackCounts/);assert.match(renderer,/thumbnailVisibilityObserver=new IntersectionObserver/);assert.match(renderer,/data-thumbnail-src/);assert.match(renderer,/thumbnailVisibilityObserver\.observe\(card\)/);assert.match(styles,/\.asset-grid\.placeholder-grid\{grid-auto-rows:auto/);assert.match(main,/placeholders\.cards!==placeholders\.total/);assert.match(main,/placeholders\.afterLoaded<=placeholders\.beforeLoaded/);
+test('every Smart Folder asset receives a placeholder and thumbnails load safely after scroll settles',()=>{
+  assert.match(renderer,/state\.view === 'duplicates'\|\|state\.smartFolderId/);assert.match(renderer,/const assets = allAssets,stackCounts/);assert.match(renderer,/MAX_THUMBNAIL_LOADS=4/);assert.match(renderer,/thumbnailScrollUntil=Date\.now\(\)\+320/);assert.match(renderer,/const probe=new Image\(\)/);assert.match(renderer,/probe\.onerror=.*image\.remove\(\)/);assert.match(renderer,/rootMargin:'360px 0px'/);assert.match(styles,/img\[data-thumbnail-src\],\.placeholder-grid img\.thumbnail-pending\{display:none\}/);assert.match(main,/placeholders\.cards!==placeholders\.total/);
 });
 
 test('targeted thumbnail rebuild, virtual full scroll, cover previews, metadata copy and native drag are wired',()=>{

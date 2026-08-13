@@ -100,7 +100,10 @@ const elements = {
   analyticsView: $('#analytics-view'), analyticsContent: $('#analytics-content'), backgroundProgress: $('#background-progress'), lockedContent: $('#locked-content'), contactSheetView: $('#contact-sheet-view'), contactSheetPages: $('#contact-sheet-pages')
 };
 let masonryFrame,navigationPaintFrame=null,navigationRenderGeneration=0,searchRenderFrame=null,marqueeSelection=null,marqueeScrollFrame=null,suppressMarqueeClick=false,hoverFitPreviewTimer=null;
-const thumbnailVisibilityObserver=new IntersectionObserver((entries)=>{for(const entry of entries){if(!entry.isIntersecting)continue;const card=entry.target,image=card.querySelector('img[data-thumbnail-src]');if(image){image.addEventListener('load',()=>{image.classList.add('thumbnail-loaded');card.querySelector('.asset-image-placeholder')?.remove();if(image.closest('.quarter-turned'))fitRotatedThumbnail(image);scheduleMasonry();},{once:true});image.src=image.dataset.thumbnailSrc;image.removeAttribute('data-thumbnail-src');}thumbnailVisibilityObserver.unobserve(card);}},{root:elements.gridWrap,rootMargin:'900px 0px'});
+const pendingThumbnailCards=new Set();let thumbnailSettleTimer=null,thumbnailLoadsActive=0,thumbnailScrollUntil=0;const MAX_THUMBNAIL_LOADS=4;
+function scheduleSettledThumbnailLoads(){clearTimeout(thumbnailSettleTimer);thumbnailSettleTimer=setTimeout(drainThumbnailLoads,Math.max(180,thumbnailScrollUntil-Date.now()));}
+function drainThumbnailLoads(){if(Date.now()<thumbnailScrollUntil){scheduleSettledThumbnailLoads();return;}while(thumbnailLoadsActive<MAX_THUMBNAIL_LOADS&&pendingThumbnailCards.size){const card=pendingThumbnailCards.values().next().value;pendingThumbnailCards.delete(card);if(!card.isConnected)continue;const image=card.querySelector('img[data-thumbnail-src]'),source=image?.dataset.thumbnailSrc;if(!image||!source)continue;thumbnailLoadsActive+=1;image.classList.add('thumbnail-pending');image.removeAttribute('data-thumbnail-src');const probe=new Image();probe.onload=()=>{if(card.isConnected){image.addEventListener('load',()=>{image.classList.remove('thumbnail-pending');image.classList.add('thumbnail-loaded');card.querySelector('.asset-image-placeholder')?.remove();if(image.closest('.quarter-turned'))fitRotatedThumbnail(image);scheduleMasonry();},{once:true});image.addEventListener('error',()=>{image.remove();card.classList.add('thumbnail-load-failed');},{once:true});image.src=source;}thumbnailLoadsActive-=1;setTimeout(drainThumbnailLoads,24);};probe.onerror=()=>{image.remove();card.classList.add('thumbnail-load-failed');thumbnailLoadsActive-=1;setTimeout(drainThumbnailLoads,24);};probe.src=source;}}
+const thumbnailVisibilityObserver=new IntersectionObserver((entries)=>{for(const entry of entries){if(entry.isIntersecting)pendingThumbnailCards.add(entry.target);else pendingThumbnailCards.delete(entry.target);}scheduleSettledThumbnailLoads();},{root:elements.gridWrap,rootMargin:'360px 0px'});
 const rotatedThumbnailObserver = new ResizeObserver((entries) => {
   for (const entry of entries) {
     const preview = entry.target, image = preview.querySelector(':scope > img'); if (!image) continue;
@@ -336,7 +339,7 @@ function filteredAssets() {
     assets = assets.filter((asset) => [asset.filename, asset.path, asset.note, ...(asset.tags || [])].join(' ').toLowerCase().includes(query));
   }
   const order=currentAssetOrder(),factor=order.direction==='asc'?1:-1,sorted=assets.sort((a,b)=>{const first=order.field==='name'?String(a.name||a.filename||'').toLowerCase():Number(a[order.field])||0,second=order.field==='name'?String(b.name||b.filename||'').toLowerCase():Number(b[order.field])||0,difference=typeof first==='string'?first.localeCompare(second):first-second;return difference*factor||String(a.id).localeCompare(String(b.id));});
-  if (state.view === 'duplicates') return sorted;
+  if (state.view === 'duplicates'||state.smartFolderId) return sorted;
   const seenStacks = new Set();
   return sorted.filter((asset) => {
     if (!asset.stackId || state.expandedStackIds.has(asset.stackId)) return true;
@@ -811,7 +814,7 @@ function renderGrid() {
   elements.gridWrap.classList.toggle('layout-list', state.layout === 'list');
   elements.gridWrap.classList.toggle('layout-justified', state.layout === 'justified');
   elements.count.textContent = loading ? 'Loading…' : `${allAssets.length} ${allAssets.length === 1 ? 'item' : 'items'}`;
-  rotatedThumbnailObserver.disconnect();thumbnailVisibilityObserver.disconnect();
+  rotatedThumbnailObserver.disconnect();thumbnailVisibilityObserver.disconnect();pendingThumbnailCards.clear();clearTimeout(thumbnailSettleTimer);
   elements.grid.classList.remove('virtualized-grid');elements.grid.style.height='';elements.grid.style.minHeight='';elements.grid.style.paddingTop='';
   elements.grid.innerHTML = assets.map((asset) => {
     const visual = ['image', 'video', 'audio', 'document'].includes(asset.kind) && Boolean(asset.thumbnailPath), previewFailed = Boolean(asset.thumbnailFailedAt && !asset.thumbnailPath);
@@ -2301,6 +2304,8 @@ function loadMoreAssets() {
 }
 elements.sentinel.addEventListener('click', loadMoreAssets);
 const loadMoreObserver = new IntersectionObserver((entries) => { if (entries.some((entry) => entry.isIntersecting)) loadMoreAssets(); }, { root: elements.gridWrap, rootMargin: '700px 0px' });
+elements.gridWrap.addEventListener('scroll',()=>{thumbnailScrollUntil=Date.now()+320;clearTimeout(thumbnailSettleTimer);scheduleSettledThumbnailLoads();},{passive:true});
+
 applyStaticIcons(); populatePreferenceInputs(); applyPreferences(false);
 window.pigeon.onLibraryChanged((library) => {
   if(scanRenderHandle!==null){(window.cancelIdleCallback||clearTimeout)(scanRenderHandle);scanRenderHandle=null;}clearTimeout(streamRenderTimer);rendererAssetIndexes.clear();elements.grid.innerHTML='';elements.grid.classList.add('hidden');
