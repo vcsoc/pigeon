@@ -23,6 +23,11 @@ test('UI exposes collection, smart-folder, batch, trash, media, metadata and edi
   }
 });
 
+test('portfolio loading withholds locked assets and waits for complete authorized stream',()=>{
+  assert.match(main,/function rendererVisibleAssets\(\)/);assert.match(main,/library\.assets\.filter\(\(asset\)=>!isAssetLocked\(asset\)\)/);assert.match(main,/assetStreamPending:!library\.loading/);assert.match(main,/visibleAssets\.slice\(offset, offset \+ 500\)/);assert.match(main,/assets\.filter\(\(asset\)=>!isAssetLocked\(asset\)\)/);
+  assert.match(renderer,/state\.library\.loading === true \|\| state\.library\.assetStreamPending === true/);assert.match(renderer,/elements\.grid\.innerHTML=''/);assert.match(renderer,/if \(!done\) return/);assert.match(renderer,/state\.library\.assetStreamPending=false/);assert.match(renderer,/if\(asset\.locked\)continue/);
+});
+
 test('portfolio registry recovery and adding existing databases are wired',()=>{
   assert.match(main,/portfolioRegistrySave=Promise\.resolve/);assert.match(main,/async function discoverPortfolioDatabases/);assert.match(main,/portfolios\.json\.bak|`\$\{portfolioRegistryFile\}\.bak`/);assert.match(main,/await handle\.sync\(\)/);assert.match(main,/portfolio:add-existing/);assert.match(main,/portfolio\.managed!==false/);assert.match(preload,/addExistingPortfolio/);assert.match(html,/id="add-existing-portfolio"/);assert.match(renderer,/addExistingPortfolio\(\)/);
 });

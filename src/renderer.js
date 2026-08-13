@@ -773,7 +773,7 @@ function renderGrid() {
   if (analyticsMode) { elements.grid.classList.add('hidden'); elements.empty.classList.add('hidden'); elements.tagBrowser.classList.add('hidden'); elements.sentinel.classList.add('hidden'); $('#duplicate-controls').classList.add('hidden'); renderAnalytics(); saveNavigationState(); return; }
   const allAssets = filteredAssets();
   const assets = allAssets.slice(0, state.renderLimit),stackCounts=new Map(); for(const item of state.library.assets)if(item.stackId&&!item.deletedAt)stackCounts.set(item.stackId,(stackCounts.get(item.stackId)||0)+1);
-  const loading = state.library.loading === true;
+  const loading = state.library.loading === true || state.library.assetStreamPending === true;
   const noLibrary = !loading && (state.library.totalAssets ?? state.library.assets.length) === 0;
   const noSources=noLibrary&&(state.library.locations||[]).length===0;
   const tagMode = !loading && state.view === 'tags' && !state.locationId && !state.collectionId && !state.smartFolderId;
@@ -2286,28 +2286,25 @@ loadMoreObserver.observe(elements.sentinel);
 
 applyStaticIcons(); populatePreferenceInputs(); applyPreferences(false);
 window.pigeon.onLibraryChanged((library) => {
-  if(scanRenderHandle!==null){(window.cancelIdleCallback||clearTimeout)(scanRenderHandle);scanRenderHandle=null;} rendererAssetIndexes.clear();
+  if(scanRenderHandle!==null){(window.cancelIdleCallback||clearTimeout)(scanRenderHandle);scanRenderHandle=null;}clearTimeout(streamRenderTimer);rendererAssetIndexes.clear();elements.grid.innerHTML='';elements.grid.classList.add('hidden');
   if (backgroundTaskPortfolioId && library.activePortfolioId && backgroundTaskPortfolioId !== library.activePortfolioId) { backgroundTasks.clear(); renderBackgroundProgress(); }
   backgroundTaskPortfolioId = library.activePortfolioId || backgroundTaskPortfolioId;
   state.streamGeneration = library.streamGeneration || 0;
   state.library = libraryCoreSafe(library); state.duplicateGroups = []; state.duplicateIds.clear();
-  if (!state.library.loading && !(state.library.totalAssets ?? state.library.assets.length)) finishStartupSplash();
-  if (!state.library.loading && state.navigationRestoredPortfolioId !== state.library.activePortfolioId) { restoreNavigationState(); updateFilterChips(); }
+  if (!state.library.loading && !state.library.assetStreamPending && !(state.library.totalAssets ?? state.library.assets.length)) finishStartupSplash();
+  if (!state.library.loading && !state.library.assetStreamPending && state.navigationRestoredPortfolioId !== state.library.activePortfolioId) { restoreNavigationState(); updateFilterChips(); }
   resetRenderLimit();
   render(); scheduleFolderTreeBuild();
 });
 window.pigeon.onSidebarChanged(({collections,smartFolders,settings,activePortfolioId})=>{if(activePortfolioId!==state.library.activePortfolioId)return;state.library.collections=collections||state.library.collections;state.library.smartFolders=smartFolders||state.library.smartFolders;state.library.settings={...(state.library.settings||{}),...(settings||{})};renderSidebar(false);renderTagSuggestions();});
 window.pigeon.onLibraryAssets(({ generation, assets, done }) => {
   if (generation !== state.streamGeneration) return;
-  const firstBatch = state.library.assets.length === 0;
-  for(const asset of assets){rendererAssetIndexes.set(asset.id,state.library.assets.length);state.library.assets.push(asset);}
-  if (done) { state.library.totalAssets = state.library.assets.length; refreshDuplicateIds(); if(state.view==='duplicates'&&state.duplicateSourceId)refreshSimilarityGroups(); finishStartupSplash(); scheduleFolderTreeBuild(); }
-  clearTimeout(streamRenderTimer);
-  if (firstBatch || done) { render(); if (done && isInternalViewerOpen()) renderInternalViewer(); }
-  else streamRenderTimer = setTimeout(() => { renderGrid(); updateLocationProgressUI(); }, 240);
+  for(const asset of assets){if(asset.locked)continue;rendererAssetIndexes.set(asset.id,state.library.assets.length);state.library.assets.push(asset);}
+  if (!done) return;
+  state.library.assetStreamPending=false;state.library.totalAssets=state.library.assets.length;refreshDuplicateIds();if(state.view==='duplicates'&&state.duplicateSourceId)refreshSimilarityGroups();render();finishStartupSplash();scheduleFolderTreeBuild();if(isInternalViewerOpen())renderInternalViewer();
 });
 function scheduleScanGridRender(){ if(scanRenderHandle!==null)return; const run=()=>{scanRenderHandle=null;if(performance.now()-lastUserInteractionAt<250){scheduleScanGridRender();return;}renderGrid();updateLocationProgressUI();}; scanRenderHandle=window.requestIdleCallback?requestIdleCallback(run,{timeout:1500}):setTimeout(run,750); }
-window.pigeon.onScanAssets(({portfolioId,locationId,assets,done})=>{ if(portfolioId!==state.library.activePortfolioId)return; const wasEmpty=state.library.assets.length===0; let added=0; for(const asset of assets){const index=rendererAssetIndexes.get(asset.id);if(index===undefined){rendererAssetIndexes.set(asset.id,state.library.assets.length);state.library.assets.push(asset);added+=1;}else state.library.assets[index]=asset;} state.library.totalAssets=state.library.assets.length; const location=state.library.locations.find((item)=>item.id===locationId);if(location)location.assetCount=(location.assetCount||0)+added; updateLocationProgressUI(); if(done){refreshDuplicateIds();scheduleFolderTreeBuild();scheduleScanGridRender();}else if(wasEmpty&&added)scheduleScanGridRender(); });
+window.pigeon.onScanAssets(({portfolioId,locationId,assets,done})=>{ if(portfolioId!==state.library.activePortfolioId||state.library.loading||state.library.assetStreamPending)return; const wasEmpty=state.library.assets.length===0; let added=0; for(const asset of assets){const index=rendererAssetIndexes.get(asset.id);if(index===undefined){rendererAssetIndexes.set(asset.id,state.library.assets.length);state.library.assets.push(asset);added+=1;}else state.library.assets[index]=asset;} state.library.totalAssets=state.library.assets.length; const location=state.library.locations.find((item)=>item.id===locationId);if(location)location.assetCount=(location.assetCount||0)+added; updateLocationProgressUI(); if(done){refreshDuplicateIds();scheduleFolderTreeBuild();scheduleScanGridRender();}else if(wasEmpty&&added)scheduleScanGridRender(); });
 function updateLocationProgressUI() { for (const location of state.library.locations) { const row=elements.locationList.querySelector(`[data-location-id="${location.id}"]`); if (!row) continue; row.classList.toggle('offline',!location.online); row.classList.toggle('scanning',Boolean(location.scanning)); const count=row.querySelector('.location-root-button small'); if(count) count.textContent=location.assetCount||0; } const scanning=state.library.locations.find((location)=>location.scanning),progress=scanning?.scanProgress; if(scanning) elements.status.textContent=`Indexing ${scanning.name}… ${progress?.inspected||0}${progress?.discovered?` / ${progress.discovered}`:''}`; }
 window.pigeon.onLocationsChanged(({ locations, loading, totalAssets }) => {
   const structureChanged = locations.length !== state.library.locations.length || locations.some((location,index)=>location.id!==state.library.locations[index]?.id || location.path!==state.library.locations[index]?.path);
@@ -2349,7 +2346,7 @@ window.pigeon.onThumbnailReady(({ id, previewUrl, mediaUrl, width, height, durat
 window.pigeon.getLibrary().then((library) => {
   if (state.streamGeneration !== 0) return;
   state.library = libraryCoreSafe(library);
-  if (!state.library.loading && !(state.library.totalAssets ?? state.library.assets.length)) finishStartupSplash();
-  if (!state.library.loading && state.navigationRestoredPortfolioId !== state.library.activePortfolioId) { restoreNavigationState(); updateFilterChips(); }
+  if (!state.library.loading && !state.library.assetStreamPending && !(state.library.totalAssets ?? state.library.assets.length)) finishStartupSplash();
+  if (!state.library.loading && !state.library.assetStreamPending && state.navigationRestoredPortfolioId !== state.library.activePortfolioId) { restoreNavigationState(); updateFilterChips(); }
   render();
 });

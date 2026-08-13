@@ -152,9 +152,10 @@ function matchingFolderLocks(asset){const folder=assetRelativeFolder(asset);retu
 function isAssetLocked(asset) { return (asset.collectionIds || []).some(isCollectionLocked)||matchingFolderLocks(asset).some((rule)=>!unlockedFolders.has(folderLockKey(rule.locationId,rule.subfolder))); }
 function publicCollections() {return library.collections.map((collection)=>{const lockSource=collectionAncestors(collection.id).find((item)=>item.lock&&!unlockedCollections.has(item.id));return{...collection,lock:collection.lock?{enabled:true,encrypted:Boolean(collection.lock.encrypted)}:lockSource?{enabled:true,inherited:true}:null,lockSourceId:lockSource?.id||null,locked:Boolean(lockSource)};});}
 function publicFolderLocks(){return Object.fromEntries(folderLocks().map((rule)=>[folderLockKey(rule.locationId,rule.subfolder),{locationId:rule.locationId,subfolder:rule.subfolder,locked:!unlockedFolders.has(folderLockKey(rule.locationId,rule.subfolder))}]));}
+function rendererVisibleAssets(){return library.assets.filter((asset)=>!isAssetLocked(asset));}
 function publicLibrarySummary() {
-  const { assets, collections, settings={}, ...metadata } = library;
-  return { ...metadata,settings:{...settings,folderLocks:publicFolderLocks()},collections:publicCollections(),portfolios:portfolios.map(({ id, name })=>({ id, name })),activePortfolioId,assets:[],totalAssets:assets.length };
+  const { assets, collections, settings={}, ...metadata } = library,visibleAssets=rendererVisibleAssets();
+  return { ...metadata,settings:{...settings,folderLocks:publicFolderLocks()},collections:publicCollections(),portfolios:portfolios.map(({ id, name })=>({ id, name })),activePortfolioId,assets:[],totalAssets:visibleAssets.length,assetStreamPending:!library.loading };
 }
 function passwordKey(password, salt) { return crypto.pbkdf2Sync(String(password), salt, 120000, 32, 'sha256'); }
 function passwordDigest(key) { return crypto.createHash('sha256').update(key).digest('hex'); }
@@ -202,19 +203,19 @@ function compatibilityStreamUrl(asset) { return `pigeon-asset://asset/${asset.id
 
 function publicAssetForRenderer(asset,location){ const {encryptedMediaPaths,encryptedThumbnailPaths,...publicAsset}=asset; return {...publicAsset,locked:isAssetLocked(asset),previewUrl:previewUrlFor(asset,location),mediaUrl:mediaUrlFor(asset)}; }
 const scanBroadcastQueues=new Map();
-function broadcastScanAssets(location,assets,done=false){if(!mainWindow||mainWindow.isDestroyed()||!assets.length&&!done)return;const key=`${activePortfolioId}:${location.id}`,queue=scanBroadcastQueues.get(key)||{items:[],running:false};for(let offset=0;offset<assets.length;offset+=100)queue.items.push({portfolioId:activePortfolioId,locationId:location.id,assets:assets.slice(offset,offset+100).map((asset)=>publicAssetForRenderer(asset,location)),done:false});if(done){if(queue.items.length)queue.items.at(-1).done=true;else queue.items.push({portfolioId:activePortfolioId,locationId:location.id,assets:[],done:true});}scanBroadcastQueues.set(key,queue);if(queue.running)return;queue.running=true;const drain=()=>{const message=queue.items.shift();if(!message){queue.running=false;scanBroadcastQueues.delete(key);return;}if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('scan:assets',message);setTimeout(drain,16);};drain();}
+function broadcastScanAssets(location,assets,done=false){if(!mainWindow||mainWindow.isDestroyed()||!assets.length&&!done)return;const visibleAssets=assets.filter((asset)=>!isAssetLocked(asset)),key=`${activePortfolioId}:${location.id}`,queue=scanBroadcastQueues.get(key)||{items:[],running:false};for(let offset=0;offset<visibleAssets.length;offset+=100)queue.items.push({portfolioId:activePortfolioId,locationId:location.id,assets:visibleAssets.slice(offset,offset+100).map((asset)=>publicAssetForRenderer(asset,location)),done:false});if(done){if(queue.items.length)queue.items.at(-1).done=true;else queue.items.push({portfolioId:activePortfolioId,locationId:location.id,assets:[],done:true});}scanBroadcastQueues.set(key,queue);if(queue.running)return;queue.running=true;const drain=()=>{const message=queue.items.shift();if(!message){queue.running=false;scanBroadcastQueues.delete(key);return;}if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('scan:assets',message);setTimeout(drain,16);};drain();}
 function broadcastSidebar(){if(!mainWindow||mainWindow.isDestroyed())return;mainWindow.webContents.send('sidebar:changed',{collections:publicCollections(),smartFolders:library.smartFolders,settings:{sidebarSort:library.settings?.sidebarSort||{}},activePortfolioId});}
 function broadcast() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   const generation = ++libraryStreamGeneration;
   mainWindow.webContents.send('library:changed', { ...publicLibrarySummary(), streamGeneration: generation });
-  const locationsById = new Map(library.locations.map((location) => [location.id, location]));
+  const locationsById = new Map(library.locations.map((location) => [location.id, location])),visibleAssets=rendererVisibleAssets();
   let offset = 0;
   const sendNextBatch = () => {
     if (generation !== libraryStreamGeneration || !mainWindow || mainWindow.isDestroyed()) return;
-    const assets = library.assets.slice(offset, offset + 500).map((asset) => publicAssetForRenderer(asset,locationsById.get(asset.locationId)));
+    const assets = visibleAssets.slice(offset, offset + 500).map((asset) => publicAssetForRenderer(asset,locationsById.get(asset.locationId)));
     offset += assets.length;
-    const done = offset >= library.assets.length;
+    const done = offset >= visibleAssets.length;
     mainWindow.webContents.send('library:assets', { generation, assets, done });
     if (done && smokeTest) console.log('[smoke] asset stream complete');
     if (!done) setTimeout(sendNextBatch, 20);
