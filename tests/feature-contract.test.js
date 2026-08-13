@@ -57,6 +57,10 @@ test('SVG, Sketch and Lunacy files plus embedded workflow metadata and drag expo
   assert.match(main,/\.svg/);assert.match(main,/\.sketch/);assert.match(main,/\.free/);assert.match(main,/extractZipPreview/);assert.match(thumbnailWorker,/pngTextMetadata/);assert.match(thumbnailWorker,/workflow/);assert.match(html,/showAdditionalMetadata/);assert.match(renderer,/DownloadURL/);assert.match(styles,/\.folder-tree-toggle \{ width: 18px/);assert.match(renderer,/setTimeout\(\(\)=>\{if\(!button\.matches\(':hover'\)\)/);
 });
 
+test('privacy-affected motion previews require the temporary reveal shortcut',()=>{
+  assert.match(renderer,/protectedMotion=Boolean\(asset\.thumbnailEffect/);assert.match(renderer,/protectedMotion&&!state\.thumbnailEffectRevealPressed/);assert.match(renderer,/revealShortcutPressed\(event\)\)start\(event,true\)/);assert.match(renderer,/revealShortcutPressed\(event\)\)stop\(\)/);assert.match(renderer,/thumbnailEffectRevealKey:'Alt'/);assert.match(html,/Reset to Alt/);
+});
+
 test('hovered video uses hold-Control sound and tree screenshots have terminal branches',()=>{
   assert.match(renderer,/const keyDown=\(event\)=>\{if\(event\.key!==['"]Control['"]/);assert.match(renderer,/media\.muted=!controlHeld/);assert.match(renderer,/window\.addEventListener\('keyup',keyUp,true\)/);assert.match(renderer,/window\.removeEventListener\('keydown',keyDown,true\)/);assert.match(renderer,/controlHeld=Boolean\(event\?\.ctrlKey\)/);
   assert.match(renderer,/tree-last/);assert.match(styles,/\.collection-item\.tree-last::after/);assert.match(main,/PIGEON_SMOKE_CAPTURE_TREE/);assert.match(main,/pigeon-tree-smoke\.png/);
