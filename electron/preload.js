@@ -33,6 +33,7 @@ contextBridge.exposeInMainWorld('pigeon', {
   rescan: (id) => ipcRenderer.invoke('library:rescan', id),
   refreshSources: () => ipcRenderer.invoke('library:refresh-sources'),
   createCollection: (name, parentId) => ipcRenderer.invoke('collection:create', { name, parentId }),
+  duplicateGroupStructure: (type, id, subfolder = '') => ipcRenderer.invoke('group:duplicate-structure', { type, id, subfolder }),
   renameCollection: (id, name) => ipcRenderer.invoke('collection:rename', { id, name }),
   moveCollection: (id, parentId) => ipcRenderer.invoke('collection:move', { id, parentId }),
   reorderSidebarItems: (type, parentId, orderedIds) => ipcRenderer.invoke('sidebar:reorder-items', { type, parentId, orderedIds }),

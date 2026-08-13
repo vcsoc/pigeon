@@ -74,9 +74,9 @@
             <span id="view-count" class="view-count">0 items</span>
           </div>
           <div class="toolbar-center">
-            <span class="zoom-glyph">−</span>
-            <input id="zoom-slider" class="toolbar-zoom" type="range" min="130" max="310" value="240" title="Thumbnail size" />
-            <span class="zoom-glyph">＋</span>
+            <button id="zoom-out" class="zoom-step" type="button" title="Smaller thumbnails" aria-label="Smaller thumbnails">−</button>
+            <input id="zoom-slider" class="toolbar-zoom" type="range" min="72" max="520" step="8" value="240" title="Thumbnail size" />
+            <button id="zoom-in" class="zoom-step" type="button" title="Larger thumbnails" aria-label="Larger thumbnails">＋</button>
           </div>
           <div class="toolbar-right">
             <button id="refresh-button" class="icon-button" type="button" title="Refresh source status and rescan" aria-label="Refresh source status and rescan">⇄</button>
@@ -162,6 +162,7 @@
               </div>
             </div>
             <div id="asset-grid" class="asset-grid"></div>
+            <div id="hover-fit-preview" class="hover-fit-preview hidden" aria-hidden="true"><img alt="Temporary full-size preview" /></div>
             <div id="selection-marquee" class="selection-marquee hidden" aria-hidden="true"></div>
             <div id="batch-bar" class="batch-bar hidden"><strong id="batch-count">0 selected</strong><button id="batch-tag">Tag</button><button id="batch-collection">Collection</button><button id="batch-auto-tag">Auto tag</button><button id="batch-stack">Stack</button><button id="batch-unstack">Unstack</button><button id="batch-favorite">Favorite</button><button id="batch-trash">Trash</button><button id="batch-clear">×</button></div>
             <button id="grid-sentinel" class="grid-sentinel hidden">Load more</button>

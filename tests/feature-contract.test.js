@@ -23,6 +23,12 @@ test('UI exposes collection, smart-folder, batch, trash, media, metadata and edi
   }
 });
 
+test('structure duplication, broad zoom, cursor viewer zoom, sticky trees, hover preview and topbar actions are wired',()=>{
+  assert.match(preload,/duplicateGroupStructure/);assert.match(main,/group:duplicate-structure/);assert.match(main,/copyDirectories/);assert.match(main,/emptyFolders/);assert.match(renderer,/data-folder-action="duplicate"/);assert.match(renderer,/data-smart-action="duplicate"/);assert.match(renderer,/data-location-action="duplicate"/);
+  assert.match(html,/id="zoom-slider"[^>]*min="72"[^>]*max="520"/);assert.match(html,/id="zoom-out"/);assert.match(html,/id="zoom-in"/);assert.match(renderer,/function setThumbnailZoom/);assert.match(styles,/-webkit-app-region:no-drag/);assert.match(renderer,/Math\.min\(12,oldZoom\*factor\)/);assert.match(renderer,/contentX\*scale-cursorX/);
+  assert.match(styles,/\.collapsible-section-label\.pinned-section/);assert.match(renderer,/pinned-section/);assert.match(renderer,/folder-open/);assert.match(html,/id="hover-fit-preview"/);assert.match(renderer,/thumbnail-fit-preview/);assert.match(styles,/\.hover-fit-preview/);assert.match(renderer,/function showQuickActions/);assert.match(renderer,/data-quick-new-action/);
+});
+
 test('global similarity never runs automatically and explicit requests supersede and terminate workers',()=>{
   assert.match(main,/let activeSimilarityJob=null/);assert.match(main,/if\(activeSimilarityJob\)/);assert.match(main,/worker\.terminate\(\)\.catch/);assert.match(main,/resourceLimits:\{maxOldGenerationSizeMb:192\}/);
   assert.doesNotMatch(renderer,/refreshSimilarityGroups\(state\.view === 'duplicates'\)/);assert.match(renderer,/state\.view==='duplicates'&&state\.duplicateSourceId/);assert.match(main,/cancelPortfolioBackground[\s\S]*activeSimilarityJob/);
@@ -731,7 +737,7 @@ test('SQLite persistence replaces library.json with automatic migration', () => 
 });
 
 test('tree rows retain readable labels and diagnostics dock inline', () => {
-  assert.match(styles, /grid-template-columns:12px 18px minmax\(110px,1fr\) 34px/);
+  assert.match(styles, /grid-template-columns:12px 20px minmax\(110px,1fr\) 34px/);
   assert.match(styles, /text-overflow:ellipsis/);
   assert.match(styles, /font-variant-numeric:tabular-nums/);
   assert.match(styles, /\.diagnostics-console \{ grid-row:4; position:relative/);
