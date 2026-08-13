@@ -23,6 +23,12 @@ test('UI exposes collection, smart-folder, batch, trash, media, metadata and edi
   }
 });
 
+test('clean hierarchy, delayed fit preview, move continuity and contact sheets are wired',()=>{
+  assert.doesNotMatch(styles,/background-image:repeating-linear-gradient\(to right/);assert.match(styles,/border-left:1px solid #555b64/);assert.match(styles,/\.location-folder-item\.active::before/);
+  assert.match(renderer,/hoverFitPreviewTimer=setTimeout/);assert.match(renderer,/,420\)/);assert.match(styles,/clip-path:polygon\(100% 0,100% 100%,0 100%\)/);assert.match(styles,/max-width:calc\(100% - 40px\)!important/);assert.match(styles,/object-fit:contain!important/);
+  assert.match(renderer,/firstIndex=Math\.min/);assert.match(renderer,/focusSelectedAsset\(\)/);assert.match(html,/id="contact-sheet-view"/);assert.match(renderer,/function openContactSheet/);assert.match(renderer,/function renderContactSheet/);assert.match(renderer,/data-folder-action="contact-sheet"/);assert.match(renderer,/data-location-action="contact-sheet"/);assert.match(renderer,/data-context-action="contact-sheet"/);assert.match(styles,/@media print/);
+});
+
 test('structure duplication, broad zoom, cursor viewer zoom, sticky trees, hover preview and topbar actions are wired',()=>{
   assert.match(preload,/duplicateGroupStructure/);assert.match(main,/group:duplicate-structure/);assert.match(main,/copyDirectories/);assert.match(main,/emptyFolders/);assert.match(renderer,/data-folder-action="duplicate"/);assert.match(renderer,/data-smart-action="duplicate"/);assert.match(renderer,/data-location-action="duplicate"/);
   assert.match(html,/id="zoom-slider"[^>]*min="72"[^>]*max="520"/);assert.match(html,/id="zoom-out"/);assert.match(html,/id="zoom-in"/);assert.match(renderer,/function setThumbnailZoom/);assert.match(styles,/-webkit-app-region:no-drag/);assert.match(renderer,/Math\.min\(12,oldZoom\*factor\)/);assert.match(renderer,/contentX\*scale-cursorX/);
@@ -719,7 +725,7 @@ test('diagnostics controls and cross-portfolio grouping transfer are wired', () 
   assert.match(renderer, /openPortfolioTransfer/);
   assert.match(styles, /--tree-step: 18px/);
   assert.match(styles, /--sidebar-width: 275px/);
-  assert.match(styles, /repeating-linear-gradient/);
+  assert.match(styles, /border-left:1px solid #555b64/);
 });
 
 test('SQLite persistence replaces library.json with automatic migration', () => {
