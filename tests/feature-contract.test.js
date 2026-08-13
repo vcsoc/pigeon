@@ -23,6 +23,12 @@ test('UI exposes collection, smart-folder, batch, trash, media, metadata and edi
   }
 });
 
+test('polished tree, stable post-move reveal and configurable thumbnail privacy effects are wired',()=>{
+  assert.match(styles,/isolation:isolate/);assert.match(styles,/linear-gradient\(90deg,color-mix/);assert.match(styles,/border-radius:0 0 0 5px/);assert.match(styles,/folder-tree-toggle:not\(\.empty\)/);
+  assert.match(renderer,/postMoveRevealUntil=Date\.now\(\)\+900/);assert.match(renderer,/focusSelectedAsset\(\{lockScroll:true\}\)/);assert.match(renderer,/delays=lockScroll\?\[0,60,140,260,480\]/);assert.match(renderer,/Date\.now\(\)>=state\.postMoveRevealUntil/);
+  assert.match(html,/id="thumbnail-effect-shortcut"/);assert.match(html,/id="thumbnail-effect-strength"/);assert.match(html,/id="blur-effect-preview"/);assert.match(renderer,/function toggleThumbnailEffect/);assert.match(renderer,/thumbnailEffectRevealKey/);assert.match(renderer,/thumbnail-effect-reveal/);assert.match(styles,/thumbnail-effect-applied/);assert.match(libraryCore,/thumbnailEffect/);assert.match(main,/'thumbnailEffect'/);
+});
+
 test('portfolio loading withholds locked assets and waits for complete authorized stream',()=>{
   assert.match(main,/function rendererVisibleAssets\(\)/);assert.match(main,/library\.assets\.filter\(\(asset\)=>!isAssetLocked\(asset\)\)/);assert.match(main,/assetStreamPending:!library\.loading/);assert.match(main,/visibleAssets\.slice\(offset, offset \+ 500\)/);assert.match(main,/assets\.filter\(\(asset\)=>!isAssetLocked\(asset\)\)/);
   assert.match(renderer,/state\.library\.loading === true \|\| state\.library\.assetStreamPending === true/);assert.match(renderer,/elements\.grid\.innerHTML=''/);assert.match(renderer,/if \(!done\) return/);assert.match(renderer,/state\.library\.assetStreamPending=false/);assert.match(renderer,/if\(asset\.locked\)continue/);
@@ -62,9 +68,9 @@ test('preloaded magnifier, true viewer scale, scoped thumbnail sizes and matchin
 });
 
 test('clean hierarchy, delayed fit preview, move continuity and contact sheets are wired',()=>{
-  assert.doesNotMatch(styles,/background-image:repeating-linear-gradient\(to right/);assert.match(styles,/border-left:1px solid #555b64/);assert.match(styles,/\.location-folder-item\.active::before/);
+  assert.doesNotMatch(styles,/background-image:repeating-linear-gradient\(to right/);assert.match(styles,/border-left:1px solid #4d5561/);assert.match(styles,/\.location-folder-item\.active::before/);
   assert.match(renderer,/hoverFitPreviewTimer=setTimeout/);assert.match(renderer,/,300\)/);assert.match(styles,/clip-path:polygon\(100% 0,100% 100%,0 100%\)/);assert.match(styles,/max-width:100%!important/);assert.match(styles,/object-fit:contain!important/);
-  assert.match(renderer,/function successorAfterRemoving/);assert.match(renderer,/function selectAndRevealSuccessor/);assert.match(renderer,/successorId=leavesCurrent\?successorAfterRemoving/);assert.match(renderer,/setTimeout\(\(\)=>reveal\('auto'\),90\)/);assert.match(renderer,/focusSelectedAsset\(\)/);assert.match(html,/id="contact-sheet-view"/);assert.match(renderer,/function openContactSheet/);assert.match(renderer,/function renderContactSheet/);assert.match(renderer,/data-folder-action="contact-sheet"/);assert.match(renderer,/data-location-action="contact-sheet"/);assert.match(renderer,/data-context-action="contact-sheet"/);assert.match(styles,/@media print/);
+  assert.match(renderer,/function successorAfterRemoving/);assert.match(renderer,/function selectAndRevealSuccessor/);assert.match(renderer,/successorId=leavesCurrent\?successorAfterRemoving/);assert.match(renderer,/delays=lockScroll\?\[0,60,140,260,480\]:\[0,90,240\]/);assert.match(renderer,/focusSelectedAsset\(\)/);assert.match(html,/id="contact-sheet-view"/);assert.match(renderer,/function openContactSheet/);assert.match(renderer,/function renderContactSheet/);assert.match(renderer,/data-folder-action="contact-sheet"/);assert.match(renderer,/data-location-action="contact-sheet"/);assert.match(renderer,/data-context-action="contact-sheet"/);assert.match(styles,/@media print/);
 });
 
 test('structure duplication, broad zoom, cursor viewer zoom, sticky trees, hover preview and topbar actions are wired',()=>{
@@ -763,7 +769,7 @@ test('diagnostics controls and cross-portfolio grouping transfer are wired', () 
   assert.match(renderer, /openPortfolioTransfer/);
   assert.match(styles, /--tree-step: 18px/);
   assert.match(styles, /--sidebar-width: 275px/);
-  assert.match(styles, /border-left:1px solid #555b64/);
+  assert.match(styles, /border-left:1px solid #4d5561/);
 });
 
 test('SQLite persistence replaces library.json with automatic migration', () => {
@@ -781,7 +787,7 @@ test('SQLite persistence replaces library.json with automatic migration', () => 
 });
 
 test('tree rows retain readable labels and diagnostics dock inline', () => {
-  assert.match(styles, /grid-template-columns:12px 20px minmax\(110px,1fr\) 34px/);
+  assert.match(styles, /grid-template-columns:14px 20px minmax\(110px,1fr\) 34px/);
   assert.match(styles, /text-overflow:ellipsis/);
   assert.match(styles, /font-variant-numeric:tabular-nums/);
   assert.match(styles, /\.diagnostics-console \{ grid-row:4; position:relative/);

@@ -34,6 +34,9 @@ const state = {
   uiZoom: 1,
   favoriteShortcut: '',
   locationShortcut: '',
+  thumbnailEffectShortcut: 'B',
+  thumbnailEffectRevealPressed: false,
+  postMoveRevealUntil: 0,
   mapOpen: false,
   mapMode: 'globe',
   mapSelectionIds: [],
@@ -61,7 +64,7 @@ const state = {
 };
 
 const defaultTreeLevelColors=['#cbd0d8','#82b9ff','#78d5b0','#e2bd72','#d594dd','#ef8f8f'];
-const preferenceDefaults = { theme: 'dark', treeLevelColors: [...defaultTreeLevelColors], trashDeletionMode: 'permanent', appFontFamily: 'Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif', appFontSize: 11, consoleFontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace', consoleFontSize: 10, language: 'English', interfaceZoom: Number(localStorage.getItem('pigeon.windowZoom')) || 1, transparency: true, coloredTreeLevels: true, showCounts: true, launchOnLogin: false, lowResourceMode: true, hardwareAcceleration: true, videoProxiesOnDemand: true, showUncategorized: true, showUntagged: true, showFavorites: true, showTags: true, showDuplicates: true, showTrash: true, showAnalytics: true, showSmartFolders: true, showCollections: true, showLocations: true, wheelBehavior: 'scroll', hoverZoom: false, doubleClick: 'viewer', spacebar: 'preview', imageRendering: 'smooth', rememberViewerPosition: true, defaultImageSize: 'fit', transparentGrid: false, videoHoverPreview: true, audioHoverPreview: true, videoAutoplay: false, videoMuted: true, videoLoopShort: false, screenshotFormat: 'PNG', screenshotNotify: true, screenshotTag: true, screenshotClipboard: false, soundEffects: false, popupNotifications: true, notifyDuplicates: false, notifyExtension: true, autoImport: false, autoImportFolder: '', localAiSearch: false, mcpEnabled: false, mcpAssets: true, mcpFolders: true, mcpTags: true, mcpSmartFolders: false };
+const preferenceDefaults = { theme: 'dark', treeLevelColors: [...defaultTreeLevelColors], thumbnailEffectMode:'blur',thumbnailEffectStrength:12,thumbnailEffectRevealKey:'Control', trashDeletionMode: 'permanent', appFontFamily: 'Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif', appFontSize: 11, consoleFontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace', consoleFontSize: 10, language: 'English', interfaceZoom: Number(localStorage.getItem('pigeon.windowZoom')) || 1, transparency: true, coloredTreeLevels: true, showCounts: true, launchOnLogin: false, lowResourceMode: true, hardwareAcceleration: true, videoProxiesOnDemand: true, showUncategorized: true, showUntagged: true, showFavorites: true, showTags: true, showDuplicates: true, showTrash: true, showAnalytics: true, showSmartFolders: true, showCollections: true, showLocations: true, wheelBehavior: 'scroll', hoverZoom: false, doubleClick: 'viewer', spacebar: 'preview', imageRendering: 'smooth', rememberViewerPosition: true, defaultImageSize: 'fit', transparentGrid: false, videoHoverPreview: true, audioHoverPreview: true, videoAutoplay: false, videoMuted: true, videoLoopShort: false, screenshotFormat: 'PNG', screenshotNotify: true, screenshotTag: true, screenshotClipboard: false, soundEffects: false, popupNotifications: true, notifyDuplicates: false, notifyExtension: true, autoImport: false, autoImportFolder: '', localAiSearch: false, mcpEnabled: false, mcpAssets: true, mcpFolders: true, mcpTags: true, mcpSmartFolders: false };
 let preferences = (() => { try { const saved={ ...preferenceDefaults, ...JSON.parse(localStorage.getItem('pigeon.preferences') || '{}') };saved.treeLevelColors=Array.isArray(saved.treeLevelColors)&&saved.treeLevelColors.length?[...saved.treeLevelColors]:[...defaultTreeLevelColors];return saved; } catch { return { ...preferenceDefaults,treeLevelColors:[...defaultTreeLevelColors] }; } })();
 if (!localStorage.getItem('pigeon.videoAutoplayOptIn')) preferences.videoAutoplay = false;
 const $ = (selector) => document.querySelector(selector);
@@ -133,6 +136,7 @@ const savedWindowZoom = Number(localStorage.getItem('pigeon.windowZoom'));
 state.uiZoom = Number.isFinite(savedWindowZoom) ? Math.max(.6, Math.min(2, savedWindowZoom)) : 1;
 state.favoriteShortcut = localStorage.getItem('pigeon.favoriteShortcut') || '';
 state.locationShortcut = localStorage.getItem('pigeon.locationShortcut') || '';
+state.thumbnailEffectShortcut=localStorage.getItem('pigeon.thumbnailEffectShortcut')||'B';
 let shortcutActions = (() => { try { const value=JSON.parse(localStorage.getItem('pigeon.shortcutActions')||'[]'); return Array.isArray(value)?value:[]; } catch { return []; } })();
 state.encryptLockedFolders = localStorage.getItem('pigeon.encryptLockedFolders') === 'true';
 state.confirmFolderMoves = localStorage.getItem('pigeon.confirmFolderMoves') !== 'false';
@@ -762,7 +766,7 @@ function renderAnalytics() {
 function openAnalytics(scope = { type: 'portfolio', id: null, subfolder: '' }) { rememberTemporaryViewOrigin(); hideInternalViewer(); closeFloatingMenus(); state.analyticsScope = { type: 'portfolio', id: null, subfolder: '', ...scope }; state.analyticsTab = 'overview'; state.view = 'analytics'; state.locationId = null; state.collectionId = null; state.smartFolderId = null; elements.title.textContent = 'Analytics'; render(); }
 
 function renderGrid() {
-  elements.annotationView.classList.add('hidden');
+  elements.annotationView.classList.add('hidden');document.documentElement.style.setProperty('--thumbnail-effect-strength',String(Math.max(2,Math.min(30,Number(preferences.thumbnailEffectStrength)||12))));document.body.dataset.thumbnailEffectMode=preferences.thumbnailEffectMode==='pixelate'?'pixelate':'blur';
   const lockedCollection = state.collectionId ? state.library.collections.find((item) => item.id === state.collectionId && item.locked) : null;
   elements.lockedContent.classList.toggle('hidden', !lockedCollection);
   if (lockedCollection) {
@@ -818,7 +822,7 @@ function renderGrid() {
     const titleHtml = titleLines.map((line, index) => `<span class="card-title-line ${index === 0 ? 'card-name' : ''}" data-title-field="${line.field}" title="${escapeHtml(line.text)}">${escapeHtml(line.text)}</span>`).join('');
     const ratio = quarterTurn ? 1 / originalRatio : originalRatio;
     const justifiedHeight = Math.max(52, Math.min(320, Number($('#zoom-slider').value) * .58));
-    return `<article class="asset-card ${state.selectedId === asset.id ? 'selected' : ''} ${state.selectedIds.has(asset.id) ? 'multi-selected' : ''} ${asset.sourceMissing ? 'source-missing' : ''}" style="--asset-ratio:${ratio};--justified-basis:${Math.round(justifiedHeight * ratio)}px" data-asset-id="${asset.id}" data-asset-kind="${asset.kind}" tabindex="0" draggable="true">
+    return `<article class="asset-card ${state.selectedId === asset.id ? 'selected' : ''} ${state.selectedIds.has(asset.id) ? 'multi-selected' : ''} ${asset.sourceMissing ? 'source-missing' : ''} ${asset.thumbnailEffect?'thumbnail-effect-applied':''}" style="--asset-ratio:${ratio};--justified-basis:${Math.round(justifiedHeight * ratio)}px" data-asset-id="${asset.id}" data-asset-kind="${asset.kind}" tabindex="0" draggable="true">
       <div class="asset-preview ${quarterTurn ? 'quarter-turned' : ''}" style="--original-ratio:${originalRatio};--preview-ratio:${ratio}">${preview}${visual&&asset.kind==='image'?`<button class="thumbnail-fit-preview" type="button" title="Preview full image" aria-label="Preview ${escapeHtml(asset.name)}">${iconSvg('search')}</button>`:''}${stackBadge}${asset.sourceMissing ? '<span class="source-missing-overlay">Source Missing</span>' : isOffline(asset) ? '<span class="card-offline">Offline</span>' : ''}</div>
       <div class="card-meta ${titleHtml ? '' : 'no-titles'}"><span class="card-titles">${titleHtml}</span>${asset.favorite ? '<span class="card-favorite">★</span>' : ''}</div>
     </article>`;
@@ -869,7 +873,7 @@ function renderGrid() {
     scheduleMasonry();
   }
   renderBatchBar();
-  requestAnimationFrame(() => { elements.gridWrap.scrollTop = state.gridScrollTop; });
+  requestAnimationFrame(() => { if(Date.now()>=state.postMoveRevealUntil)elements.gridWrap.scrollTop = state.gridScrollTop; });
   const hasMore = assets.length < allAssets.length;
   elements.sentinel.classList.toggle('hidden', loading || noLibrary || !hasMore);
   elements.sentinel.textContent = hasMore ? `Load more · ${assets.length.toLocaleString()} of ${allAssets.length.toLocaleString()}` : '';
@@ -1104,7 +1108,7 @@ function selectAssetWithEvent(id, event) {
   const previouslySelected=[...elements.grid.querySelectorAll('.asset-card.selected,.asset-card.multi-selected')].map((card)=>card.dataset.assetId);state.selectedIds=new Set([id]);state.selectedId=id;state.selectionAnchorId=id;paintChangedSelectionCards([...previouslySelected,id]);scheduleSelectionInspector();
 }
 function successorAfterRemoving(ids){const before=filteredAssets().map((asset)=>asset.id),removed=new Set(ids),positions=ids.map((id)=>before.indexOf(id)).filter((index)=>index>=0);if(!positions.length)return null;const firstIndex=Math.min(...positions),remaining=before.filter((id)=>!removed.has(id)),remainingBefore=before.slice(0,firstIndex).filter((id)=>!removed.has(id)).length;return remaining[Math.min(remainingBefore,remaining.length-1)]||null;}
-function selectAndRevealSuccessor(id){if(!id)return;state.selectedId=id;state.selectedIds=new Set([id]);state.selectionAnchorId=id;const index=filteredAssets().findIndex((asset)=>asset.id===id),needsRender=index>=state.renderLimit;if(needsRender){state.renderLimit=index+1;renderGrid();}else updateCardSelectionStyles();renderInspector();focusSelectedAsset();}
+function selectAndRevealSuccessor(id){if(!id)return;state.postMoveRevealUntil=Date.now()+900;state.selectedId=id;state.selectedIds=new Set([id]);state.selectionAnchorId=id;const index=filteredAssets().findIndex((asset)=>asset.id===id),needsRender=index>=state.renderLimit;if(needsRender){state.renderLimit=index+1;renderGrid();}else updateCardSelectionStyles();renderInspector();focusSelectedAsset({lockScroll:true});if(needsRender)focusSelectedAsset({lockScroll:true});}
 async function removeSelectedFromCurrentCollection() {
   if (!state.collectionId) return false;
   const collectionId = state.collectionId, ids = [...state.selectedIds].filter((id) => (state.library.assets.find((asset) => asset.id === id)?.collectionIds || []).includes(collectionId));
@@ -1134,7 +1138,7 @@ async function addAssetsToCollectionWithoutGridRefresh(ids,collection,sourceColl
 }
 function patchRotatedThumbnail(asset){const card=elements.grid.querySelector(`[data-asset-id="${CSS.escape(asset.id)}"]`),preview=card?.querySelector('.asset-preview'),image=preview?.querySelector(':scope > img');if(!card||!preview||!image)return;const originalRatio=Math.max(.1,(asset.width||1)/(asset.height||1)),quarterTurn=Boolean((Number(asset.rotation)||0)%180),ratio=quarterTurn?1/originalRatio:originalRatio,justifiedHeight=Math.max(52,Math.min(320,Number($('#zoom-slider').value)*.58));card.style.setProperty('--asset-ratio',ratio);card.style.setProperty('--justified-basis',`${Math.round(justifiedHeight*ratio)}px`);preview.style.setProperty('--original-ratio',originalRatio);preview.style.setProperty('--preview-ratio',ratio);preview.classList.toggle('quarter-turned',quarterTurn);image.style.transform=rotationTransform(asset);if(quarterTurn){if(image.complete&&image.naturalWidth)fitRotatedThumbnail(image);else image.addEventListener('load',()=>fitRotatedThumbnail(image),{once:true});}else{preview.style.removeProperty('--rotated-image-width');preview.style.removeProperty('--rotated-image-height');}}
 async function rotateThumbnailsWithoutGridRefresh(ids,direction){const result=await window.pigeon.batchUpdateAssets(ids,{rotateBy:direction},{silent:true,returnAssets:true}),updates=new Map((result.assets||[]).map((asset)=>[asset.id,asset]));for(const asset of state.library.assets)if(updates.has(asset.id)){Object.assign(asset,updates.get(asset.id));patchRotatedThumbnail(asset);}scheduleMasonry();scheduleSelectionInspector();if(isInternalViewerOpen())renderInternalViewer();}
-function focusSelectedAsset(){const selectedId=state.selectedId,reveal=(behavior='auto')=>{if(state.selectedId!==selectedId)return false;const card=elements.grid.querySelector(`[data-asset-id="${CSS.escape(selectedId)}"]`);if(!card)return false;card.focus({preventScroll:true});card.scrollIntoView({block:'nearest',inline:'nearest',behavior});return true;};requestAnimationFrame(()=>requestAnimationFrame(()=>{reveal('auto');setTimeout(()=>reveal('auto'),90);setTimeout(()=>{reveal('smooth');state.gridScrollTop=elements.gridWrap.scrollTop;saveNavigationState();},240);}));}
+function focusSelectedAsset({lockScroll=false}={}){const selectedId=state.selectedId,reveal=()=>{if(state.selectedId!==selectedId)return false;const card=elements.grid.querySelector(`[data-asset-id="${CSS.escape(selectedId)}"]`);if(!card)return false;card.focus({preventScroll:true});card.scrollIntoView({block:'nearest',inline:'nearest',behavior:'auto'});state.gridScrollTop=elements.gridWrap.scrollTop;return true;},delays=lockScroll?[0,60,140,260,480]:[0,90,240];requestAnimationFrame(()=>requestAnimationFrame(()=>{for(const delay of delays)setTimeout(()=>{if(reveal()&&delay===delays.at(-1)){state.postMoveRevealUntil=0;saveNavigationState();}},delay);}));}
 function navigateAssets(key) {
   const cards = $$('.asset-card');
   if (!cards.length) return;
@@ -1177,7 +1181,8 @@ async function updateSelected(patch) {
   try{const updated=await window.pigeon.updateAsset(id,patch);if(!updated)return null;Object.assign(asset,updated);if(updateSelected.revisions.get(id)===revision){patchCardMetadata(asset,patch);renderInspector();}return updated;}
   catch(error){if(updateSelected.revisions.get(id)===revision){Object.assign(asset,previous);patchCardMetadata(asset,patch);renderInspector();}showToast(error.message);return null;}
 }
-function patchCardMetadata(asset,patch){if(Object.hasOwn(patch,'favorite')){const card=elements.grid.querySelector(`[data-asset-id="${CSS.escape(asset.id)}"]`),meta=card?.querySelector('.card-meta');card?.querySelector('.card-favorite')?.remove();if(asset.favorite&&meta)meta.insertAdjacentHTML('beforeend','<span class="card-favorite">★</span>');}}
+function patchCardMetadata(asset,patch){const card=elements.grid.querySelector(`[data-asset-id="${CSS.escape(asset.id)}"]`);if(Object.hasOwn(patch,'favorite')){const meta=card?.querySelector('.card-meta');card?.querySelector('.card-favorite')?.remove();if(asset.favorite&&meta)meta.insertAdjacentHTML('beforeend','<span class="card-favorite">★</span>');}if(Object.hasOwn(patch,'thumbnailEffect'))card?.classList.toggle('thumbnail-effect-applied',Boolean(asset.thumbnailEffect));}
+async function toggleThumbnailEffect(){const ids=isInternalViewerOpen()?[state.viewerAssetId]:state.selectedIds.size?[...state.selectedIds]:state.selectedId?[state.selectedId]:[];if(!ids.length){showToast('Select one or more thumbnails first');return;}const assets=state.library.assets.filter((asset)=>ids.includes(asset.id)),enabled=!assets.every((asset)=>asset.thumbnailEffect),result=await window.pigeon.batchUpdateAssets(ids,{thumbnailEffect:enabled},{silent:true,returnAssets:true}),updates=new Map((result.assets||[]).map((asset)=>[asset.id,asset]));for(const asset of assets){if(updates.has(asset.id))Object.assign(asset,updates.get(asset.id));else asset.thumbnailEffect=enabled;patchCardMetadata(asset,{thumbnailEffect:enabled});}showToast(`${enabled?'Privacy effect applied to':'Privacy effect removed from'} ${ids.length} item${ids.length===1?'':'s'}`);}
 function expandedTagTargetIds(seedIds = state.selectedIds) {
   const ids = new Set(seedIds?.size !== undefined ? [...seedIds] : [...(seedIds || [])]);
   if (!ids.size && state.selectedId) ids.add(state.selectedId);
@@ -1308,6 +1313,7 @@ async function switchPortfolioTo(id) {
 }
 function validTreeColor(value){return /^#[0-9a-f]{6}$/i.test(String(value||''))?String(value):'#cbd0d8';}
 function treeLevelColor(depth){const colors=Array.isArray(preferences.treeLevelColors)&&preferences.treeLevelColors.length?preferences.treeLevelColors:defaultTreeLevelColors;return validTreeColor(colors[Math.max(0,Number(depth)||0)%colors.length]);}
+function applyThumbnailEffectPreferences(){const strength=Math.max(2,Math.min(30,Number(preferences.thumbnailEffectStrength)||12)),mode=preferences.thumbnailEffectMode==='pixelate'?'pixelate':'blur';preferences.thumbnailEffectStrength=strength;preferences.thumbnailEffectMode=mode;document.documentElement.style.setProperty('--thumbnail-effect-strength',String(strength));document.body.dataset.thumbnailEffectMode=mode;const preview=$('#blur-effect-preview');if(preview){preview.dataset.mode=mode;preview.style.setProperty('--preview-effect-strength',String(strength));$('#thumbnail-effect-strength-value').textContent=String(strength);}}
 function applyTreeLevelColors(){preferences.treeLevelColors=(Array.isArray(preferences.treeLevelColors)?preferences.treeLevelColors:defaultTreeLevelColors).map(validTreeColor);if(!preferences.treeLevelColors.length)preferences.treeLevelColors=[defaultTreeLevelColors[0]];preferences.treeLevelColors.forEach((color,index)=>document.documentElement.style.setProperty(`--tree-level-${index}`,color));}
 function renderTreeLevelColorSettings(){const list=$('#tree-level-colors');if(!list)return;list.innerHTML=preferences.treeLevelColors.map((color,index)=>`<div class="tree-level-color" data-tree-level-color="${index}"><span>Level ${index+1}</span><input type="color" value="${validTreeColor(color)}" aria-label="Level ${index+1} color" /><code>${validTreeColor(color)}</code><button type="button" data-delete-tree-level="${index}" title="Delete level" ${preferences.treeLevelColors.length===1?'disabled':''}>×</button></div>`).join('');}
 function renderThumbnailTitleSettings() {
@@ -1326,7 +1332,7 @@ function safeFontFamily(value, fallback) { const candidate = String(value || '')
 function applyTypographyPreferences() { const root = document.documentElement.style; root.setProperty('--app-font-family', safeFontFamily(preferences.appFontFamily, preferenceDefaults.appFontFamily)); root.setProperty('--app-font-size', `${Math.max(8,Math.min(24,Number(preferences.appFontSize)||11))}px`); root.setProperty('--console-font-family', safeFontFamily(preferences.consoleFontFamily, preferenceDefaults.consoleFontFamily)); root.setProperty('--console-font-size', `${Math.max(8,Math.min(24,Number(preferences.consoleFontSize)||10))}px`); }
 function applyPrimarySidebarVisibility(){const visibility={uncategorized:preferences.showUncategorized,untagged:preferences.showUntagged,favorites:preferences.showFavorites,tags:preferences.showTags,duplicates:preferences.showDuplicates,trash:preferences.showTrash,analytics:preferences.showAnalytics};for(const[view,visible]of Object.entries(visibility))document.querySelector(`[data-view="${view}"]`)?.classList.toggle('preference-hidden',!visible);}
 function applyPreferences(save = false) {
-  collectPreferenceInputs(); applyTypographyPreferences(); applyTreeLevelColors(); document.documentElement.dataset.theme = preferences.theme; document.body.classList.toggle('no-transparency', !preferences.transparency); document.body.classList.toggle('pixelated-previews', preferences.imageRendering === 'pixelated'); document.body.classList.toggle('transparency-grid', preferences.transparentGrid); document.body.classList.toggle('hover-zoom-enabled', preferences.hoverZoom); document.body.classList.toggle('hide-sidebar-counts', !preferences.showCounts); document.body.classList.toggle('colored-tree-levels', preferences.coloredTreeLevels !== false);
+  collectPreferenceInputs(); applyTypographyPreferences(); applyTreeLevelColors(); applyThumbnailEffectPreferences(); document.documentElement.dataset.theme = preferences.theme; document.body.classList.toggle('no-transparency', !preferences.transparency); document.body.classList.toggle('pixelated-previews', preferences.imageRendering === 'pixelated'); document.body.classList.toggle('transparency-grid', preferences.transparentGrid); document.body.classList.toggle('hover-zoom-enabled', preferences.hoverZoom); document.body.classList.toggle('hide-sidebar-counts', !preferences.showCounts); document.body.classList.toggle('colored-tree-levels', preferences.coloredTreeLevels !== false);
   applyPrimarySidebarVisibility();
   document.querySelector('[data-section-toggle="smart-folders"]')?.classList.toggle('preference-hidden', !preferences.showSmartFolders); $('#sidebar-section-smart-folders').classList.toggle('preference-hidden', !preferences.showSmartFolders); document.querySelector('[data-section-toggle="collections"]')?.classList.toggle('preference-hidden', !preferences.showCollections); $('#sidebar-section-collections').classList.toggle('preference-hidden', !preferences.showCollections); document.querySelector('[data-section-toggle="indexed-locations"]')?.classList.toggle('preference-hidden', !preferences.showLocations); $('#sidebar-section-indexed-locations').classList.toggle('preference-hidden', !preferences.showLocations);
   state.viewerFit = preferences.defaultImageSize !== 'original'; applyWindowZoom(preferences.interfaceZoom); if (save) { if (preferences.videoAutoplay) localStorage.setItem('pigeon.videoAutoplayOptIn', 'true'); else localStorage.removeItem('pigeon.videoAutoplayOptIn'); localStorage.setItem('pigeon.preferences', JSON.stringify(preferences)); window.pigeon.updatePreferences(preferences); showToast('Preferences saved'); }
@@ -1335,6 +1341,7 @@ function openSettings() {
   renderPortfolioManager(); renderThumbnailTitleSettings(); populatePreferenceInputs(); renderTreeLevelColorSettings();
   $('#favorite-shortcut').value = state.favoriteShortcut;
   $('#location-shortcut').value = state.locationShortcut;
+  $('#thumbnail-effect-shortcut').value=state.thumbnailEffectShortcut;
   renderShortcutActions();
   $('#encrypt-locked-folders').checked = state.encryptLockedFolders;
   $('#confirm-folder-moves').checked = state.confirmFolderMoves;
@@ -2131,6 +2138,7 @@ $('#close-settings').addEventListener('click', () => $('#settings-dialog').close
 $('#about-dialog').addEventListener('click',closeAboutView);
 $('#about-github').addEventListener('click',()=>window.pigeon.openExternal($('#about-dialog').dataset.repository));
 window.addEventListener('keydown',(event)=>{if(event.key==='Escape'&&!$('#about-dialog').classList.contains('hidden')){event.preventDefault();closeAboutView();}},true);
+const updateThumbnailRevealModifier=(event,pressed)=>{if(event.key!==preferences.thumbnailEffectRevealKey)return;state.thumbnailEffectRevealPressed=pressed;document.body.classList.toggle('thumbnail-effect-reveal',pressed);};window.addEventListener('keydown',(event)=>updateThumbnailRevealModifier(event,true),true);window.addEventListener('keyup',(event)=>updateThumbnailRevealModifier(event,false),true);window.addEventListener('blur',()=>{state.thumbnailEffectRevealPressed=false;document.body.classList.remove('thumbnail-effect-reveal');});
 $('#encrypt-locked-folders').addEventListener('change', (event) => { state.encryptLockedFolders = event.target.checked; localStorage.setItem('pigeon.encryptLockedFolders', String(state.encryptLockedFolders)); });
 $('#confirm-folder-moves').addEventListener('change', (event) => { state.confirmFolderMoves = event.target.checked; localStorage.setItem('pigeon.confirmFolderMoves', String(state.confirmFolderMoves)); });
 $$('[id^="thumbnail-title-line-"]').forEach((select, index) => select.addEventListener('change', (event) => { state.thumbnailTitleLines[index] = event.target.value; localStorage.setItem(`pigeon.thumbnailTitleLine${index + 1}`, event.target.value); renderGrid(); }));
@@ -2138,6 +2146,7 @@ $('#clear-favorite-shortcut').addEventListener('click', () => {
   state.favoriteShortcut = ''; localStorage.removeItem('pigeon.favoriteShortcut'); $('#favorite-shortcut').value = '';
 });
 $('#clear-location-shortcut').addEventListener('click', () => { state.locationShortcut = ''; localStorage.removeItem('pigeon.locationShortcut'); $('#location-shortcut').value = ''; });
+$('#clear-thumbnail-effect-shortcut').addEventListener('click',()=>{state.thumbnailEffectShortcut='B';localStorage.setItem('pigeon.thumbnailEffectShortcut','B');$('#thumbnail-effect-shortcut').value='B';});
 $('#favorite-shortcut').addEventListener('keydown', (event) => {
   event.preventDefault(); event.stopPropagation();
   if (event.key === 'Backspace' || event.key === 'Delete') { state.favoriteShortcut = ''; localStorage.removeItem('pigeon.favoriteShortcut'); event.currentTarget.value = ''; return; }
@@ -2151,6 +2160,8 @@ $('#location-shortcut').addEventListener('keydown', (event) => {
   const shortcut = shortcutFromEvent(event); if (!shortcut) return;
   state.locationShortcut = shortcut; localStorage.setItem('pigeon.locationShortcut', shortcut); event.currentTarget.value = shortcut;
 });
+$('#thumbnail-effect-shortcut').addEventListener('keydown',(event)=>{event.preventDefault();event.stopPropagation();if(event.key==='Backspace'||event.key==='Delete'){state.thumbnailEffectShortcut='B';localStorage.setItem('pigeon.thumbnailEffectShortcut','B');event.currentTarget.value='B';return;}const shortcut=shortcutFromEvent(event);if(!shortcut)return;state.thumbnailEffectShortcut=shortcut;localStorage.setItem('pigeon.thumbnailEffectShortcut',shortcut);event.currentTarget.value=shortcut;});
+$('#thumbnail-effect-strength').addEventListener('input',()=>{collectPreferenceInputs();applyThumbnailEffectPreferences();});document.querySelector('[data-pref="thumbnailEffectMode"]').addEventListener('change',()=>{collectPreferenceInputs();applyThumbnailEffectPreferences();});
 $('#new-shortcut-action').addEventListener('click',()=>openShortcutActionDialog());
 $('#close-shortcut-action').addEventListener('click',closeShortcutActionDialog);$('#cancel-shortcut-action').addEventListener('click',closeShortcutActionDialog);
 $('#shortcut-action-key').addEventListener('keydown',(event)=>{event.preventDefault();event.stopPropagation();if(event.key==='Backspace'||event.key==='Delete'){event.currentTarget.value='';return;}const shortcut=shortcutFromEvent(event);if(shortcut)event.currentTarget.value=shortcut;});
@@ -2186,6 +2197,7 @@ document.addEventListener('keydown', (event) => {
   if (commandKey && event.key === '0') { event.preventDefault(); applyWindowZoom(1); return; }
   if (!editing && state.favoriteShortcut && shortcutFromEvent(event) === state.favoriteShortcut) { event.preventDefault(); toggleSelectedFavourite(); return; }
   if (!editing && state.locationShortcut && shortcutFromEvent(event) === state.locationShortcut) { event.preventDefault(); openMapView(isInternalViewerOpen() ? [state.viewerAssetId] : [...state.selectedIds]); return; }
+  if(!editing&&state.thumbnailEffectShortcut&&shortcutFromEvent(event)===state.thumbnailEffectShortcut){event.preventDefault();toggleThumbnailEffect().catch((error)=>showToast(error.message));return;}
   if (state.mapOpen) return;
   if (!editing && !commandKey && event.code === 'Space') { if(isInternalViewerOpen()||preferences.spacebar==='preview'){event.preventDefault();if(isInternalViewerOpen())closeInternalViewer();else if(state.selectedId)openInternalViewer(state.selectedId);return;} }
   if (!editing && !commandKey && !event.altKey && event.key === 'Delete' && !isInternalViewerOpen()) { event.preventDefault(); handleDeleteSelection().catch((error)=>showToast(error.message)); return; }

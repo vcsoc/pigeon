@@ -1894,7 +1894,7 @@ ipcMain.handle('plugins:run', (_event, name) => runPlugin(name));
 ipcMain.handle('asset:update', (_event, { id, patch }) => {
   const asset = library.assets.find((item) => item.id === id);
   if (!asset) return null;
-  const allowed = ['tags', 'note', 'rating', 'favorite', 'annotations', 'collectionIds', 'rotation', 'geo'];
+  const allowed = ['tags', 'note', 'rating', 'favorite', 'thumbnailEffect', 'annotations', 'collectionIds', 'rotation', 'geo'];
   for (const key of allowed) if (Object.prototype.hasOwnProperty.call(patch, key)) asset[key] = patch[key];
   if (Object.prototype.hasOwnProperty.call(patch, 'collectionIds')) applyConfiguredCollectionTags(asset);
   asset.metadataUpdatedAt = Date.now();

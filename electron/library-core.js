@@ -130,6 +130,7 @@ function batchUpdateAssets(library, ids, operation = {}) {
     if (operation.removeCollectionId) asset.collectionIds = (asset.collectionIds || []).filter((id) => id !== operation.removeCollectionId);
     if (Object.hasOwn(operation, 'rating')) asset.rating = Math.max(0, Math.min(5, Number(operation.rating) || 0));
     if (Object.hasOwn(operation, 'favorite')) asset.favorite = Boolean(operation.favorite);
+    if (Object.hasOwn(operation, 'thumbnailEffect')) asset.thumbnailEffect = Boolean(operation.thumbnailEffect);
     if (Object.hasOwn(operation, 'rotation')) asset.rotation = ((Number(operation.rotation) || 0) % 360 + 360) % 360;
     else if (Object.hasOwn(operation, 'rotateBy')) asset.rotation = ((Number(asset.rotation || 0) + Number(operation.rotateBy || 0)) % 360 + 360) % 360;
     if (operation.geo && Number.isFinite(Number(operation.geo.lat)) && Number.isFinite(Number(operation.geo.lon))) asset.geo = { lat: Number(operation.geo.lat), lon: Number(operation.geo.lon), address: String(operation.geo.address || '').slice(0, 500), updatedAt: Date.now() };
