@@ -26,12 +26,12 @@ test('UI exposes collection, smart-folder, batch, trash, media, metadata and edi
   }
 });
 
-test('virtual bottom maps the final scrollbar position to the final bounded asset window',()=>{
-  assert.match(renderer,/globalIndex=virtualStart\+windowIndex/);assert.match(renderer,/Math\.floor\(globalIndex\/columns\)\*estimatedRowHeight/);assert.match(styles,/\.asset-grid\.virtualized-grid\{position:relative;display:block!important\}/);assert.match(styles,/\.virtualized-grid \.virtual-card\{position:absolute/);assert.match(renderer,/classList\.contains\('virtualized-grid'\)/);assert.match(main,/virtual\.max<virtual\.total-1/);
+test('every filtered asset receives a placeholder while thumbnail media loads near the viewport',()=>{
+  assert.match(renderer,/const assets = allAssets,stackCounts/);assert.match(renderer,/thumbnailVisibilityObserver=new IntersectionObserver/);assert.match(renderer,/data-thumbnail-src/);assert.match(renderer,/thumbnailVisibilityObserver\.observe\(card\)/);assert.match(styles,/\.asset-grid\.placeholder-grid\{grid-auto-rows:auto/);assert.match(main,/placeholders\.cards!==placeholders\.total/);assert.match(main,/placeholders\.afterLoaded<=placeholders\.beforeLoaded/);
 });
 
 test('targeted thumbnail rebuild, virtual full scroll, cover previews, metadata copy and native drag are wired',()=>{
-  assert.match(renderer,/data-context-action="rebuild-thumbnails"/);assert.match(preload,/rebuildThumbnails/);assert.match(main,/assets:rebuild-thumbnails/);assert.match(renderer,/virtualMetrics/);assert.match(renderer,/totalRows\*estimatedRowHeight/);assert.match(styles,/\.asset-preview img[^}]*object-fit:cover/);assert.match(html,/copy-additional-metadata/);assert.match(html,/copy-comfyui-metadata/);assert.match(renderer,/ComfyUI workflow copied/);assert.match(renderer,/window\.pigeon\.startAssetDrag/);assert.match(main,/sender\.startDrag/);
+  assert.match(renderer,/data-context-action="rebuild-thumbnails"/);assert.match(preload,/rebuildThumbnails/);assert.match(main,/assets:rebuild-thumbnails/);assert.match(renderer,/thumbnailVisibilityObserver/);assert.match(renderer,/const assets = allAssets/);assert.match(styles,/\.asset-preview img[^}]*object-fit:cover/);assert.match(html,/copy-additional-metadata/);assert.match(html,/copy-comfyui-metadata/);assert.match(renderer,/ComfyUI workflow copied/);assert.match(renderer,/window\.pigeon\.startAssetDrag/);assert.match(main,/sender\.startDrag/);
 });
 
 test('trash and auto-tag mutations reconcile cards without full thumbnail reloads',()=>{

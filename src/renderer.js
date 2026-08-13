@@ -100,6 +100,7 @@ const elements = {
   analyticsView: $('#analytics-view'), analyticsContent: $('#analytics-content'), backgroundProgress: $('#background-progress'), lockedContent: $('#locked-content'), contactSheetView: $('#contact-sheet-view'), contactSheetPages: $('#contact-sheet-pages')
 };
 let masonryFrame,navigationPaintFrame=null,navigationRenderGeneration=0,searchRenderFrame=null,marqueeSelection=null,marqueeScrollFrame=null,suppressMarqueeClick=false,hoverFitPreviewTimer=null;
+const thumbnailVisibilityObserver=new IntersectionObserver((entries)=>{for(const entry of entries){if(!entry.isIntersecting)continue;const card=entry.target,image=card.querySelector('img[data-thumbnail-src]');if(image){image.addEventListener('load',()=>{image.classList.add('thumbnail-loaded');card.querySelector('.asset-image-placeholder')?.remove();if(image.closest('.quarter-turned'))fitRotatedThumbnail(image);scheduleMasonry();},{once:true});image.src=image.dataset.thumbnailSrc;image.removeAttribute('data-thumbnail-src');}thumbnailVisibilityObserver.unobserve(card);}},{root:elements.gridWrap,rootMargin:'900px 0px'});
 const rotatedThumbnailObserver = new ResizeObserver((entries) => {
   for (const entry of entries) {
     const preview = entry.target, image = preview.querySelector(':scope > img'); if (!image) continue;
@@ -782,14 +783,14 @@ function renderGrid() {
   const analyticsMode = state.view === 'analytics'; elements.analyticsView.classList.toggle('hidden', !analyticsMode); $('.content-area').classList.toggle('analytics-active', analyticsMode);
   if (analyticsMode) { elements.grid.classList.add('hidden'); elements.empty.classList.add('hidden'); elements.tagBrowser.classList.add('hidden'); elements.sentinel.classList.add('hidden'); $('#duplicate-controls').classList.add('hidden'); renderAnalytics(); saveNavigationState(); return; }
   const allAssets = filteredAssets(),duplicateMode = !state.library.loading && state.view === 'duplicates' && !state.locationId && !state.collectionId && !state.smartFolderId;
-  const virtualEnabled=!duplicateMode&&state.layout!=='justified',cardWidth=Math.max(90,Number($('#zoom-slider').value)||240),columns=Math.max(1,Math.floor((elements.gridWrap.clientWidth-28)/(cardWidth+12))),estimatedRowHeight=state.layout==='list'?62:Math.max(100,cardWidth*.82+34),totalRows=Math.ceil(allAssets.length/columns),visibleRows=Math.max(8,Math.ceil(elements.gridWrap.clientHeight/estimatedRowHeight)+8),startRow=virtualEnabled?Math.max(0,Math.min(Math.max(0,totalRows-visibleRows),Math.floor((elements.gridWrap.scrollTop||0)/estimatedRowHeight)-4)):0,virtualStart=startRow*columns,virtualCount=virtualEnabled?visibleRows*columns:Math.min(allAssets.length,state.renderLimit);state.virtualStart=virtualStart;state.virtualMetrics={columns,estimatedRowHeight,totalRows,visibleRows,totalHeight:totalRows*estimatedRowHeight};
-  const assets = allAssets.slice(virtualStart,virtualStart+virtualCount),stackCounts=new Map(); for(const item of state.library.assets)if(item.stackId&&!item.deletedAt)stackCounts.set(item.stackId,(stackCounts.get(item.stackId)||0)+1);
+  state.virtualStart=0;state.virtualMetrics=null;
+  const assets = allAssets,stackCounts=new Map(); for(const item of state.library.assets)if(item.stackId&&!item.deletedAt)stackCounts.set(item.stackId,(stackCounts.get(item.stackId)||0)+1);
   const loading = state.library.loading === true || state.library.assetStreamPending === true;
   const noLibrary = !loading && (state.library.totalAssets ?? state.library.assets.length) === 0;
   const noSources=noLibrary&&(state.library.locations||[]).length===0;
   const tagMode = !loading && state.view === 'tags' && !state.locationId && !state.collectionId && !state.smartFolderId;
   elements.tagBrowser.classList.toggle('hidden', !tagMode); $('#duplicate-controls').classList.toggle('hidden', !duplicateMode);
-  elements.grid.classList.toggle('duplicates-layout', duplicateMode); elements.gridWrap.classList.toggle('duplicates-view', duplicateMode);
+  elements.grid.classList.toggle('duplicates-layout', duplicateMode);elements.grid.classList.toggle('placeholder-grid',!duplicateMode&&state.layout==='grid'); elements.gridWrap.classList.toggle('duplicates-view', duplicateMode);
   if (duplicateMode) { $('#duplicate-similarity').value = String(state.duplicateSimilarity); $('#duplicate-similarity-value').textContent = `${state.duplicateSimilarity}%`; $('#duplicate-mode-label').textContent = state.duplicateSourceId ? 'Similar to selected image' : 'Similar image groups'; $('#duplicate-summary').textContent = `${state.duplicateGroups.length} ${state.duplicateGroups.length === 1 ? 'group' : 'groups'} · ${state.duplicateIds.size} images`; $('#show-all-duplicate-groups').classList.toggle('hidden', !state.duplicateSourceId); }
   if (tagMode) {
     elements.empty.classList.add('hidden'); elements.grid.classList.add('hidden'); elements.sentinel.classList.add('hidden');
@@ -810,14 +811,14 @@ function renderGrid() {
   elements.gridWrap.classList.toggle('layout-list', state.layout === 'list');
   elements.gridWrap.classList.toggle('layout-justified', state.layout === 'justified');
   elements.count.textContent = loading ? 'Loading…' : `${allAssets.length} ${allAssets.length === 1 ? 'item' : 'items'}`;
-  rotatedThumbnailObserver.disconnect();
-  elements.grid.classList.toggle('virtualized-grid',virtualEnabled);elements.grid.style.height=virtualEnabled?`${Math.max(elements.gridWrap.clientHeight,totalRows*estimatedRowHeight)}px`:'';elements.grid.style.minHeight='';elements.grid.style.paddingTop='';
-  elements.grid.innerHTML = assets.map((asset,windowIndex) => {
+  rotatedThumbnailObserver.disconnect();thumbnailVisibilityObserver.disconnect();
+  elements.grid.classList.remove('virtualized-grid');elements.grid.style.height='';elements.grid.style.minHeight='';elements.grid.style.paddingTop='';
+  elements.grid.innerHTML = assets.map((asset) => {
     const visual = ['image', 'video', 'audio', 'document'].includes(asset.kind) && Boolean(asset.thumbnailPath), previewFailed = Boolean(asset.thumbnailFailedAt && !asset.thumbnailPath);
     const originalRatio = Math.max(.35, Math.min(3.5, asset.width && asset.height ? asset.width / asset.height : asset.kind === 'audio' ? 3.75 : 1.35));
     const quarterTurn = Boolean((Number(asset.rotation) || 0) % 180);
     const preview = visual
-      ? `<img src="${protectedUrl(asset.previewUrl)}" style="transform:${rotationTransform(asset)}" loading="lazy" alt="${escapeHtml(asset.name)}" />${asset.kind === 'video' ? `<span class="media-preview-badge video-play-badge">${iconSvg('video')}<span>${asset.duration ? formatMediaTime(asset.duration) : ''}</span></span>` : asset.kind === 'audio' ? `<span class="media-preview-badge audio-badge">${iconSvg('audio')}<span>${asset.duration ? formatMediaTime(asset.duration) : ''}</span></span><span class="media-scrub-time">00:00</span>` : ''}`
+      ? `<div class="asset-image-placeholder" aria-label="Thumbnail loading"></div><img data-thumbnail-src="${protectedUrl(asset.previewUrl)}" style="transform:${rotationTransform(asset)}" loading="lazy" alt="${escapeHtml(asset.name)}" />${asset.kind === 'video' ? `<span class="media-preview-badge video-play-badge">${iconSvg('video')}<span>${asset.duration ? formatMediaTime(asset.duration) : ''}</span></span>` : asset.kind === 'audio' ? `<span class="media-preview-badge audio-badge">${iconSvg('audio')}<span>${asset.duration ? formatMediaTime(asset.duration) : ''}</span></span><span class="media-scrub-time">00:00</span>` : ''}`
       : previewFailed
         ? `<div class="asset-file asset-preview-failed" title="${escapeHtml(asset.thumbnailError || 'Preview unavailable')}"><span class="file-glyph">${iconFor(asset.kind)}</span><span class="file-ext">${escapeHtml(asset.extension)}</span><small>Preview unavailable</small></div>`
         : ['image', 'video', 'audio'].includes(asset.kind)
@@ -829,8 +830,7 @@ function renderGrid() {
     const titleHtml = titleLines.map((line, index) => `<span class="card-title-line ${index === 0 ? 'card-name' : ''}" data-title-field="${line.field}" title="${escapeHtml(line.text)}">${escapeHtml(line.text)}</span>`).join('');
     const ratio = quarterTurn ? 1 / originalRatio : originalRatio;
     const justifiedHeight = Math.max(52, Math.min(320, Number($('#zoom-slider').value) * .58));
-    const globalIndex=virtualStart+windowIndex,virtualStyle=virtualEnabled?state.layout==='list'?`left:0;right:0;top:${Math.floor(globalIndex/columns)*estimatedRowHeight}px;height:${estimatedRowHeight-3}px`:`left:${globalIndex%columns*(cardWidth+12)}px;top:${Math.floor(globalIndex/columns)*estimatedRowHeight}px;width:${cardWidth}px;--virtual-preview-height:${Math.max(64,estimatedRowHeight-38)}px`:'';
-    return `<article class="asset-card ${virtualEnabled?'virtual-card ':''}${state.selectedId === asset.id ? 'selected' : ''} ${state.selectedIds.has(asset.id) ? 'multi-selected' : ''} ${asset.sourceMissing ? 'source-missing' : ''} ${asset.thumbnailEffect?'thumbnail-effect-applied':''}" style="--asset-ratio:${ratio};--justified-basis:${Math.round(justifiedHeight * ratio)}px;${virtualStyle}" data-asset-id="${asset.id}" data-asset-kind="${asset.kind}" tabindex="0" draggable="true">
+    return `<article class="asset-card ${state.selectedId === asset.id ? 'selected' : ''} ${state.selectedIds.has(asset.id) ? 'multi-selected' : ''} ${asset.sourceMissing ? 'source-missing' : ''} ${asset.thumbnailEffect?'thumbnail-effect-applied':''}" style="--asset-ratio:${ratio};--justified-basis:${Math.round(justifiedHeight * ratio)}px" data-asset-id="${asset.id}" data-asset-kind="${asset.kind}" tabindex="0" draggable="true">
       <div class="asset-preview ${quarterTurn ? 'quarter-turned' : ''}" style="--original-ratio:${originalRatio};--preview-ratio:${ratio}">${preview}${visual&&asset.kind==='image'?`<button class="thumbnail-fit-preview" type="button" title="Preview full image" aria-label="Preview ${escapeHtml(asset.name)}">${iconSvg('search')}</button>`:''}${stackBadge}${asset.sourceMissing ? '<span class="source-missing-overlay">Source Missing</span>' : isOffline(asset) ? '<span class="card-offline">Offline</span>' : ''}</div>
       <div class="card-meta ${titleHtml ? '' : 'no-titles'}"><span class="card-titles">${titleHtml}</span>${asset.favorite ? '<span class="card-favorite">★</span>' : ''}</div>
     </article>`;
@@ -874,13 +874,8 @@ function renderGrid() {
     card.addEventListener('keydown', (event) => { if (event.key === 'Enter') openInternalViewer(card.dataset.assetId); });
     const asset = state.library.assets[rendererAssetIndexes.get(card.dataset.assetId)]; if (asset) attachHoverMediaPreview(card, asset);
   });
-  elements.grid.querySelectorAll('.asset-preview.quarter-turned img').forEach((image) => {
-    if (image.complete && image.naturalWidth) fitRotatedThumbnail(image); else image.addEventListener('load', () => fitRotatedThumbnail(image), { once: true });
-  });
-  if (state.layout === 'grid') {
-    elements.grid.querySelectorAll('img').forEach((image) => { if (!image.complete) image.addEventListener('load', scheduleMasonry, { once: true }); });
-    scheduleMasonry();
-  }
+  elements.grid.querySelectorAll('.asset-card').forEach((card)=>thumbnailVisibilityObserver.observe(card));
+  if (state.layout === 'grid') scheduleMasonry();
   renderBatchBar();
   requestAnimationFrame(() => { if(Date.now()>=state.postMoveRevealUntil&&Math.abs(elements.gridWrap.scrollTop-state.gridScrollTop)>2&&state.virtualStart===0)elements.gridWrap.scrollTop = state.gridScrollTop; });
   elements.sentinel.classList.add('hidden');elements.sentinel.textContent='';
@@ -909,7 +904,7 @@ function scheduleMasonry() {
 }
 
 function layoutMasonry() {
-  if (state.layout !== 'grid' || elements.grid.classList.contains('hidden')||elements.grid.classList.contains('virtualized-grid')) return;
+  if (state.layout !== 'grid' || elements.grid.classList.contains('hidden')||elements.grid.classList.contains('placeholder-grid')) return;
   const styles=getComputedStyle(elements.grid),rowHeight=parseFloat(styles.gridAutoRows)||4,rowGap=parseFloat(styles.rowGap)||4,cards=[...elements.grid.querySelectorAll('.asset-card')];
   for(const card of cards)card.style.gridRowEnd='auto';
   const heights=cards.map((card)=>card.getBoundingClientRect().height);
@@ -1136,7 +1131,7 @@ function renderBatchBar() {
 function currentSmartFolderDependsOnTags(){const folder=state.library.smartFolders?.find((item)=>item.id===state.smartFolderId);return Boolean(folder?.filters?.rules?.some((rule)=>rule.field==='tags'));}
 function patchTagMetadataCards(ids=[]){for(const id of ids){const asset=state.library.assets.find((item)=>item.id===id),card=elements.grid.querySelector(`[data-asset-id="${CSS.escape(id)}"]`);if(!asset||!card)continue;card.dataset.tags=(asset.tags||[]).join(' ').toLowerCase();for(const line of card.querySelectorAll('[data-title-field="tags"]'))line.textContent=titleText(asset,'tags');}}
 function reconcileThumbnailCards(changedIds=[],{sidebar=true}={}){
-  const desired=filteredAssets(),desiredVisible=desired.slice(0,state.renderLimit),desiredSet=new Set(desiredVisible.map((asset)=>asset.id)),cards=new Map($$('.asset-card').map((card)=>[card.dataset.assetId,card]));
+  const desired=filteredAssets(),desiredVisible=desired,desiredSet=new Set(desiredVisible.map((asset)=>asset.id)),cards=new Map($$('.asset-card').map((card)=>[card.dataset.assetId,card]));
   for(const [id,card] of cards)if(!desiredSet.has(id)){card.classList.add('asset-card-removing');card.remove();}
   for(const asset of desiredVisible){const card=cards.get(asset.id);if(card&&card.isConnected)elements.grid.appendChild(card);}
   for(const id of changedIds)if(!desiredSet.has(id)){state.selectedIds.delete(id);if(state.selectedId===id)state.selectedId=null;}
@@ -2306,8 +2301,6 @@ function loadMoreAssets() {
 }
 elements.sentinel.addEventListener('click', loadMoreAssets);
 const loadMoreObserver = new IntersectionObserver((entries) => { if (entries.some((entry) => entry.isIntersecting)) loadMoreAssets(); }, { root: elements.gridWrap, rootMargin: '700px 0px' });
-let virtualScrollFrame=null;elements.gridWrap.addEventListener('scroll',()=>{if(!state.virtualMetrics||state.view==='duplicates'||state.layout==='justified')return;if(virtualScrollFrame!==null)return;virtualScrollFrame=requestAnimationFrame(()=>{virtualScrollFrame=null;const row=Math.floor(elements.gridWrap.scrollTop/state.virtualMetrics.estimatedRowHeight),next=Math.max(0,row-4)*state.virtualMetrics.columns;if(next!==state.virtualStart)renderGrid();});},{passive:true});
-
 applyStaticIcons(); populatePreferenceInputs(); applyPreferences(false);
 window.pigeon.onLibraryChanged((library) => {
   if(scanRenderHandle!==null){(window.cancelIdleCallback||clearTimeout)(scanRenderHandle);scanRenderHandle=null;}clearTimeout(streamRenderTimer);rendererAssetIndexes.clear();elements.grid.innerHTML='';elements.grid.classList.add('hidden');

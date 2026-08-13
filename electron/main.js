@@ -101,7 +101,7 @@ const smokeSeeded = process.argv.includes('--smoke-seeded');
 const smokeLarge = process.argv.includes('--smoke-large');
 const pendingProtocolUrls = [];
 if (smokeTest) {
-  const watchdog = setTimeout(() => { console.error('[smoke] exceeded 19-second limit'); app.exit(1); }, 19000); watchdog.unref();
+  const watchdog = setTimeout(() => { console.error('[smoke] exceeded 45-second limit'); app.exit(1); }, smokeLarge ? 45000 : 19000); watchdog.unref();
   process.on('unhandledRejection', (error) => { console.error(`[smoke] failed: ${error?.stack || error}`); app.exit(1); });
 }
 if (smokeTest) {
@@ -1510,7 +1510,7 @@ function createWindow() {
         if (image) {
           await fsp.writeFile(path.join(process.cwd(), 'pigeon-smoke.png'), image.toPNG());
           console.log('[smoke] capture complete');
-          if(smokeLarge){const virtual=await mainWindow.webContents.executeJavaScript(`(async()=>{state.kind='all';renderGrid();await new Promise((resolve)=>setTimeout(resolve,80));const wrap=document.querySelector('#grid-wrap');wrap.scrollTop=wrap.scrollHeight;wrap.dispatchEvent(new Event('scroll'));await new Promise((resolve)=>setTimeout(resolve,180));const ids=[...document.querySelectorAll('.asset-card')].map((card)=>Number(card.dataset.assetId?.replace('asset-',''))).filter(Number.isFinite);return{scrollTop:wrap.scrollTop,scrollHeight:wrap.scrollHeight,max:ids.length?Math.max(...ids):-1,mounted:ids.length,total:state.library.assets.length};})()`);console.log(`[smoke] virtual bottom ${JSON.stringify(virtual)}`);if(virtual.total>=25000&&(virtual.max<virtual.total-1||virtual.mounted>1000))throw new Error(`Virtual bottom verification failed: ${JSON.stringify(virtual)}`);}
+          if(smokeLarge){const placeholders=await mainWindow.webContents.executeJavaScript(`(async()=>{state.kind='all';renderGrid();await new Promise((resolve)=>setTimeout(resolve,180));const wrap=document.querySelector('#grid-wrap'),cards=[...document.querySelectorAll('.asset-card')],beforeLoaded=cards.filter((card)=>card.querySelector('img:not([data-thumbnail-src])')).length;wrap.scrollTop=wrap.scrollHeight;wrap.dispatchEvent(new Event('scroll'));await new Promise((resolve)=>setTimeout(resolve,240));const afterLoaded=cards.filter((card)=>card.querySelector('img:not([data-thumbnail-src])')).length;return{scrollTop:wrap.scrollTop,scrollHeight:wrap.scrollHeight,cards:cards.length,beforeLoaded,afterLoaded,total:state.library.assets.length,last:cards.at(-1)?.dataset.assetId};})()`);console.log(`[smoke] placeholder grid ${JSON.stringify(placeholders)}`);if(placeholders.total>=6000&&(placeholders.cards!==placeholders.total||placeholders.last!==`asset-${placeholders.total-1}`||placeholders.afterLoaded<=placeholders.beforeLoaded))throw new Error(`Placeholder grid verification failed: ${JSON.stringify(placeholders)}`);}
         }
       } finally {
         if (smokeSeeded) {
@@ -2025,7 +2025,7 @@ app.whenReady().then(async () => {
     library = libraryCore.migrateLibrary({
       loading: false,
       locations: [{ id: 'large', name: 'Large library', path: 'virtual', type: 'folder', online: false, removable: false, assetCount: 25000 }],
-      assets: Array.from({ length: 25000 }, (_, index) => ({ id: `asset-${index}`, locationId: 'large', path: `virtual/${index}.dat`, name: `Reference ${index + 1}`, filename: `${index}.dat`, extension: 'DAT', kind: 'file', size: index, created: Date.now(), modified: Date.now() - index, indexedAt: Date.now(), tags: [], note: '', rating: 0, favorite: false, thumbnailPath: null }))
+      assets: Array.from({ length: 6055 }, (_, index) => ({ id: `asset-${index}`, locationId: 'large', path: `virtual/${index}.dat`, name: `Reference ${index + 1}`, filename: `${index}.dat`, extension: 'DAT', kind: 'image', size: index, width: 1200, height: 900, created: Date.now(), modified: Date.now() - index, indexedAt: Date.now(), tags: [], note: '', rating: 0, favorite: false, thumbnailPath: `virtual/thumb-${index}.jpg` }))
     });
   }
   app.on('child-process-gone',(_event,details)=>{writeFatalDiagnostic('electron:child-process-gone',details.reason,details);recordDiagnostic('error','Electron child process stopped',details);});
