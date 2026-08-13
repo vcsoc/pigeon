@@ -489,7 +489,7 @@ textarea { resize: vertical; min-height: 68px; padding: 8px; line-height: 1.5; }
 .text-entry-dialog footer button, .smart-folder-dialog footer button { min-width: 86px; height: 31px; }
 .smart-folder-dialog { width: min(560px, calc(100vw - 40px)); }
 .smart-rule-mode { display: flex; align-items: center; gap: 7px; margin: 13px 0 9px; color: var(--muted); }
-.smart-rule-mode select, .smart-rule select, .smart-rule input { height: 30px; padding: 0 8px; border: 1px solid #454951; border-radius: 5px; background: #181a1e; color: var(--text); }
+.smart-rule-mode select, .smart-rule select, .smart-rule input { min-width:0;height: 30px; padding: 0 8px; border: 1px solid #454951; border-radius: 5px; background: #181a1e; color: var(--text); }
 .smart-rule-mode button { margin-left: auto; width: 30px; height: 30px; }
 .smart-folder-rules { display: grid; gap: 7px; }
 .smart-rule { display: grid; grid-template-columns: 120px 120px minmax(0,1fr) 30px; gap: 7px; }

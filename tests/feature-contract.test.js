@@ -26,6 +26,10 @@ test('UI exposes collection, smart-folder, batch, trash, media, metadata and edi
   }
 });
 
+test('Smart Folders filter privacy effects, hotkey is editable, and level sorting targets siblings',()=>{
+  assert.match(renderer,/\['privacyEffect','Blur \/ Pixelate'\]/);assert.match(renderer,/Effect applied/);assert.match(libraryCore,/rule\.field === 'privacyEffect'/);assert.match(renderer,/thumbnail-effect-shortcut'\)\.addEventListener\('keydown'/);assert.match(html,/Click and press a shortcut/);assert.match(renderer,/branch:collection\.parentId/);assert.match(renderer,/branch:folder\.parentId/);assert.match(renderer,/appendFolderLevel/);assert.match(renderer,/sidebarBranchSort/);
+});
+
 test('privacy ranges extend into previews/viewer, modifier wheel scrolls, submenu and parent trunks work',()=>{
   assert.match(renderer,/minimum=mode==='pixelate'\?25:8/);assert.match(renderer,/maximum=mode==='pixelate'\?150:40/);assert.match(html,/id="sidebar-order-submenu"/);assert.match(renderer,/privacy-effect-view/);assert.match(styles,/\.thumbnail-effect-reveal \.privacy-effect-view img/);assert.match(renderer,/event\.ctrlKey\|\|event\.shiftKey/);assert.match(renderer,/sidebar-order-submenu/);assert.match(styles,/location-subfolder-list::before/);assert.match(folderTreeWorker,/updatedAt/);
 });
