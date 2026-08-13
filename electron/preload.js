@@ -33,6 +33,7 @@ contextBridge.exposeInMainWorld('pigeon', {
   moveAssetsToPath: (ids, folderPath) => ipcRenderer.invoke('assets:move-to-path', { ids, folderPath }),
   autoRenameAssets: (ids, pattern) => ipcRenderer.invoke('assets:auto-rename', { ids, pattern }),
   startAssetDrag: (ids) => ipcRenderer.send('assets:start-drag', ids),
+  rebuildThumbnails: (ids) => ipcRenderer.invoke('assets:rebuild-thumbnails', ids),
   removeLocation: (id) => ipcRenderer.invoke('library:remove-location', id),
   rescan: (id) => ipcRenderer.invoke('library:rescan', id),
   refreshSources: () => ipcRenderer.invoke('library:refresh-sources'),
