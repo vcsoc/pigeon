@@ -32,7 +32,9 @@ const videoPreparationJobs = new Map();
 const thumbnailPreparationJobs = new Map();
 const unlockedCollections = new Map();
 const unlockedFolders = new Map();
-let mainWindow;
+let mainWindow,hoverControlProcess=null,hoverControlPressed=false;
+function startHoverControlMonitor(){if(process.platform!=='win32'||hoverControlProcess)return;const script=`Add-Type -Name K -Namespace P -MemberDefinition '[DllImport("user32.dll")] public static extern short GetAsyncKeyState(int vKey);';$last=-1;while($true){$v=if(([P.K]::GetAsyncKeyState(0x11)-band 0x8000)-ne 0){1}else{0};if($v-ne $last){[Console]::Out.WriteLine($v);[Console]::Out.Flush();$last=$v};Start-Sleep -Milliseconds 70}`;const child=spawn('powershell.exe',['-NoProfile','-NonInteractive','-Command',script],{windowsHide:true,stdio:['ignore','pipe','ignore']});hoverControlProcess=child;let pending='';child.stdout.on('data',(chunk)=>{pending+=chunk;const lines=pending.split(/\r?\n/);pending=lines.pop();for(const line of lines){const pressed=line.trim()==='1';if(pressed!==hoverControlPressed){hoverControlPressed=pressed;mainWindow?.webContents.send('hover-control:changed',pressed);}}});child.once('exit',()=>{if(hoverControlProcess===child)hoverControlProcess=null;});}
+function stopHoverControlMonitor(){const child=hoverControlProcess;hoverControlProcess=null;if(child)child.kill();hoverControlPressed=false;mainWindow?.webContents.send('hover-control:changed',false);}
 let mediaServer = null, mediaServerPort = 0;
 const mediaServerToken = crypto.randomBytes(24).toString('hex');
 let databaseFile;
@@ -204,7 +206,7 @@ function compatibilityStreamUrl(asset) { return `pigeon-asset://asset/${asset.id
 function publicAssetForRenderer(asset,location){ const {encryptedMediaPaths,encryptedThumbnailPaths,...publicAsset}=asset; return {...publicAsset,locked:isAssetLocked(asset),previewUrl:previewUrlFor(asset,location),mediaUrl:mediaUrlFor(asset)}; }
 const scanBroadcastQueues=new Map();
 function broadcastScanAssets(location,assets,done=false){if(!mainWindow||mainWindow.isDestroyed()||!assets.length&&!done)return;const visibleAssets=assets.filter((asset)=>!isAssetLocked(asset)),key=`${activePortfolioId}:${location.id}`,queue=scanBroadcastQueues.get(key)||{items:[],running:false};for(let offset=0;offset<visibleAssets.length;offset+=100)queue.items.push({portfolioId:activePortfolioId,locationId:location.id,assets:visibleAssets.slice(offset,offset+100).map((asset)=>publicAssetForRenderer(asset,location)),done:false});if(done){if(queue.items.length)queue.items.at(-1).done=true;else queue.items.push({portfolioId:activePortfolioId,locationId:location.id,assets:[],done:true});}scanBroadcastQueues.set(key,queue);if(queue.running)return;queue.running=true;const drain=()=>{const message=queue.items.shift();if(!message){queue.running=false;scanBroadcastQueues.delete(key);return;}if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('scan:assets',message);setTimeout(drain,16);};drain();}
-function broadcastSidebar(){if(!mainWindow||mainWindow.isDestroyed())return;mainWindow.webContents.send('sidebar:changed',{collections:publicCollections(),smartFolders:library.smartFolders,settings:{sidebarSort:library.settings?.sidebarSort||{}},activePortfolioId});}
+function broadcastSidebar(){if(!mainWindow||mainWindow.isDestroyed())return;mainWindow.webContents.send('sidebar:changed',{collections:publicCollections(),smartFolders:library.smartFolders,settings:{sidebarSort:library.settings?.sidebarSort||{},sidebarBranchSort:library.settings?.sidebarBranchSort||{}},activePortfolioId});}
 function broadcast() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   const generation = ++libraryStreamGeneration;
@@ -1728,7 +1730,10 @@ ipcMain.handle('smart-folder:move', (_event, { id, parentId }) => {
 ipcMain.handle('smart-folder:remove', (_event, id) => {
   const removed = libraryCore.removeSmartFolder(library, id); scheduleSave(); broadcast(); return removed;
 });
-ipcMain.handle('sidebar:set-sort',(_event,{type,sort})=>{if(!['collections','smartFolders'].includes(type)||!['manual','name-asc','name-desc','updated-asc','updated-desc'].includes(sort))throw new Error('Invalid sidebar sort');library.settings.sidebarSort={...(library.settings.sidebarSort||{}),[type]:sort};scheduleSave();broadcastSidebar();return sort;});
+const SIDEBAR_SORTS=new Set(['manual','name-asc','name-desc','updated-asc','updated-desc','created-asc','created-desc']);
+ipcMain.handle('sidebar:set-sort',(_event,{type,sort})=>{if(!['collections','smartFolders'].includes(type)||!SIDEBAR_SORTS.has(sort))throw new Error('Invalid sidebar sort');library.settings.sidebarSort={...(library.settings.sidebarSort||{}),[type]:sort};scheduleSave();broadcastSidebar();return sort;});
+ipcMain.handle('sidebar:set-branch-sort',(_event,{type,branch,sort})=>{if(!['collections','smartFolders','folders'].includes(type)||!SIDEBAR_SORTS.has(sort))throw new Error('Invalid branch sort');const key=`${type}:${String(branch??'root')}`;library.settings.sidebarBranchSort={...(library.settings.sidebarBranchSort||{}),[key]:sort};scheduleSave();broadcastSidebar();return sort;});
+ipcMain.on('hover-control:monitor',(_event,enabled)=>{if(enabled)startHoverControlMonitor();else stopHoverControlMonitor();});
 ipcMain.handle('sidebar:reorder-items',(_event,{type,parentId=null,orderedIds=[]})=>{const items=type==='collections'?library.collections:type==='smartFolders'?library.smartFolders:null;if(!items)throw new Error('Invalid sidebar type');const siblings=items.filter((item)=>item.parentId===parentId),valid=new Set(siblings.map((item)=>item.id));if(orderedIds.length!==siblings.length||orderedIds.some((id)=>!valid.has(id)))throw new Error('Invalid sidebar order');orderedIds.forEach((id,index)=>{const item=items.find((entry)=>entry.id===id);item.order=index;item.updatedAt=Date.now();});library.settings.sidebarSort={...(library.settings.sidebarSort||{}),[type]:'manual'};scheduleSave();broadcastSidebar();return true;});
 ipcMain.handle('item:set-icon', (_event, { type, id, icon }) => {
   const value = icon && /^[a-z0-9-]{1,32}$/.test(icon) ? icon : null;

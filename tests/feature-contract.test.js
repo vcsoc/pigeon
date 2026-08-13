@@ -25,6 +25,10 @@ test('UI exposes collection, smart-folder, batch, trash, media, metadata and edi
   }
 });
 
+test('unfocused hover audio, complete menus, tree trunks, preference spacing and branch ordering are wired',()=>{
+  assert.match(main,/GetAsyncKeyState/);assert.match(main,/startHoverControlMonitor/);assert.match(preload,/onHoverControl/);assert.match(renderer,/monitorHoverControl\(true\)/);assert.match(renderer,/asset-context-menu-expanded/);assert.match(styles,/overflow:visible/);assert.match(styles,/\.location-subfolder-list::before/);assert.match(styles,/preferences-nav nav button[^}]*gap:9px/);assert.match(renderer,/showBranchOrderMenu/);assert.match(main,/sidebar:set-branch-sort/);assert.match(renderer,/created-desc/);
+});
+
 test('actions support topbar editing, reordered clearing/move/rename steps and larger fields',()=>{
   for(const step of ['clearCollections','clearTags','clearRating','moveFolder','autoRename'])assert.match(renderer,new RegExp(step));assert.match(renderer,/data-quick-edit/);assert.match(renderer,/wireShortcutStepReordering/);assert.match(renderer,/rename-pattern-suggestions/);assert.match(renderer,/created-date-time/);assert.match(styles,/font-size:13px/);assert.match(main,/assets:auto-rename/);assert.match(main,/assets:move-to-path/);assert.match(core,/operation\.clearCollections/);
 });
