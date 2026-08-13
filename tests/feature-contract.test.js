@@ -23,6 +23,11 @@ test('UI exposes collection, smart-folder, batch, trash, media, metadata and edi
   }
 });
 
+test('hovered video uses hold-Control sound and tree screenshots have terminal branches',()=>{
+  assert.match(renderer,/const keyDown=\(event\)=>\{if\(event\.key!==['"]Control['"]/);assert.match(renderer,/media\.muted=!controlHeld/);assert.match(renderer,/window\.addEventListener\('keyup',keyUp,true\)/);assert.match(renderer,/window\.removeEventListener\('keydown',keyDown,true\)/);assert.match(renderer,/controlHeld=Boolean\(event\?\.ctrlKey\)/);
+  assert.match(renderer,/tree-last/);assert.match(styles,/\.collection-item\.tree-last::after/);assert.match(main,/PIGEON_SMOKE_CAPTURE_TREE/);assert.match(main,/pigeon-tree-smoke\.png/);
+});
+
 test('polished tree, stable post-move reveal and configurable thumbnail privacy effects are wired',()=>{
   assert.match(styles,/isolation:isolate/);assert.match(styles,/linear-gradient\(90deg,color-mix/);assert.match(styles,/border-radius:0 0 0 5px/);assert.match(styles,/folder-tree-toggle:not\(\.empty\)/);
   assert.match(renderer,/postMoveRevealUntil=Date\.now\(\)\+900/);assert.match(renderer,/focusSelectedAsset\(\{lockScroll:true\}\)/);assert.match(renderer,/delays=lockScroll\?\[0,60,140,260,480\]/);assert.match(renderer,/Date\.now\(\)>=state\.postMoveRevealUntil/);

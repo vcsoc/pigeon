@@ -1158,6 +1158,7 @@ function createWindow() {
       const smokeDelay = Math.min(2500, Number(process.env.PIGEON_SMOKE_DELAY) || 200);
       await new Promise((resolve) => setTimeout(resolve, smokeDelay));
       console.log('[smoke] capturing window');
+      if(process.env.PIGEON_SMOKE_CAPTURE_TREE==='1'){mainWindow.setSize(340,920);await mainWindow.webContents.executeJavaScript(`(()=>{document.documentElement.style.setProperty('--sidebar-width','310px');document.querySelector('.app-shell')?.classList.add('tree-capture');document.querySelectorAll('[data-collapse-key]').forEach((toggle)=>{if(toggle.getAttribute('aria-expanded')==='false')toggle.click();});document.querySelector('#sidebar-tree-scroll').scrollTop=0;})()`);await new Promise((resolve)=>setTimeout(resolve,700));const image=await mainWindow.webContents.capturePage({x:0,y:0,width:310,height:900});await fsp.writeFile(path.join(process.cwd(),'pigeon-tree-smoke.png'),image.toPNG());console.log('[smoke] tree capture complete');app.exit(0);return;}
       if (smokeSeeded) {
         const droppedSource = path.join(app.getPath('userData'), 'smoke-drop-source.svg');
         await fsp.writeFile(droppedSource, '<svg xmlns="http://www.w3.org/2000/svg" width="137" height="91"><rect width="137" height="91" fill="#7138a8"/><circle cx="37" cy="43" r="19" fill="#ffcf48"/></svg>');
