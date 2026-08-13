@@ -23,6 +23,12 @@ test('UI exposes collection, smart-folder, batch, trash, media, metadata and edi
   }
 });
 
+test('preloaded magnifier, true viewer scale, scoped thumbnail sizes and matching folder counts are wired',()=>{
+  assert.match(renderer,/image\.onload=/);assert.match(renderer,/asset\.previewUrl\|\|asset\.mediaUrl/);assert.match(renderer,/function viewerFitScale/);assert.match(renderer,/sourceX=.*imageRect\.left/);assert.match(renderer,/Math\.min\(12,oldScale\*factor\)/);
+  assert.match(renderer,/function thumbnailSizeScopeKey/);assert.match(renderer,/function thumbnailSizeStorage/);assert.match(renderer,/restoreScopedThumbnailSize/);assert.match(html,/id="zoom-set-default"/);assert.match(renderer,/Portfolio thumbnail default updated/);assert.match(styles,/aspect-ratio:var\(--preview-ratio\)/);assert.match(styles,/object-fit:contain/);
+  assert.match(fs.readFileSync(path.join(root,'electron','folder-tree-worker.js'),'utf8'),/directCount/);assert.match(renderer,/state\.includeSubfolderContent\?folder\.count:folder\.directCount/);assert.match(html,/data-pref="coloredTreeLevels"/);assert.match(renderer,/colored-tree-levels/);assert.match(styles,/--tree-level-0/);assert.match(styles,/var\(--tree-color\)/);
+});
+
 test('clean hierarchy, delayed fit preview, move continuity and contact sheets are wired',()=>{
   assert.doesNotMatch(styles,/background-image:repeating-linear-gradient\(to right/);assert.match(styles,/border-left:1px solid #555b64/);assert.match(styles,/\.location-folder-item\.active::before/);
   assert.match(renderer,/hoverFitPreviewTimer=setTimeout/);assert.match(renderer,/,420\)/);assert.match(styles,/clip-path:polygon\(100% 0,100% 100%,0 100%\)/);assert.match(styles,/max-width:calc\(100% - 40px\)!important/);assert.match(styles,/object-fit:contain!important/);
@@ -31,7 +37,7 @@ test('clean hierarchy, delayed fit preview, move continuity and contact sheets a
 
 test('structure duplication, broad zoom, cursor viewer zoom, sticky trees, hover preview and topbar actions are wired',()=>{
   assert.match(preload,/duplicateGroupStructure/);assert.match(main,/group:duplicate-structure/);assert.match(main,/copyDirectories/);assert.match(main,/emptyFolders/);assert.match(renderer,/data-folder-action="duplicate"/);assert.match(renderer,/data-smart-action="duplicate"/);assert.match(renderer,/data-location-action="duplicate"/);
-  assert.match(html,/id="zoom-slider"[^>]*min="72"[^>]*max="520"/);assert.match(html,/id="zoom-out"/);assert.match(html,/id="zoom-in"/);assert.match(renderer,/function setThumbnailZoom/);assert.match(styles,/-webkit-app-region:no-drag/);assert.match(renderer,/Math\.min\(12,oldZoom\*factor\)/);assert.match(renderer,/contentX\*scale-cursorX/);
+  assert.match(html,/id="zoom-slider"[^>]*min="72"[^>]*max="520"/);assert.match(html,/id="zoom-out"/);assert.match(html,/id="zoom-in"/);assert.match(renderer,/function setThumbnailZoom/);assert.match(styles,/-webkit-app-region:no-drag/);assert.match(renderer,/Math\.min\(12,oldScale\*factor\)/);assert.match(renderer,/sourceX\*next/);
   assert.match(styles,/\.collapsible-section-label\.pinned-section/);assert.match(renderer,/pinned-section/);assert.match(renderer,/folder-open/);assert.match(html,/id="hover-fit-preview"/);assert.match(renderer,/thumbnail-fit-preview/);assert.match(styles,/\.hover-fit-preview/);assert.match(renderer,/function showQuickActions/);assert.match(renderer,/data-quick-new-action/);
 });
 
