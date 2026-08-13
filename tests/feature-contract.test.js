@@ -43,7 +43,7 @@ test('Smart Folders filter privacy effects, hotkey is editable, and level sortin
 });
 
 test('privacy ranges extend into previews/viewer, modifier wheel scrolls, submenu and parent trunks work',()=>{
-  assert.match(renderer,/minimum=mode==='pixelate'\?25:8/);assert.match(renderer,/maximum=mode==='pixelate'\?150:40/);assert.match(html,/id="sidebar-order-submenu"/);assert.match(renderer,/privacy-effect-view/);assert.match(styles,/\.thumbnail-effect-reveal \.privacy-effect-view img/);assert.match(renderer,/event\.ctrlKey\|\|event\.shiftKey/);assert.match(renderer,/sidebar-order-submenu/);assert.match(styles,/location-subfolder-list::before/);assert.match(folderTreeWorker,/updatedAt/);
+  assert.match(renderer,/minimum=mode==='pixelate'\?30:8/);assert.match(renderer,/maximum=mode==='pixelate'\?500:40/);assert.match(html,/id="sidebar-order-submenu"/);assert.match(renderer,/privacy-effect-view/);assert.match(styles,/\.thumbnail-effect-reveal \.privacy-effect-view img/);assert.match(renderer,/event\.ctrlKey\|\|event\.shiftKey/);assert.match(renderer,/sidebar-order-submenu/);assert.match(styles,/location-subfolder-list::before/);assert.match(folderTreeWorker,/updatedAt/);
 });
 
 test('unfocused hover audio, complete menus, tree trunks, preference spacing and branch ordering are wired',()=>{
@@ -65,7 +65,7 @@ test('hovered video uses hold-Control sound and tree screenshots have terminal b
 test('polished tree, stable post-move reveal and configurable thumbnail privacy effects are wired',()=>{
   assert.match(styles,/isolation:isolate/);assert.match(styles,/linear-gradient\(90deg,color-mix/);assert.match(styles,/border-radius:0 0 0 5px/);assert.match(styles,/folder-tree-toggle:not\(\.empty\)/);
   assert.match(renderer,/postMoveRevealUntil=Date\.now\(\)\+900/);assert.match(renderer,/focusSelectedAsset\(\{lockScroll:true\}\)/);assert.match(renderer,/delays=lockScroll\?\[0,60,140,260,480\]/);assert.match(renderer,/Date\.now\(\)>=state\.postMoveRevealUntil/);
-  assert.match(html,/id="thumbnail-effect-shortcut"/);assert.match(html,/id="thumbnail-effect-strength"/);assert.match(html,/id="blur-effect-preview"/);assert.match(renderer,/function toggleThumbnailEffect/);assert.match(renderer,/thumbnailEffectRevealKey/);assert.match(renderer,/thumbnail-effect-reveal/);assert.match(styles,/thumbnail-effect-applied/);assert.match(libraryCore,/thumbnailEffect/);assert.match(main,/'thumbnailEffect'/);
+  assert.match(html,/id="thumbnail-effect-shortcut"/);assert.match(html,/id="thumbnail-effect-strength"/);assert.match(html,/id="blur-effect-preview"/);assert.match(renderer,/function toggleThumbnailEffect/);assert.match(renderer,/thumbnailEffectRevealKey/);assert.match(html,/id="thumbnail-effect-reveal-shortcut"/);assert.match(renderer,/revealShortcutPressed/);assert.match(renderer,/thumbnail-effect-reveal/);assert.match(styles,/thumbnail-effect-applied/);assert.match(libraryCore,/thumbnailEffect/);assert.match(main,/'thumbnailEffect'/);
 });
 
 test('portfolio loading withholds locked assets and waits for complete authorized stream',()=>{
@@ -914,6 +914,11 @@ test('availability refresh and inline About Pigeon view are wired', () => {
   assert.match(html,/startup-brand about-brand/);
   assert.match(html,/id="about-title">pigeon<\/strong><span>sees all<\/span>/);
   assert.match(styles,/\.about-brand/);
+});
+
+test('Preferences exposes applicable searchable feature shortcuts and wires their commands',()=>{
+  for(const id of ['feature-shortcut-search','built-in-shortcut-groups','thumbnail-effect-reveal-shortcut','clear-thumbnail-effect-reveal-shortcut'])assert.match(html,new RegExp(`id="${id}"`));
+  assert.match(renderer,/const builtInShortcutGroups=/);assert.match(renderer,/Ctrl\+Alt\+R/);assert.match(renderer,/facetShortcuts/);assert.match(renderer,/viewShortcuts/);assert.match(renderer,/Alt\+1':'grid'/);assert.match(renderer,/Ctrl\+Alt\+2/);assert.match(renderer,/renderBuiltInShortcuts/);
 });
 
 test('custom shortcut actions combine configurable steps for the current selection',()=>{
