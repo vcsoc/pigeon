@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, protocol, shell, clipboard, desktopCapturer, crashReporter, utilityProcess } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, protocol, shell, clipboard, desktopCapturer, crashReporter, utilityProcess, screen } = require('electron');
 const fsp = require('node:fs/promises');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -108,6 +108,7 @@ if (smokeTest) {
 }
 const crashDumpDirectory=path.join(app.getPath('userData'),'crashes'); fs.mkdirSync(crashDumpDirectory,{recursive:true}); app.setPath('crashDumps',crashDumpDirectory); crashReporter.start({uploadToServer:false,compress:false});
 const runtimePreferencesFile = path.join(app.getPath('userData'), 'runtime-preferences.json');
+const windowStateFile=path.join(app.getPath('userData'),'window-state.json');
 try { const runtimePreferences = JSON.parse(fs.readFileSync(runtimePreferencesFile, 'utf8')); if (runtimePreferences.hardwareAcceleration === false) app.disableHardwareAcceleration(); } catch { /* Defaults remain enabled. */ }
 const hasInstanceLock = app.requestSingleInstanceLock();
 if (!hasInstanceLock) app.quit();
@@ -1119,10 +1120,11 @@ async function runPlugin(pluginName) {
   });
 }
 
+function savedWindowOptions(){let saved=null;try{saved=JSON.parse(fs.readFileSync(windowStateFile,'utf8'));}catch{}const displays=screen.getAllDisplays(),intersects=(bounds,area)=>bounds&&bounds.x<area.x+area.width&&bounds.x+bounds.width>area.x&&bounds.y<area.y+area.height&&bounds.y+bounds.height>area.y;if(saved&&displays.some((display)=>intersects(saved,display.workArea)))return{x:saved.x,y:saved.y,width:Math.max(920,saved.width||1440),height:Math.max(620,saved.height||900)};const area=screen.getPrimaryDisplay().workArea,width=Math.min(1440,area.width),height=Math.min(900,area.height);return{x:area.x+Math.round((area.width-width)/2),y:area.y+Math.round((area.height-height)/2),width,height};}
+function centerWindowOnDisplay(index=0){if(!mainWindow)return false;const primary=screen.getPrimaryDisplay(),displays=[primary,...screen.getAllDisplays().filter((display)=>display.id!==primary.id)],display=displays[index]||primary,area=display.workArea,bounds=mainWindow.getBounds(),width=Math.min(bounds.width,area.width),height=Math.min(bounds.height,area.height);mainWindow.unmaximize();mainWindow.setBounds({x:area.x+Math.round((area.width-width)/2),y:area.y+Math.round((area.height-height)/2),width,height});return Boolean(displays[index]);}
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 900,
+    ...savedWindowOptions(),
     minWidth: 920,
     minHeight: 620,
     title: 'Pigeon',
@@ -1136,6 +1138,7 @@ function createWindow() {
       nodeIntegration: false
     }
   });
+  let windowStateTimer;const persistWindowState=()=>{clearTimeout(windowStateTimer);windowStateTimer=setTimeout(()=>{if(mainWindow&&!mainWindow.isDestroyed()&&!mainWindow.isMaximized())fsp.writeFile(windowStateFile,JSON.stringify(mainWindow.getBounds())).catch(()=>{});},180);};mainWindow.on('move',persistWindowState);mainWindow.on('resize',persistWindowState);mainWindow.on('close',()=>{if(mainWindow&&!mainWindow.isDestroyed()&&!mainWindow.isMaximized())fs.writeFileSync(windowStateFile,JSON.stringify(mainWindow.getBounds()));});
   mainWindow.on('maximize', () => mainWindow.webContents.send('window:maximized', true));
   mainWindow.on('unmaximize', () => mainWindow.webContents.send('window:maximized', false));
   mainWindow.webContents.on('render-process-gone', (_event, details) => { writeFatalDiagnostic('electron:render-process-gone',details.reason,details); recordDiagnostic('error', 'Renderer process stopped', details); if(!app.isQuitting&&details.reason!=='clean-exit')setTimeout(()=>{if(mainWindow&&!mainWindow.isDestroyed())mainWindow.reload();else createWindow();},500); });
@@ -1707,6 +1710,7 @@ ipcMain.handle('smart-folder:create', (_event, { name, filters, parentId }) => {
 ipcMain.handle('smart-folder:rename', (_event, { id, name }) => {
   const smartFolder = libraryCore.renameSmartFolder(library, id, name); scheduleSave(); broadcast(); return smartFolder;
 });
+ipcMain.handle('smart-folder:update',(_event,{id,name,filters})=>{const folder=libraryCore.renameSmartFolder(library,id,name);folder.filters=filters||{};folder.updatedAt=Date.now();scheduleSave();broadcastSidebar();return folder;});
 ipcMain.handle('smart-folder:move', (_event, { id, parentId }) => {
   const smartFolder = libraryCore.moveSmartFolder(library, id, parentId); scheduleSave(); broadcast(); return smartFolder;
 });
@@ -1871,6 +1875,9 @@ ipcMain.handle('asset:reset-inline-edits', (_event, id) => resetInlineEdits(id))
 ipcMain.handle('asset:duplicate', (_event, id) => duplicateAsset(id));
 ipcMain.handle('asset:export-annotated', (_event, { id, annotations, edits }) => exportAnnotatedAsset(id, annotations, edits));
 ipcMain.handle('library:export-group', (_event, { type, id }) => exportLibraryGroup(type, id));
+ipcMain.handle('asset:export',async(_event,id)=>{const asset=library.assets.find((item)=>item.id===id&&!item.deletedAt);if(!asset||!(await pathAvailable(asset.path)))return null;const result=await dialog.showSaveDialog(mainWindow,{title:'Export file',defaultPath:asset.filename});if(result.canceled||!result.filePath)return null;await fsp.copyFile(asset.path,result.filePath);return result.filePath;});
+ipcMain.handle('asset:read-text',async(_event,id)=>{const asset=library.assets.find((item)=>item.id===id&&!item.deletedAt),allowed=new Set(['TXT','JSON','YAML','YML']);if(!asset||!allowed.has(String(asset.extension).toUpperCase())||!(await pathAvailable(asset.path)))return null;const stat=await fsp.stat(asset.path);if(stat.size>8*1024*1024)throw new Error('Text reader supports files up to 8 MB');return{content:await fsp.readFile(asset.path,'utf8'),extension:String(asset.extension).toLowerCase(),filename:asset.filename};});
+ipcMain.handle('contact-sheet:export',async(event,payload)=>{const format=typeof payload==='string'?payload:payload?.format,extension=['pdf','jpeg','png','webp'].includes(String(format).toLowerCase())?String(format).toLowerCase():'pdf',result=await dialog.showSaveDialog(mainWindow,{title:'Export contact sheet',defaultPath:`contact-sheet.${extension}`,filters:[{name:extension.toUpperCase(),extensions:[extension]}]});if(result.canceled||!result.filePath)return null;if(extension==='pdf'){const pdf=await event.sender.printToPDF({printBackground:true,pageSize:'A4'});await fsp.writeFile(result.filePath,pdf);}else{const rect=payload?.rect&&Number.isFinite(payload.rect.width)?payload.rect:undefined,image=await event.sender.capturePage(rect),png=image.toPNG();if(extension==='png')await fsp.writeFile(result.filePath,png);else await sharp(png)[extension==='jpeg'?'jpeg':'webp']({quality:92}).toFile(result.filePath);}return result.filePath;});
 ipcMain.handle('extension:open-folder', () => shell.openPath(app.isPackaged ? path.join(process.resourcesPath, 'browser-extension') : path.join(process.cwd(), 'browser-extension')));
 ipcMain.handle('plugins:list', async () => {
   await fsp.mkdir(pluginsDir, { recursive: true });
@@ -1941,6 +1948,7 @@ ipcMain.handle('window:set-zoom', (_event, value) => {
   mainWindow?.webContents.setZoomFactor(zoom);
   return zoom;
 });
+ipcMain.handle('window:center-display',(_event,index)=>centerWindowOnDisplay(Math.max(0,Number(index)||0)));
 ipcMain.handle('preferences:update', async (_event, preferences = {}) => {
   library.settings = library.settings || {}; library.settings.preferences = { ...(library.settings.preferences || {}), ...preferences };
   await fsp.writeFile(runtimePreferencesFile, JSON.stringify({ hardwareAcceleration: preferences.hardwareAcceleration !== false }), 'utf8');

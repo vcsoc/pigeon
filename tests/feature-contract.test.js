@@ -23,6 +23,15 @@ test('UI exposes collection, smart-folder, batch, trash, media, metadata and edi
   }
 });
 
+test('trash isolation, analytics actions, text reader, contact export, window restore and Smart Folder editing are wired',()=>{
+  assert.match(renderer,/state\.view === 'trash'&&!state\.locationId&&!state\.collectionId&&!state\.smartFolderId/);assert.match(renderer,/state\.view='all';state\.smartFolderId/);assert.match(renderer,/visibleAssets\.length/);assert.match(renderer,/filter\(\(asset\)=>!asset\.deletedAt\)\.flatMap/);
+  assert.match(renderer,/data-analytics-asset/);assert.match(renderer,/View in folder/);assert.match(renderer,/Export to computer/);assert.match(renderer,/Copy path to file/);assert.match(preload,/exportAsset/);
+  assert.match(html,/id="viewer-text-reader"/);assert.match(html,/id="viewer-line-numbers"/);assert.match(preload,/readTextAsset/);assert.match(main,/asset:read-text/);assert.match(renderer,/function escapeSyntax/);assert.match(styles,/syntax-key/);
+  assert.match(html,/id="contact-sheet-export"/);assert.match(html,/WEBP/);assert.match(main,/contact-sheet:export/);assert.match(styles,/contact-sheet-page[^}]*background:var\(--panel\)/);assert.match(styles,/@media print[\s\S]*background:white/);
+  assert.match(main,/window-state\.json/);assert.match(main,/function savedWindowOptions/);assert.match(main,/screen\.getPrimaryDisplay/);assert.match(main,/window:center-display/);assert.match(renderer,/event\.ctrlKey&&event\.altKey/);
+  assert.match(renderer,/data-smart-action="edit"/);assert.match(renderer,/openSmartFolderDialog\(null,folder\)/);assert.match(preload,/updateSmartFolder/);assert.match(main,/smart-folder:update/);
+});
+
 test('preloaded magnifier, true viewer scale, scoped thumbnail sizes and matching folder counts are wired',()=>{
   assert.match(renderer,/image\.onload=/);assert.match(renderer,/asset\.previewUrl\|\|asset\.mediaUrl/);assert.match(renderer,/function viewerFitScale/);assert.match(renderer,/sourceX=.*imageRect\.left/);assert.match(renderer,/Math\.min\(12,oldScale\*factor\)/);
   assert.match(renderer,/function thumbnailSizeScopeKey/);assert.match(renderer,/function thumbnailSizeStorage/);assert.match(renderer,/restoreScopedThumbnailSize/);assert.match(html,/id="zoom-set-default"/);assert.match(renderer,/Portfolio thumbnail default updated/);assert.match(styles,/aspect-ratio:var\(--preview-ratio\)/);assert.match(styles,/object-fit:contain/);
