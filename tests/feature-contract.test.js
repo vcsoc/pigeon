@@ -23,6 +23,10 @@ test('UI exposes collection, smart-folder, batch, trash, media, metadata and edi
   }
 });
 
+test('portfolio registry recovery and adding existing databases are wired',()=>{
+  assert.match(main,/portfolioRegistrySave=Promise\.resolve/);assert.match(main,/async function discoverPortfolioDatabases/);assert.match(main,/portfolios\.json\.bak|`\$\{portfolioRegistryFile\}\.bak`/);assert.match(main,/await handle\.sync\(\)/);assert.match(main,/portfolio:add-existing/);assert.match(main,/portfolio\.managed!==false/);assert.match(preload,/addExistingPortfolio/);assert.match(html,/id="add-existing-portfolio"/);assert.match(renderer,/addExistingPortfolio\(\)/);
+});
+
 test('appearance tree colors, hierarchical action destinations, custom F2 and faster magnifier are wired',()=>{
   assert.match(html,/id="tree-level-colors"/);assert.match(html,/id="add-tree-level-color"/);assert.match(renderer,/treeLevelColors/);assert.match(renderer,/function treeLevelColor/);assert.match(renderer,/data-delete-tree-level/);assert.match(styles,/color-mix\(in srgb,var\(--tree-color\)/);
   assert.match(renderer,/function shortcutCollectionOptions/);assert.match(renderer,/nextPath\.join\(' › '\)/);assert.match(renderer,/class="shortcut-tree-select"/);assert.match(styles,/select\[data-shortcut-step-value\][^{]*\{[^}]*font-size:9px/);

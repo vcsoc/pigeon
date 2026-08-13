@@ -46,6 +46,7 @@ let importsDir;
 let backupDir;
 let pluginsDir;
 let portfolioRegistryFile;
+let portfolioRegistrySave=Promise.resolve();
 let mapTileDir;
 let portfolios = [];
 let activePortfolioId = 'default';
@@ -311,16 +312,19 @@ function initializeStoragePaths() {
   diagnosticsFile = path.join(app.getPath('userData'), 'diagnostics.jsonl');
   try { diagnosticEntries = fs.readFileSync(diagnosticsFile, 'utf8').trim().split(/\r?\n/).slice(-1000).map((line) => JSON.parse(line)); } catch { diagnosticEntries = []; }
 }
+function normalizedPortfolioDatabase(value){return path.resolve(String(value||'')).toLowerCase();}
+async function isPortfolioDatabase(file){try{const handle=await fsp.open(file,'r'),header=Buffer.alloc(16);await handle.read(header,0,16,0);await handle.close();return header.toString('utf8')==='SQLite format 3\u0000';}catch{return false;}}
+async function discoverPortfolioDatabases(){const directory=path.join(app.getPath('userData'),'portfolios');await fsp.mkdir(directory,{recursive:true});const known=new Set(portfolios.map((item)=>normalizedPortfolioDatabase(item.database||portfolioDatabasePath(item.id))));let recovered=0;for(const entry of await fsp.readdir(directory,{withFileTypes:true})){if(!entry.isFile()||path.extname(entry.name).toLowerCase()!=='.db')continue;const database=path.join(directory,entry.name),key=normalizedPortfolioDatabase(database);if(known.has(key)||!(await isPortfolioDatabase(database)))continue;const id=path.basename(entry.name,'.db'),stem=`Recovered Portfolio ${id.slice(0,8)}`;let name=stem,suffix=2;while(portfolios.some((item)=>item.name.toLowerCase()===name.toLowerCase()))name=`${stem} ${suffix++}`;portfolios.push({id,name,database,legacyFile:null,managed:false,recovered:true});known.add(key);recovered+=1;}if(recovered)recordDiagnostic('warning',`Recovered ${recovered} portfolio database${recovered===1?'':'s'} missing from the registry`);return recovered;}
 async function savePortfolioRegistry() {
   if (smokeTest) return;
-  await fsp.writeFile(portfolioRegistryFile, JSON.stringify({ activePortfolioId, portfolios }, null, 2));
+  const snapshot=JSON.stringify({ activePortfolioId, portfolios }, null, 2),target=portfolioRegistryFile,temporary=`${target}.tmp`,backup=`${target}.bak`;
+  portfolioRegistrySave=portfolioRegistrySave.then(async()=>{await fsp.mkdir(path.dirname(target),{recursive:true});try{const current=await fsp.readFile(target,'utf8');JSON.parse(current);await fsp.writeFile(backup,current);}catch{}await fsp.writeFile(temporary,snapshot);const handle=await fsp.open(temporary,'r+');await handle.sync();await handle.close();await fsp.rename(temporary,target);}).catch((error)=>{recordDiagnostic('error','Could not save portfolio registry',error);throw error;});return portfolioRegistrySave;
 }
 async function loadPortfolioRegistry() {
-  try {
-    const parsed = JSON.parse(await fsp.readFile(portfolioRegistryFile, 'utf8'));
-    if (Array.isArray(parsed.portfolios) && parsed.portfolios.length) portfolios = parsed.portfolios.filter((item) => item.id && item.name).map((item) => ({ id: item.id, name: item.name, database: item.database || portfolioDatabasePath(item.id), legacyFile: portfolioLegacyJsonPath(item) }));
-    if (portfolios.some((item) => item.id === parsed.activePortfolioId)) activePortfolioId = parsed.activePortfolioId;
-  } catch (error) { if (error.code !== 'ENOENT') console.error('Could not load portfolios:', error); }
+  let parsed=null,loadError=null;
+  for(const candidate of [portfolioRegistryFile,`${portfolioRegistryFile}.bak`])try{parsed=JSON.parse(await fsp.readFile(candidate,'utf8'));break;}catch(error){if(error.code!=='ENOENT')loadError=error;}
+  if(parsed){if(Array.isArray(parsed.portfolios)&&parsed.portfolios.length)portfolios=parsed.portfolios.filter((item)=>item.id&&item.name).map((item)=>({id:item.id,name:item.name,database:item.database||portfolioDatabasePath(item.id),legacyFile:portfolioLegacyJsonPath(item),managed:item.managed!==false,recovered:Boolean(item.recovered)}));if(portfolios.some((item)=>item.id===parsed.activePortfolioId))activePortfolioId=parsed.activePortfolioId;}else if(loadError)recordDiagnostic('error','Could not load portfolio registry; searching for portfolio databases',loadError);
+  await discoverPortfolioDatabases();
   const active = portfolios.find((item) => item.id === activePortfolioId) || portfolios[0];
   activePortfolioId = active.id; databaseFile = active.database || portfolioDatabasePath(active.id); legacyJsonFile = active.legacyFile || null;
   await savePortfolioRegistry();
@@ -1563,9 +1567,10 @@ ipcMain.handle('portfolio:create', async (_event, name) => {
   await fsp.mkdir(path.dirname(database), { recursive: true });
   const worker = new Worker(path.join(__dirname, 'database-worker.js'), { workerData: { databaseFile: database } }); trackWorker(worker, 'portfolio-create');
   await new Promise((resolve, reject) => { worker.once('online', resolve); worker.once('error', reject); }); worker.postMessage({ id: 1, action: 'save', library: libraryCore.migrateLibrary({ loading: false }) }); await new Promise((resolve) => worker.once('message', resolve)); await worker.terminate();
-  portfolios.push({ id, name: trimmed, database, legacyFile: null }); await savePortfolioRegistry();
+  portfolios.push({ id, name: trimmed, database, legacyFile: null,managed:true }); await savePortfolioRegistry();
   return { id, name: trimmed };
 });
+ipcMain.handle('portfolio:add-existing',async()=>{const result=await dialog.showOpenDialog(mainWindow,{properties:['openFile'],title:'Add Existing Pigeon Portfolio',filters:[{name:'Pigeon portfolio database',extensions:['db']}]});if(result.canceled||!result.filePaths[0])return null;const database=path.resolve(result.filePaths[0]);if(!(await isPortfolioDatabase(database)))throw new Error('The selected file is not a valid SQLite portfolio database');if(portfolios.some((item)=>normalizedPortfolioDatabase(item.database||portfolioDatabasePath(item.id))===normalizedPortfolioDatabase(database)))throw new Error('That portfolio is already added');const base=path.basename(database,path.extname(database)).replace(/[-_]+/g,' ').trim()||'Existing Portfolio',name=String(await dialog.showMessageBox(mainWindow,{type:'question',title:'Add Existing Portfolio',message:`Add “${base}”?`,detail:database,buttons:['Add Portfolio','Cancel'],defaultId:0,cancelId:1}).then((choice)=>choice.response===0?base:''));if(!name)return null;let unique=name,suffix=2;while(portfolios.some((item)=>item.name.toLowerCase()===unique.toLowerCase()))unique=`${name} ${suffix++}`;const fileId=path.basename(database,'.db'),id=/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(fileId)&&!portfolios.some((item)=>item.id===fileId)?fileId:crypto.randomUUID(),portfolio={id,name:unique,database,legacyFile:null,managed:false};portfolios.push(portfolio);await savePortfolioRegistry();broadcast();return{id,name:unique};});
 ipcMain.handle('portfolio:rename', async (_event, { id, name }) => {
   const portfolio = portfolios.find((item) => item.id === id);
   const trimmed = String(name || '').trim();
@@ -1610,7 +1615,7 @@ ipcMain.handle('portfolio:remove', async (_event, id) => {
   if (id === activePortfolioId) throw new Error('Switch to another portfolio before deleting this one');
   const portfolio = portfolios.find((item) => item.id === id);
   if (!portfolio) return false;
-  portfolios = portfolios.filter((item) => item.id !== id); await savePortfolioRegistry(); await Promise.all([fsp.rm(portfolio.database || portfolioDatabasePath(id), { force: true }), fsp.rm(`${portfolio.database || portfolioDatabasePath(id)}-wal`, { force: true }), fsp.rm(`${portfolio.database || portfolioDatabasePath(id)}-shm`, { force: true })]); broadcast(); return true;
+  portfolios = portfolios.filter((item) => item.id !== id); await savePortfolioRegistry(); if(portfolio.managed!==false)await Promise.all([fsp.rm(portfolio.database || portfolioDatabasePath(id), { force: true }), fsp.rm(`${portfolio.database || portfolioDatabasePath(id)}-wal`, { force: true }), fsp.rm(`${portfolio.database || portfolioDatabasePath(id)}-shm`, { force: true })]); broadcast(); return true;
 });
 ipcMain.handle('library:get', () => publicLibrarySummary());
 ipcMain.handle('library:add-folder', async () => {

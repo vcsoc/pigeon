@@ -2104,6 +2104,7 @@ $('#new-portfolio').addEventListener('click', async () => {
   const name = await requestText({ title: 'Create a Portfolio', message: 'Enter a name for the portfolio. Each portfolio keeps its locations, collections, and tags separate.', label: 'Portfolio name', placeholder: 'Portfolio name', confirmText: 'Create Portfolio' }); if (!name?.trim()) return;
   try { const portfolio = await window.pigeon.createPortfolio(name.trim()); state.library.portfolios.push(portfolio); renderPortfolioManager(); $('#portfolio-select').value = portfolio.id; } catch (error) { showToast(error.message); }
 });
+$('#add-existing-portfolio').addEventListener('click',async()=>{try{const portfolio=await window.pigeon.addExistingPortfolio();if(!portfolio)return;if(!state.library.portfolios.some((item)=>item.id===portfolio.id))state.library.portfolios.push(portfolio);renderPortfolioManager();renderPortfolioSwitcher();$('#portfolio-select').value=portfolio.id;showToast(`${portfolio.name} added`);}catch(error){showToast(error.message);}});
 $('#rename-portfolio').addEventListener('click', async () => {
   const id = $('#portfolio-select').value; const current = state.library.portfolios.find((item) => item.id === id); if (!current) return;
   const name = await requestText({ title: 'Rename Portfolio', label: 'Portfolio name', value: current.name, confirmText: 'Rename' }); if (!name?.trim()) return;

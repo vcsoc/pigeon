@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('pigeon', {
   searchMap: (query) => ipcRenderer.invoke('map:search', query),
   suggestMap: (query) => ipcRenderer.invoke('map:suggest', query),
   createPortfolio: (name) => ipcRenderer.invoke('portfolio:create', name),
+  addExistingPortfolio: () => ipcRenderer.invoke('portfolio:add-existing'),
   renamePortfolio: (id, name) => ipcRenderer.invoke('portfolio:rename', { id, name }),
   switchPortfolio: (id) => ipcRenderer.invoke('portfolio:switch', id),
   removePortfolio: (id) => ipcRenderer.invoke('portfolio:remove', id),
