@@ -1510,6 +1510,7 @@ function createWindow() {
         if (image) {
           await fsp.writeFile(path.join(process.cwd(), 'pigeon-smoke.png'), image.toPNG());
           console.log('[smoke] capture complete');
+          if(smokeLarge){const virtual=await mainWindow.webContents.executeJavaScript(`(async()=>{state.kind='all';renderGrid();await new Promise((resolve)=>setTimeout(resolve,80));const wrap=document.querySelector('#grid-wrap');wrap.scrollTop=wrap.scrollHeight;wrap.dispatchEvent(new Event('scroll'));await new Promise((resolve)=>setTimeout(resolve,180));const ids=[...document.querySelectorAll('.asset-card')].map((card)=>Number(card.dataset.assetId?.replace('asset-',''))).filter(Number.isFinite);return{scrollTop:wrap.scrollTop,scrollHeight:wrap.scrollHeight,max:ids.length?Math.max(...ids):-1,mounted:ids.length,total:state.library.assets.length};})()`);console.log(`[smoke] virtual bottom ${JSON.stringify(virtual)}`);if(virtual.total>=25000&&(virtual.max<virtual.total-1||virtual.mounted>1000))throw new Error(`Virtual bottom verification failed: ${JSON.stringify(virtual)}`);}
         }
       } finally {
         if (smokeSeeded) {

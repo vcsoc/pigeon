@@ -210,7 +210,7 @@ html[data-theme="midnight"] { --bg: #151a25; --panel: #1d2230; --sidebar: #191e2
 #inline-unlock-form button { height:34px; padding:0 14px; border:1px solid #454b55; border-radius:5px; background:#2d3138; color:#dfe3e9; }
 #inline-unlock-form button:hover { background:#383d46; }.inline-unlock-error { min-height:15px; margin-top:8px!important; color:#e5757f!important; }
 .asset-grid { display: grid; grid-template-columns: repeat(auto-fill, var(--card-width)); grid-auto-rows: 4px; column-gap: 12px; row-gap: 4px; align-items: start; justify-content: start; }
-.grid-virtual-spacer{grid-column:1/-1;width:1px;pointer-events:none}.layout-list .grid-virtual-spacer{flex:0 0 auto}.grid-wrap.duplicates-view { padding-top: 0; }
+.asset-grid.virtualized-grid{position:relative;display:block!important}.virtualized-grid .virtual-card{position:absolute;margin:0}.virtualized-grid .virtual-card .asset-preview{height:var(--virtual-preview-height);aspect-ratio:auto}.layout-list .virtualized-grid .virtual-card{display:grid}.grid-wrap.duplicates-view { padding-top: 0; }
 .duplicate-controls { position: sticky; top: 0; z-index: 7; min-height: 48px; margin: 0 -14px 14px; padding: 10px 16px; display: flex; align-items: center; gap: 18px; border: 0; border-bottom: 1px solid #363a43; border-radius: 0; background: #1e2025; box-shadow: none; }
 .duplicate-controls > div { display: flex; flex-direction: column; min-width: 150px; }
 .duplicate-controls span { color: var(--muted); }

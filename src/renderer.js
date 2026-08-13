@@ -811,8 +811,8 @@ function renderGrid() {
   elements.gridWrap.classList.toggle('layout-justified', state.layout === 'justified');
   elements.count.textContent = loading ? 'Loading…' : `${allAssets.length} ${allAssets.length === 1 ? 'item' : 'items'}`;
   rotatedThumbnailObserver.disconnect();
-  const topVirtualHeight=virtualEnabled?startRow*estimatedRowHeight:0;elements.grid.style.minHeight=virtualEnabled?`${Math.max(elements.gridWrap.clientHeight,totalRows*estimatedRowHeight)}px`:'';elements.grid.style.paddingTop=virtualEnabled?`${topVirtualHeight}px`:'';
-  elements.grid.innerHTML = assets.map((asset) => {
+  elements.grid.classList.toggle('virtualized-grid',virtualEnabled);elements.grid.style.height=virtualEnabled?`${Math.max(elements.gridWrap.clientHeight,totalRows*estimatedRowHeight)}px`:'';elements.grid.style.minHeight='';elements.grid.style.paddingTop='';
+  elements.grid.innerHTML = assets.map((asset,windowIndex) => {
     const visual = ['image', 'video', 'audio', 'document'].includes(asset.kind) && Boolean(asset.thumbnailPath), previewFailed = Boolean(asset.thumbnailFailedAt && !asset.thumbnailPath);
     const originalRatio = Math.max(.35, Math.min(3.5, asset.width && asset.height ? asset.width / asset.height : asset.kind === 'audio' ? 3.75 : 1.35));
     const quarterTurn = Boolean((Number(asset.rotation) || 0) % 180);
@@ -829,7 +829,8 @@ function renderGrid() {
     const titleHtml = titleLines.map((line, index) => `<span class="card-title-line ${index === 0 ? 'card-name' : ''}" data-title-field="${line.field}" title="${escapeHtml(line.text)}">${escapeHtml(line.text)}</span>`).join('');
     const ratio = quarterTurn ? 1 / originalRatio : originalRatio;
     const justifiedHeight = Math.max(52, Math.min(320, Number($('#zoom-slider').value) * .58));
-    return `<article class="asset-card ${state.selectedId === asset.id ? 'selected' : ''} ${state.selectedIds.has(asset.id) ? 'multi-selected' : ''} ${asset.sourceMissing ? 'source-missing' : ''} ${asset.thumbnailEffect?'thumbnail-effect-applied':''}" style="--asset-ratio:${ratio};--justified-basis:${Math.round(justifiedHeight * ratio)}px" data-asset-id="${asset.id}" data-asset-kind="${asset.kind}" tabindex="0" draggable="true">
+    const globalIndex=virtualStart+windowIndex,virtualStyle=virtualEnabled?state.layout==='list'?`left:0;right:0;top:${Math.floor(globalIndex/columns)*estimatedRowHeight}px;height:${estimatedRowHeight-3}px`:`left:${globalIndex%columns*(cardWidth+12)}px;top:${Math.floor(globalIndex/columns)*estimatedRowHeight}px;width:${cardWidth}px;--virtual-preview-height:${Math.max(64,estimatedRowHeight-38)}px`:'';
+    return `<article class="asset-card ${virtualEnabled?'virtual-card ':''}${state.selectedId === asset.id ? 'selected' : ''} ${state.selectedIds.has(asset.id) ? 'multi-selected' : ''} ${asset.sourceMissing ? 'source-missing' : ''} ${asset.thumbnailEffect?'thumbnail-effect-applied':''}" style="--asset-ratio:${ratio};--justified-basis:${Math.round(justifiedHeight * ratio)}px;${virtualStyle}" data-asset-id="${asset.id}" data-asset-kind="${asset.kind}" tabindex="0" draggable="true">
       <div class="asset-preview ${quarterTurn ? 'quarter-turned' : ''}" style="--original-ratio:${originalRatio};--preview-ratio:${ratio}">${preview}${visual&&asset.kind==='image'?`<button class="thumbnail-fit-preview" type="button" title="Preview full image" aria-label="Preview ${escapeHtml(asset.name)}">${iconSvg('search')}</button>`:''}${stackBadge}${asset.sourceMissing ? '<span class="source-missing-overlay">Source Missing</span>' : isOffline(asset) ? '<span class="card-offline">Offline</span>' : ''}</div>
       <div class="card-meta ${titleHtml ? '' : 'no-titles'}"><span class="card-titles">${titleHtml}</span>${asset.favorite ? '<span class="card-favorite">★</span>' : ''}</div>
     </article>`;
@@ -908,7 +909,7 @@ function scheduleMasonry() {
 }
 
 function layoutMasonry() {
-  if (state.layout !== 'grid' || elements.grid.classList.contains('hidden')) return;
+  if (state.layout !== 'grid' || elements.grid.classList.contains('hidden')||elements.grid.classList.contains('virtualized-grid')) return;
   const styles=getComputedStyle(elements.grid),rowHeight=parseFloat(styles.gridAutoRows)||4,rowGap=parseFloat(styles.rowGap)||4,cards=[...elements.grid.querySelectorAll('.asset-card')];
   for(const card of cards)card.style.gridRowEnd='auto';
   const heights=cards.map((card)=>card.getBoundingClientRect().height);
