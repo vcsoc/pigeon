@@ -71,6 +71,7 @@ let preferences = (() => { try { const saved={ ...preferenceDefaults, ...JSON.pa
 if (!localStorage.getItem('pigeon.videoAutoplayOptIn')) preferences.videoAutoplay = false;
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
+document.documentElement.dataset.platform = window.pigeon.platform;
 const iconSvg = (name, className) => window.pigeonIcon(name, className);
 const itemIcon = (item, fallback) => item?.icon || fallback;
 const subfolderIconKey = (locationId, subfolder) => `${locationId}:${subfolder}`;

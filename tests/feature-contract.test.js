@@ -19,6 +19,7 @@ const styles = fs.readFileSync(path.join(root, 'src', 'styles.css'), 'utf8');
 const worldLand = fs.readFileSync(path.join(root, 'src', 'world-land.js'), 'utf8');
 const icons = fs.readFileSync(path.join(root, 'src', 'icons.js'), 'utf8');
 const packageJson = fs.readFileSync(path.join(root, 'package.json'), 'utf8');
+const systemResources = fs.readFileSync(path.join(root, 'electron', 'system-resources.js'), 'utf8');
 
 test('UI exposes collection, smart-folder, batch, trash, media, metadata and editing surfaces', () => {
   for (const id of ['collection-list', 'smart-folder-list', 'batch-bar', 'duplicates-count', 'trash-count', 'inspector-video', 'inspector-audio', 'sidebar-resizer', 'inspector-resizer', 'batch-stack', 'batch-unstack', 'settings-dialog', 'text-entry-dialog', 'smart-folder-dialog', 'smart-folder-name', 'smart-folder-rules', 'favorite-shortcut', 'portfolio-switcher', 'portfolio-switcher-search', 'portfolio-switcher-list', 'portfolio-select', 'switch-portfolio', 'new-portfolio', 'rename-portfolio', 'delete-portfolio', 'encrypt-locked-folders', 'confirm-folder-moves', 'rotate-left', 'rotate-right', 'tag-suggestions', 'tag-autocomplete', 'tag-assignment-dialog', 'batch-tag-input', 'viewer-crop-overlay', 'map-view', 'location-map', 'map-search-input', 'map-globe-mode', 'map-street-mode', 'map-save', 'location-shortcut', 'duplicate-controls', 'duplicate-similarity', 'show-all-duplicate-groups', 'thumbnail-title-line-1', 'thumbnail-title-line-2', 'thumbnail-title-line-3', 'tag-browser', 'media-viewer', 'viewer-video', 'asset-histogram', 'annotation-view']) {
@@ -327,6 +328,12 @@ test('startup, About, runtime and platform packages use the transparent Pigeon l
   assert.match(renderer, /STARTUP_SPLASH_MINIMUM_MS=2000/);
   assert.match(styles, /\.startup-brand img \{[^}]*width:270px/);
   assert.match(styles, /border: 0/);
+});
+
+test('macOS titlebar keeps the Pigeon menu clear of window controls', () => {
+  assert.match(renderer, /document\.documentElement\.dataset\.platform = window\.pigeon\.platform/);
+  assert.match(styles, /html\[data-platform="darwin"\] \.window-drag \{ padding-left: 80px; \}/);
+  assert.match(styles, /html\[data-platform="darwin"\] #app-menu \{ top: 42px; left: 73px; \}/);
 });
 
 test('rotated thumbnails swap orientation and rotated viewer images remain fitted', () => {
@@ -673,7 +680,7 @@ test('native PDF canvas is isolated from Pigeon main process',()=>{
   assert.match(main,/pdf-thumbnail-child\.js/);
   assert.match(main,/Isolated PDF preview process exited/);
   assert.doesNotMatch(packageJson,/"@napi-rs\/canvas"/);
-  assert.match(fs.readFileSync(path.join(root,'electron','pdf-thumbnail-child.js'),'utf8'),/pdfjs-dist\/node_modules\/@napi-rs\/canvas/);
+  assert.match(fs.readFileSync(path.join(root,'electron','pdf-thumbnail-child.js'),'utf8'),/require\.resolve\('@napi-rs\/canvas'/);
 });
 
 test('all catchable unhandled exceptions are persisted across Electron processes',()=>{
@@ -699,7 +706,9 @@ test('large indexing applies system-stability backpressure and crash recovery', 
   assert.match(main,/PDF_WORKER_LIMIT = 1/);
   assert.match(main,/LARGE_SCAN_WORKER_LIMIT = 2/);
   assert.match(main,/MIN_FREE_MEMORY_BYTES/);
-  assert.match(main,/os\.freemem\(\)/);
+  assert.match(main,/availableMemoryBytes\(\)/);
+  assert.match(systemResources,/os\.freemem\(\)/);
+  assert.match(systemResources,/vm_stat/);
   assert.match(main,/await worker\.terminate\(\)/);
   assert.match(main,/scanWorkActive/);
   assert.match(main,/waitForScanIdle/);
