@@ -24,6 +24,6 @@ test('unrelated updater and authentication errors still surface', () => {
 
 test('the update IPC handler returns a nonfatal unavailable result for missing metadata', () => {
   const main = fs.readFileSync(path.join(__dirname, '..', 'electron', 'main.js'), 'utf8');
-  assert.match(main, /if \(!isMissingUpdateMetadataError\(error\)\) throw error/);
-  assert.match(main, /status: 'unavailable'.*reason: 'missing-update-metadata'/);
+  assert.match(main, /if\(!isMissingUpdateMetadataError\(error\)\)throw error/);
+  assert.match(main, /status:'unavailable'.*reason:'missing-update-metadata'/);
 });

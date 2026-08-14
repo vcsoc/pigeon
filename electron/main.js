@@ -1155,6 +1155,7 @@ function centerWindowOnDisplay(index=0){if(!mainWindow)return false;const primar
 function createWindow() {
   mainWindow = new BrowserWindow({
     ...savedWindowOptions(),
+    show: false,
     minWidth: 920,
     minHeight: 620,
     title: 'Pigeon',
@@ -1176,6 +1177,7 @@ function createWindow() {
   mainWindow.webContents.on('did-fail-load',(_event,code,description,url,isMainFrame)=>{if(isMainFrame){writeFatalDiagnostic('electron:did-fail-load',description,{code,url});recordDiagnostic('error','Renderer failed to load',{code,description,url});}});
   mainWindow.on('unresponsive',()=>{writeFatalDiagnostic('electron:window-unresponsive','Main window stopped responding');recordDiagnostic('error','Application window is unresponsive');});
   mainWindow.webContents.on('console-message', (_event, details) => { if (details.level === 'warning' || details.level === 'error') recordDiagnostic(details.level, details.message, `${details.sourceId}:${details.lineNumber}`); });
+  mainWindow.once('ready-to-show',()=>{if(mainWindow&&!mainWindow.isDestroyed())mainWindow.show();});
   mainWindow.loadFile(path.join(__dirname, '..', 'src', 'index.html'));
   if (smokeTest) {
     mainWindow.webContents.once('did-finish-load', async () => {
@@ -1563,26 +1565,20 @@ ipcMain.handle('diagnostics:clear', async () => { diagnosticEntries = []; if (di
 ipcMain.handle('diagnostics:remove', async (_event, id) => { diagnosticEntries = diagnosticEntries.filter((entry) => entry.id !== id); if (diagnosticsFile) await fsp.writeFile(diagnosticsFile, diagnosticEntries.map((entry) => JSON.stringify(entry)).join('\n') + (diagnosticEntries.length ? '\n' : '')); return true; });
 ipcMain.handle('diagnostics:open-file', async () => { if (!diagnosticsFile) return false; await fsp.appendFile(diagnosticsFile, ''); return shell.showItemInFolder(diagnosticsFile); });
 function formatUpdateBytes(value){const bytes=Math.max(0,Number(value)||0);if(bytes<1024*1024)return`${Math.round(bytes/1024)} KB`;if(bytes<1024**3)return`${(bytes/1024**2).toFixed(1)} MB`;return`${(bytes/1024**3).toFixed(2)} GB`;}
-ipcMain.handle('app:check-for-updates', async () => {
-  if (!app.isPackaged) return { status: 'development', currentVersion: app.getVersion() };
-  autoUpdater.autoDownload = false; autoUpdater.autoInstallOnAppQuit = true;
-  let update;
-  try { update = await autoUpdater.checkForUpdates(); }
-  catch (error) {
-    if (!isMissingUpdateMetadataError(error)) throw error;
-    recordDiagnostic('warning', 'Update metadata is unavailable for this platform', { platform: process.platform, version: app.getVersion() });
-    return { status: 'unavailable', currentVersion: app.getVersion(), reason: 'missing-update-metadata' };
-  }
-  const version = update?.updateInfo?.version; if (!version || version === app.getVersion()) return { status: 'current', currentVersion: app.getVersion() };
-  const choice = await dialog.showMessageBox(mainWindow, { type: 'info', title: 'Pigeon Update Available', message: `Pigeon ${version} is available`, detail: `You are using ${app.getVersion()}. Download and install the update for ${process.platform}?`, buttons: ['Download and Install', 'Later'], defaultId: 0, cancelId: 1 }); if (choice.response !== 0) return { status: 'available', version };
-  const progressId=`application:update:${version}`;let latest={transferred:0,total:0};
-  const onDownloadProgress=(progress)=>{latest={transferred:Math.max(0,Number(progress.transferred)||0),total:Math.max(0,Number(progress.total)||0)};const percent=Number.isFinite(progress.percent)?Math.max(0,Math.min(100,progress.percent)):latest.total?latest.transferred/latest.total*100:0,speed=Math.max(0,Number(progress.bytesPerSecond)||0),detail=[`${percent.toFixed(0)}%`,latest.total?`${formatUpdateBytes(latest.transferred)} of ${formatUpdateBytes(latest.total)}`:formatUpdateBytes(latest.transferred),speed?`${formatUpdateBytes(speed)}/s`:null].filter(Boolean).join(' · ');reportBackgroundProgress(progressId,{label:`Downloading Pigeon ${version}`,detail,completed:latest.transferred,total:latest.total});};
-  autoUpdater.on('download-progress',onDownloadProgress);reportBackgroundProgress(progressId,{label:`Downloading Pigeon ${version}`,detail:'Preparing download…'});
-  try{await autoUpdater.downloadUpdate();reportBackgroundProgress(progressId,{label:`Pigeon ${version} downloaded`,detail:'Ready to install',completed:latest.total||latest.transferred||1,total:latest.total||latest.transferred||1,done:true});}
-  catch(error){reportBackgroundProgress(progressId,{label:'Update download failed',detail:error.message,done:true,status:'failed'});throw error;}
-  finally{autoUpdater.removeListener('download-progress',onDownloadProgress);}
-  const install = await dialog.showMessageBox(mainWindow, { type: 'info', title: 'Update Ready', message: `Pigeon ${version} is ready to install`, detail: 'Pigeon will restart to finish the update.', buttons: ['Restart and Install', 'Install on Quit'], defaultId: 0, cancelId: 1 }); if (install.response === 0) setImmediate(() => autoUpdater.quitAndInstall(false, true)); return { status: 'downloaded', version };
-});
+let pendingAppUpdate=null,appUpdateCheckPromise=null,appUpdateInstallPromise=null;
+async function checkForAppUpdate(){
+  if(!app.isPackaged)return{status:'development',currentVersion:app.getVersion()};
+  if(appUpdateCheckPromise)return appUpdateCheckPromise;
+  autoUpdater.autoDownload=false;autoUpdater.autoInstallOnAppQuit=true;
+  appUpdateCheckPromise=(async()=>{try{const update=await autoUpdater.checkForUpdates(),version=update?.updateInfo?.version;if(!version||version===app.getVersion()){pendingAppUpdate=null;return{status:'current',currentVersion:app.getVersion()};}pendingAppUpdate=update;return{status:'available',currentVersion:app.getVersion(),version};}catch(error){if(!isMissingUpdateMetadataError(error))throw error;recordDiagnostic('warning','Update metadata is unavailable for this platform',{platform:process.platform,version:app.getVersion()});return{status:'unavailable',currentVersion:app.getVersion(),reason:'missing-update-metadata'};}finally{appUpdateCheckPromise=null;}})();
+  return appUpdateCheckPromise;
+}
+async function installAppUpdate(version){
+  if(appUpdateInstallPromise)return appUpdateInstallPromise;
+  appUpdateInstallPromise=(async()=>{const available=pendingAppUpdate?.updateInfo?.version===version?{status:'available',version}:await checkForAppUpdate();if(available.status!=='available'||available.version!==version)return available;const progressId=`application:update:${version}`;let latest={transferred:0,total:0};const onDownloadProgress=(progress)=>{latest={transferred:Math.max(0,Number(progress.transferred)||0),total:Math.max(0,Number(progress.total)||0)};const percent=Number.isFinite(progress.percent)?Math.max(0,Math.min(100,progress.percent)):latest.total?latest.transferred/latest.total*100:0,speed=Math.max(0,Number(progress.bytesPerSecond)||0),detail=[`${percent.toFixed(0)}%`,latest.total?`${formatUpdateBytes(latest.transferred)} of ${formatUpdateBytes(latest.total)}`:formatUpdateBytes(latest.transferred),speed?`${formatUpdateBytes(speed)}/s`:null].filter(Boolean).join(' · ');reportBackgroundProgress(progressId,{label:`Downloading Pigeon ${version}`,detail,completed:latest.transferred,total:latest.total});};autoUpdater.on('download-progress',onDownloadProgress);reportBackgroundProgress(progressId,{label:`Downloading Pigeon ${version}`,detail:'Preparing download…'});try{await autoUpdater.downloadUpdate();reportBackgroundProgress(progressId,{label:`Pigeon ${version} downloaded`,detail:'Restarting to install…',completed:latest.total||latest.transferred||1,total:latest.total||latest.transferred||1,done:true});setTimeout(()=>autoUpdater.quitAndInstall(false,true),350);return{status:'installing',version};}catch(error){reportBackgroundProgress(progressId,{label:'Update download failed',detail:error.message,done:true,status:'failed'});throw error;}finally{autoUpdater.removeListener('download-progress',onDownloadProgress);appUpdateInstallPromise=null;}})();return appUpdateInstallPromise;
+}
+ipcMain.handle('app:check-for-updates',()=>checkForAppUpdate());
+ipcMain.handle('app:install-update',(_event,version)=>installAppUpdate(String(version||'')));
 ipcMain.handle('app:open-external', (_event, value) => { const url = new URL(String(value || '')); if (url.protocol !== 'https:' || url.hostname !== 'github.com') throw new Error('Only the Pigeon GitHub link can be opened'); return shell.openExternal(url.toString()); });
 ipcMain.handle('map:search', async (_event, query) => {
   const value = String(query || '').trim().slice(0, 300); if (!value) return [];

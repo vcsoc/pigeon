@@ -118,7 +118,7 @@ let resizeTimer;
 let lastFilenameClick = { assetId: null, time: 0 };
 let startupSplashFinished = false,startupReady=false;
 const startupStartedAt=performance.now(),STARTUP_SPLASH_MINIMUM_MS=2000;
-const startupSplashDeadline = setTimeout(() => {startupReady=true;finishStartupSplash();},10000);
+const startupSplashDeadline=setTimeout(()=>{const label=$('.startup-loader span');if(label)label.textContent='Still loading';},10000);
 function finishStartupSplash() {
   startupReady=true;if(startupSplashFinished)return; const remaining=Math.max(0,STARTUP_SPLASH_MINIMUM_MS-(performance.now()-startupStartedAt));
   if(remaining){setTimeout(finishStartupSplash,remaining);return;} startupSplashFinished=true;clearTimeout(startupSplashDeadline);
@@ -138,8 +138,10 @@ if (Number.isFinite(savedThumbnailSize) && savedThumbnailSize >= Number($('#zoom
 document.documentElement.style.setProperty('--justified-row-height', `${Math.max(52, Math.min(320, Number($('#zoom-slider').value) * .58))}px`);
 const savedSidebarWidth = Number(localStorage.getItem('pigeon.sidebarWidth'));
 const savedInspectorWidth = Number(localStorage.getItem('pigeon.inspectorWidth'));
-if (Number.isFinite(savedSidebarWidth) && savedSidebarWidth >= 260 && savedSidebarWidth <= 480) document.documentElement.style.setProperty('--sidebar-width', `${savedSidebarWidth}px`);
-if (Number.isFinite(savedInspectorWidth) && savedInspectorWidth >= 220 && savedInspectorWidth <= 600) document.documentElement.style.setProperty('--inspector-width', `${Math.max(360,savedInspectorWidth)}px`);
+const preferredPanelWidths={sidebar:Number.isFinite(savedSidebarWidth)&&savedSidebarWidth>=260&&savedSidebarWidth<=480?savedSidebarWidth:298,inspector:Number.isFinite(savedInspectorWidth)&&savedInspectorWidth>=220&&savedInspectorWidth<=600?savedInspectorWidth:360};
+document.documentElement.style.setProperty('--sidebar-width', `${preferredPanelWidths.sidebar}px`);
+document.documentElement.style.setProperty('--inspector-width', `${preferredPanelWidths.inspector}px`);
+window.pigeon.getAppInfo().then((info)=>{const version=$('#startup-version');if(version)version.textContent=`Version ${info.version}`;}).catch(()=>{});
 const savedWindowZoom = Number(localStorage.getItem('pigeon.windowZoom'));
 state.uiZoom = Number.isFinite(savedWindowZoom) ? Math.max(.6, Math.min(2, savedWindowZoom)) : 1;
 state.favoriteShortcut = localStorage.getItem('pigeon.favoriteShortcut') || '';
@@ -186,7 +188,7 @@ function restoreNavigationState() {
   state.kind = ['visual', 'all', 'image', 'video', 'audio', 'document', 'font', 'file'].includes(saved?.kind) ? saved.kind : 'visual'; state.query = String(saved?.query || '').slice(0, 500); elements.search.value = state.query;
   for (const [name, values] of Object.entries(state.filters)) { values.clear(); for (const value of Array.isArray(saved?.filters?.[name]) ? saved.filters[name] : []) values.add(value); }
   state.duplicateSourceId = state.view === 'duplicates' ? saved?.duplicateSourceId || null : null;
-  state.gridScrollTop = Math.max(0, Number(saved?.gridScrollTop) || 0); elements.title.textContent = restoredNavigationTitle({ ...saved, locationId, collectionId, smartFolderId, view: state.view }); state.navigationRestoredPortfolioId = portfolioId;
+  state.gridScrollTop = Math.max(0, Number(saved?.gridScrollTop) || 0); elements.title.textContent = restoredNavigationTitle({ ...saved, locationId, collectionId, smartFolderId, view: state.view }); state.navigationRestoredPortfolioId = portfolioId;restoreScopedThumbnailSize();
 }
 function locationFor(asset) { return state.library.locations.find((location) => location.id === asset.locationId); }
 function isOffline(asset) { const location = locationFor(asset); if (location?.checking) return false; return Boolean(asset?.sourceMissing || location?.online === false); }
@@ -298,11 +300,12 @@ async function refreshSimilarityGroups(renderAfter = true) {
   })();similarityRefreshPromise=request;return request;
 }
 
-function thumbnailSizeScopeKey(){if(state.collectionId)return`collection:${state.collectionId}`;if(state.smartFolderId)return`smart:${state.smartFolderId}`;if(state.locationId)return`location:${state.locationId}:${state.locationSubfolder||''}`;return`view:${state.view}`;}
+const SHARED_DEFAULT_THUMBNAIL_VIEWS=new Set(['all','uncategorized','untagged']);
+function thumbnailSizeScopeKey(){if(state.collectionId)return`collection:${state.collectionId}`;if(state.smartFolderId)return`smart:${state.smartFolderId}`;if(state.locationId)return`location:${state.locationId}:${state.locationSubfolder||''}`;return SHARED_DEFAULT_THUMBNAIL_VIEWS.has(state.view)?'default':`view:${state.view}`;}
 function thumbnailSizeStorage(){return`pigeon.thumbnailSizes.${state.library.activePortfolioId||'default'}`;}
 function thumbnailSizeSettings(){try{return JSON.parse(localStorage.getItem(thumbnailSizeStorage())||'{}');}catch{return{};}}
 function portfolioThumbnailDefault(){const value=Number(thumbnailSizeSettings().default);return Number.isFinite(value)?value:240;}
-function restoreScopedThumbnailSize(){const settings=thumbnailSizeSettings(),value=Number(settings.scopes?.[thumbnailSizeScopeKey()]??settings.default??240);setThumbnailZoom(value,{persist:false,render:false});}
+function restoreScopedThumbnailSize(){const settings=thumbnailSizeSettings(),scope=thumbnailSizeScopeKey(),value=Number(scope==='default'?settings.default??240:settings.scopes?.[scope]??settings.default??240);setThumbnailZoom(value,{persist:false,render:false});}
 function assetOrderScopeKey(){if(state.collectionId)return`collection:${state.collectionId}`;if(state.smartFolderId)return`smart:${state.smartFolderId}`;if(state.locationId)return`location:${state.locationId}:${state.locationSubfolder||''}`;return`view:${state.view}`;}
 function currentAssetOrder(){return state.library.settings?.assetOrders?.[assetOrderScopeKey()]||{field:'modified',direction:'desc'};}
 function filteredAssets() {
@@ -631,7 +634,7 @@ function renderSidebar(rebuildFolderTree = false) {
       if (collection) showCollectionContextMenu(event, collection);
     });
     button.addEventListener('dragstart', (event) => { event.dataTransfer.setData('application/x-pigeon-collection', button.dataset.collectionId); event.stopPropagation(); });
-    button.addEventListener('dragover',(event)=>{if(!event.dataTransfer.types.includes('application/x-pigeon-collection')&&!event.dataTransfer.types.includes('application/x-pigeon-assets'))return;event.preventDefault();if(event.dataTransfer.types.includes('application/x-pigeon-collection'))setSidebarDropMarker(button,sidebarDropZone(event,button));else button.classList.add('drag-over');});
+    button.addEventListener('dragover',(event)=>{if(!event.dataTransfer.types.includes('application/x-pigeon-collection')&&!event.dataTransfer.types.includes('application/x-pigeon-assets')&&!hasExternalFiles(event))return;event.preventDefault();event.dataTransfer.dropEffect=event.dataTransfer.types.includes('application/x-pigeon-collection')?'move':'copy';if(event.dataTransfer.types.includes('application/x-pigeon-collection'))setSidebarDropMarker(button,sidebarDropZone(event,button));else button.classList.add('drag-over');});
     button.addEventListener('dragleave',(event)=>{if(event.relatedTarget&&button.contains(event.relatedTarget))return;setTimeout(()=>{if(!button.matches(':hover')){button.classList.remove('drag-over');clearSidebarDropMarker(button);}},35);});
     button.addEventListener('drop', async (event) => {
       event.preventDefault();button.classList.remove('drag-over');const dropZone=button.dataset.dropZone||'inside';clearSidebarDropMarker(button);
@@ -640,8 +643,9 @@ function renderSidebar(rebuildFolderTree = false) {
       const target = (state.library.collections || []).find((item) => item.id === button.dataset.collectionId);
       if (!(await ensureCollectionUnlocked(target))) return;
       if (hasExternalFiles(event)) {
-        const paths = droppedFilePaths(event); if (!paths.length) return;
-        const result = await window.pigeon.importDroppedFiles(paths, { collectionId: target.id }); showToast(`${result.imported} file${result.imported === 1 ? '' : 's'} added to ${target.name}`); return;
+        const paths=droppedFilePaths(event);if(!paths.length)return;const existingIds=libraryAssetIdsForPaths(paths);
+        if(existingIds.length===paths.length){await addAssetsToCollectionWithoutGridRefresh(existingIds,target,state.collectionId);return;}
+        const result=await window.pigeon.importDroppedFiles(paths,{collectionId:target.id});showToast(`${result.imported} file${result.imported===1?'':'s'} added to ${target.name}`);return;
       }
       const ids = JSON.parse(event.dataTransfer.getData('application/x-pigeon-assets') || '[]').filter((id) => state.library.assets.some((asset) => asset.id === id));
       if (!ids.length) return;
@@ -690,7 +694,7 @@ function renderSidebar(rebuildFolderTree = false) {
     const enablePhysicalFolderDrop = (button, subfolder = '') => {
       button.addEventListener('dragover', (event) => { const internal=event.dataTransfer.types.includes('application/x-pigeon-assets');if(!internal&&!hasExternalFiles(event))return;event.preventDefault();event.stopPropagation();event.dataTransfer.dropEffect=internal?'move':'copy';button.classList.add('drag-over'); });
       button.addEventListener('dragleave', (event) => {if(event.relatedTarget&&button.contains(event.relatedTarget))return;setTimeout(()=>{if(!button.matches(':hover'))button.classList.remove('drag-over');},35);});
-      button.addEventListener('drop', async (event) => {const internal=event.dataTransfer.types.includes('application/x-pigeon-assets');if(!internal&&!hasExternalFiles(event))return;event.preventDefault();event.stopPropagation();button.classList.remove('drag-over');try{if(internal){const ids=JSON.parse(event.dataTransfer.getData('application/x-pigeon-assets')||'[]'),leavesCurrent=state.locationId&&(state.locationId!==row.dataset.locationId||state.locationSubfolder!==subfolder),successorId=leavesCurrent?successorAfterRemoving(ids):null,result=await window.pigeon.moveAssetsToFolder(ids,row.dataset.locationId,subfolder),updates=new Map((result.assets||[]).map((asset)=>[asset.id,asset]));for(const asset of state.library.assets)if(updates.has(asset.id))Object.assign(asset,updates.get(asset.id));reconcileThumbnailCards(ids);if(leavesCurrent)selectAndRevealSuccessor(successorId);showToast(`${result.moved} file${result.moved===1?'':'s'} moved`);return;}const paths=droppedFilePaths(event);if(!paths.length)return;const result=await window.pigeon.importDroppedFiles(paths,{locationId:row.dataset.locationId,subfolder});showToast(`${result.imported} file${result.imported===1?'':'s'} copied into this folder`);}catch(error){showToast(error.message);} });
+      button.addEventListener('drop',async(event)=>{const internal=event.dataTransfer.types.includes('application/x-pigeon-assets');if(!internal&&!hasExternalFiles(event))return;event.preventDefault();event.stopPropagation();button.classList.remove('drag-over');try{const paths=internal?[]:droppedFilePaths(event),existingIds=internal?JSON.parse(event.dataTransfer.getData('application/x-pigeon-assets')||'[]'):libraryAssetIdsForPaths(paths),movesLibraryAssets=internal||paths.length>0&&existingIds.length===paths.length;if(movesLibraryAssets){const ids=existingIds,leavesCurrent=state.locationId&&(state.locationId!==row.dataset.locationId||state.locationSubfolder!==subfolder),successorId=leavesCurrent?successorAfterRemoving(ids):null,result=await window.pigeon.moveAssetsToFolder(ids,row.dataset.locationId,subfolder),updates=new Map((result.assets||[]).map((asset)=>[asset.id,asset]));for(const asset of state.library.assets)if(updates.has(asset.id))Object.assign(asset,updates.get(asset.id));reconcileThumbnailCards(ids);if(leavesCurrent)selectAndRevealSuccessor(successorId);showToast(`${result.moved} file${result.moved===1?'':'s'} moved`);return;}if(!paths.length)return;const result=await window.pigeon.importDroppedFiles(paths,{locationId:row.dataset.locationId,subfolder});showToast(`${result.imported} file${result.imported===1?'':'s'} copied into this folder`);}catch(error){showToast(error.message);} });
     };
     enablePhysicalFolderDrop(row.querySelector('.location-root-button'));
     row.querySelectorAll('.location-folder-item').forEach((button) => { const subfolder = decodeURIComponent(button.dataset.subfolder); button.querySelector('[data-collapse-key]')?.addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); toggleFolderCollapsed(event.currentTarget.dataset.collapseKey); }); button.addEventListener('click', () => selectLocation(button.dataset.locationId, subfolder)); button.addEventListener('contextmenu', (event) => { event.preventDefault(); const location = state.library.locations.find((item) => item.id === button.dataset.locationId); if (location) showLocationContextMenu(event, location, subfolder, row); }); enablePhysicalFolderDrop(button, subfolder); });
@@ -1256,6 +1260,13 @@ function showToast(message) {
   elements.toast.textContent = message; elements.toast.classList.remove('hidden');
   clearTimeout(showToast.timer); showToast.timer = setTimeout(() => elements.toast.classList.add('hidden'), 2400);
 }
+let updateCheckRunning=false,pendingUpdateVersion=null,updateLaterTimer=null;
+function hideUpdateToast(){pendingUpdateVersion=null;$('#update-toast').classList.add('hidden');}
+function showUpdateToast(version){pendingUpdateVersion=version;$('#update-toast-title').textContent=`Pigeon ${version} is available`;$('#update-toast-message').textContent='Update now, ask again later, or skip only this version.';for(const button of $$('#update-toast button'))button.disabled=false;$('#update-toast').classList.remove('hidden');}
+async function runUpdateCheck({manual=false}={}){if(updateCheckRunning)return;const deferredUntil=Number(localStorage.getItem('pigeon.update.deferUntil'))||0,deferredThisSession=sessionStorage.getItem('pigeon.update.deferredThisSession')==='true';if(!manual&&deferredThisSession&&Date.now()<deferredUntil)return;updateCheckRunning=true;try{const result=await window.pigeon.checkForUpdates();if(result.status==='available'){if(!manual&&localStorage.getItem('pigeon.update.skippedVersion')===result.version)return;showUpdateToast(result.version);return;}if(manual){if(result.status==='current')showToast(`Pigeon ${result.currentVersion} is up to date`);if(result.status==='unavailable')showToast('Updates are temporarily unavailable for this platform');if(result.status==='development')showToast('Update checks are available in packaged builds');}}catch(error){if(manual)showToast(`Update check failed · ${error.message}`);else window.pigeon.logDiagnostic('warning','Automatic update check failed',error.message);}finally{updateCheckRunning=false;}}
+$('#update-now').addEventListener('click',async()=>{if(!pendingUpdateVersion)return;const version=pendingUpdateVersion;for(const button of $$('#update-toast button'))button.disabled=true;$('#update-toast-title').textContent=`Downloading Pigeon ${version}`;$('#update-toast-message').textContent='Pigeon will restart automatically when the update is ready.';try{await window.pigeon.installUpdate(version);}catch(error){showToast(`Update failed · ${error.message}`);showUpdateToast(version);}});
+$('#update-later').addEventListener('click',()=>{const until=Date.now()+24*60*60*1000;localStorage.setItem('pigeon.update.deferUntil',String(until));sessionStorage.setItem('pigeon.update.deferredThisSession','true');hideUpdateToast();clearTimeout(updateLaterTimer);updateLaterTimer=setTimeout(()=>{sessionStorage.removeItem('pigeon.update.deferredThisSession');runUpdateCheck();},until-Date.now());showToast('Update reminder postponed');});
+$('#update-skip').addEventListener('click',()=>{if(pendingUpdateVersion)localStorage.setItem('pigeon.update.skippedVersion',pendingUpdateVersion);hideUpdateToast();showToast('This version will be skipped');});
 function panelWidth(name) {
   return parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name)) || (name === '--sidebar-width' ? 298 : 298);
 }
@@ -1267,7 +1278,7 @@ function setPanelWidth(panel, value, persist = false) {
   const property = isSidebar ? '--sidebar-width' : '--inspector-width';
   document.documentElement.style.setProperty(property, `${width}px`);
   $(`#${panel}-resizer`).setAttribute('aria-valuenow', String(width));
-  if (persist) localStorage.setItem(`pigeon.${panel}Width`, String(width));
+  if (persist) {preferredPanelWidths[panel]=width;localStorage.setItem(`pigeon.${panel}Width`, String(width));}
   scheduleMasonry();
   return width;
 }
@@ -1277,7 +1288,7 @@ function beginPanelResize(panel, event) {
   const move = (moveEvent) => setPanelWidth(panel, panel === 'sidebar' ? moveEvent.clientX : window.innerWidth - moveEvent.clientX);
   const stop = (stopEvent) => {
     move(stopEvent); document.body.classList.remove('resizing-panel');
-    localStorage.setItem(`pigeon.${panel}Width`, String(Math.round(panelWidth(panel === 'sidebar' ? '--sidebar-width' : '--inspector-width'))));
+    const width=Math.round(panelWidth(panel === 'sidebar' ? '--sidebar-width' : '--inspector-width'));preferredPanelWidths[panel]=width;localStorage.setItem(`pigeon.${panel}Width`, String(width));
     document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', stop);
   };
   document.addEventListener('pointermove', move); document.addEventListener('pointerup', stop);
@@ -1496,7 +1507,7 @@ async function executeMenuAction(action) {
   if (action === 'settings') openSettings();
   if (action === 'about') openAboutDialog();
   if (action === 'diagnostics') openDiagnosticsConsole();
-  if (action === 'check-updates') { showToast('Checking GitHub for updates…'); try { const result = await window.pigeon.checkForUpdates(); if (result.status === 'current') showToast(`Pigeon ${result.currentVersion} is up to date`); if (result.status === 'unavailable') showToast('Updates are temporarily unavailable for this platform'); if (result.status === 'development') showToast('Update checks are available in packaged builds'); } catch (error) { showToast(`Update check failed · ${error.message}`); } }
+  if(action==='check-updates'){showToast('Checking GitHub for updates…');runUpdateCheck({manual:true});}
   if (action === 'plugins') await window.pigeon.openPluginsFolder();
   if (action === 'quit') window.pigeon.closeWindow();
 }
@@ -1876,6 +1887,8 @@ elements.gridWrap.addEventListener('pointerup',(event)=>{if(marqueeSelection?.po
 elements.grid.addEventListener('click',(event)=>{if(!suppressMarqueeClick)return;suppressMarqueeClick=false;event.preventDefault();event.stopImmediatePropagation();},true);
 const hasExternalFiles = (event) => { const transfer = event.dataTransfer; return Boolean(transfer && (transfer.files?.length || [...(transfer.items || [])].some((item) => item.kind === 'file') || [...(transfer.types || [])].some((type) => String(type).toLowerCase() === 'files'))); };
 function droppedFilePaths(event) { return [...(event.dataTransfer?.files || [])].map((file) => window.pigeon.pathForDroppedFile(file)).filter(Boolean); }
+function normalizedDragPath(value){const normalized=String(value||'').replace(/\\/g,'/').replace(/\/$/,'');return window.pigeon.platform==='win32'?normalized.toLowerCase():normalized;}
+function libraryAssetIdsForPaths(paths){const byPath=new Map(state.library.assets.filter((asset)=>!asset.deletedAt&&!asset.sourceMissing).map((asset)=>[normalizedDragPath(asset.path),asset.id]));return paths.map((filePath)=>byPath.get(normalizedDragPath(filePath))).filter(Boolean);}
 elements.gridWrap.addEventListener('dragover', (event) => { if (!hasExternalFiles(event)) return; event.preventDefault(); event.dataTransfer.dropEffect = acceptsManagedDrop() ? 'copy' : 'none'; elements.gridWrap.classList.toggle('external-drop', acceptsManagedDrop()); });
 elements.gridWrap.addEventListener('dragleave', (event) => { if (!elements.gridWrap.contains(event.relatedTarget)) elements.gridWrap.classList.remove('external-drop'); });
 elements.gridWrap.addEventListener('drop', async (event) => {
@@ -1903,7 +1916,7 @@ elements.gridWrap.addEventListener('scroll', () => {
   if (!isInternalViewerOpen() && !suppressGridScroll && !state.mapOpen) state.gridScrollTop = elements.gridWrap.scrollTop;
   clearTimeout(navigationSaveTimer); navigationSaveTimer = setTimeout(saveNavigationState, 180);
 }, { passive: true });
-function setThumbnailZoom(value,{persist=true,render=true}={}){const slider=$('#zoom-slider'),next=Math.max(Number(slider.min),Math.min(Number(slider.max),Number(value)));slider.value=String(next);document.documentElement.style.setProperty('--card-width',`${next}px`);document.documentElement.style.setProperty('--justified-row-height',`${Math.max(52,Math.min(320,next*.58))}px`);if(persist){const settings=thumbnailSizeSettings();settings.scopes={...(settings.scopes||{}),[thumbnailSizeScopeKey()]:next};localStorage.setItem(thumbnailSizeStorage(),JSON.stringify(settings));}$('#zoom-set-default').classList.toggle('hidden',next===portfolioThumbnailDefault());if(render)renderGrid();}
+function setThumbnailZoom(value,{persist=true,render=true}={}){const slider=$('#zoom-slider'),next=Math.max(Number(slider.min),Math.min(Number(slider.max),Number(value))),scope=thumbnailSizeScopeKey();slider.value=String(next);document.documentElement.style.setProperty('--card-width',`${next}px`);document.documentElement.style.setProperty('--justified-row-height',`${Math.max(52,Math.min(320,next*.58))}px`);if(persist){const settings=thumbnailSizeSettings();if(scope==='default'){settings.default=next;localStorage.setItem('pigeon.thumbnailSize',String(next));}else settings.scopes={...(settings.scopes||{}),[scope]:next};localStorage.setItem(thumbnailSizeStorage(),JSON.stringify(settings));}$('#zoom-set-default').classList.toggle('hidden',scope==='default'||next===portfolioThumbnailDefault());if(render)renderGrid();}
 $('#zoom-slider').addEventListener('input',(event)=>setThumbnailZoom(event.target.value));
 $('#zoom-out').addEventListener('click',()=>setThumbnailZoom(Number($('#zoom-slider').value)-Number($('#zoom-slider').step||8)));
 $('#zoom-in').addEventListener('click',()=>setThumbnailZoom(Number($('#zoom-slider').value)+Number($('#zoom-slider').step||8)));
@@ -2311,8 +2324,8 @@ else {
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => {
-    setPanelWidth('sidebar', panelWidth('--sidebar-width'));
-    setPanelWidth('inspector', panelWidth('--inspector-width'));
+    setPanelWidth('sidebar', preferredPanelWidths.sidebar);
+    setPanelWidth('inspector', preferredPanelWidths.inspector);
     elements.grid.querySelectorAll('.asset-preview.quarter-turned img').forEach(fitRotatedThumbnail); scheduleMasonry(); applyViewerImageFit(); updateViewerCropOverlay();
   }, 80);
 });
@@ -2328,6 +2341,7 @@ const loadMoreObserver = new IntersectionObserver((entries) => { if (entries.som
 elements.gridWrap.addEventListener('scroll',()=>{const scrollTop=elements.gridWrap.scrollTop;if(Math.abs(scrollTop-thumbnailLastScrollTop)>1)thumbnailScrollDirection=scrollTop>thumbnailLastScrollTop?1:-1;thumbnailLastScrollTop=scrollTop;thumbnailScrollUntil=Date.now()+320;clearTimeout(thumbnailSettleTimer);scheduleSettledThumbnailLoads();},{passive:true});
 
 applyStaticIcons(); populatePreferenceInputs(); applyPreferences(false);
+setTimeout(()=>runUpdateCheck(),5000);setInterval(()=>runUpdateCheck(),6*60*60*1000);
 window.pigeon.onLibraryChanged((library) => {
   if(scanRenderHandle!==null){(window.cancelIdleCallback||clearTimeout)(scanRenderHandle);scanRenderHandle=null;}clearTimeout(streamRenderTimer);rendererAssetIndexes.clear();elements.grid.innerHTML='';elements.grid.classList.add('hidden');
   if (backgroundTaskPortfolioId && library.activePortfolioId && backgroundTaskPortfolioId !== library.activePortfolioId) { backgroundTasks.clear(); renderBackgroundProgress(); }

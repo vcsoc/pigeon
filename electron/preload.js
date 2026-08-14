@@ -92,6 +92,7 @@ contextBridge.exposeInMainWorld('pigeon', {
   readTextAsset: (id) => ipcRenderer.invoke('asset:read-text', id),
   exportContactSheet: (format, rect) => ipcRenderer.invoke('contact-sheet:export', { format, rect }),
   checkForUpdates: () => ipcRenderer.invoke('app:check-for-updates'),
+  installUpdate: (version) => ipcRenderer.invoke('app:install-update', version),
   openBrowserExtensionFolder: () => ipcRenderer.invoke('extension:open-folder'),
   listPlugins: () => ipcRenderer.invoke('plugins:list'),
   openPluginsFolder: () => ipcRenderer.invoke('plugins:open-folder'),

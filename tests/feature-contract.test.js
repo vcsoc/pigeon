@@ -156,6 +156,12 @@ test('preloaded magnifier, true viewer scale, scoped thumbnail sizes and matchin
   assert.match(fs.readFileSync(path.join(root,'electron','folder-tree-worker.js'),'utf8'),/directCount/);assert.match(renderer,/state\.includeSubfolderContent\?folder\.count:folder\.directCount/);assert.match(html,/data-pref="coloredTreeLevels"/);assert.match(renderer,/colored-tree-levels/);assert.match(styles,/--tree-level-0/);assert.match(styles,/var\(--tree-color\)/);
 });
 
+test('startup restores scoped layout before reveal and automatic updates use actionable in-app prompts',()=>{
+  assert.match(main,/show: false/);assert.match(main,/once\('ready-to-show'/);assert.match(html,/id="startup-version"/);assert.match(html,/class="startup-loader"/);assert.match(styles,/@keyframes startup-loading-spin/);
+  assert.match(renderer,/SHARED_DEFAULT_THUMBNAIL_VIEWS=new Set\(\['all','uncategorized','untagged'\]\)/);assert.match(renderer,/scope==='default'\?settings\.default/);assert.match(renderer,/if\(scope==='default'\)\{settings\.default=next/);assert.match(renderer,/preferredPanelWidths/);assert.match(renderer,/restoreScopedThumbnailSize\(\);/);
+  assert.match(html,/id="update-toast"/);assert.match(html,/id="update-now"/);assert.match(html,/id="update-later"/);assert.match(html,/id="update-skip"/);assert.match(renderer,/pigeon\.update\.deferUntil/);assert.match(renderer,/pigeon\.update\.skippedVersion/);assert.match(renderer,/setInterval\(\(\)=>runUpdateCheck\(\),6\*60\*60\*1000\)/);assert.match(preload,/installUpdate/);assert.match(main,/app:install-update/);assert.doesNotMatch(main,/Pigeon Update Available/);
+});
+
 test('clean hierarchy, delayed fit preview, move continuity and contact sheets are wired',()=>{
   assert.doesNotMatch(styles,/background-image:repeating-linear-gradient\(to right/);assert.match(styles,/border-left:1px solid #4d5561/);assert.match(styles,/\.location-folder-item\.active::before/);
   assert.match(renderer,/hoverFitPreviewTimer=setTimeout/);assert.match(renderer,/,300\)/);assert.match(styles,/clip-path:polygon\(100% 0,100% 100%,0 100%\)/);assert.match(styles,/max-width:100%!important/);assert.match(styles,/object-fit:contain!important/);
@@ -650,10 +656,13 @@ test('media protocol implements thumbnails and byte ranges for seekable local pl
   assert.match(main, /accept-ranges/);
 });
 
-test('internal drag moves collections and physical folders with targeted reconciliation',()=>{
+test('internal and external native drags both target collections and physical folders',()=>{
   assert.match(renderer,/application\/x-pigeon-origin/);
   assert.match(renderer,/if\(!event\.shiftKey\)/);
   assert.match(renderer,/effectAllowed='copyMove'/);
+  assert.match(renderer,/function libraryAssetIdsForPaths/);
+  assert.match(renderer,/existingIds\.length===paths\.length/);
+  assert.match(renderer,/movesLibraryAssets=internal\|\|paths\.length>0&&existingIds\.length===paths\.length/);
   assert.match(renderer,/removeCollectionId:sourceCollectionId/);
   assert.match(renderer,/moveAssetsToFolder/);
   assert.match(preload,/moveAssetsToFolder:/);
@@ -680,7 +689,7 @@ test('refresh, robust facets, folder drops, media hover scrubbing, and expanded 
   assert.match(main, /showwavespic/);
   for (const extension of ['.af', '.psd', '.pdf', '.pspimage', '.ogg', '.mp3', '.wav']) assert.match(main, new RegExp(extension.replace('.', '\\.')));
   assert.match(renderer, /enablePhysicalFolderDrop/);
-  assert.match(renderer, /collectionId: target\.id/);
+  assert.match(renderer, /collectionId:\s*target\.id/);
   assert.match(main, /target\.locationId/);
   assert.match(main, /target\.collectionId/);
   assert.match(renderer, /data-title-field="dimensions"/);
