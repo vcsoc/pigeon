@@ -10,6 +10,7 @@ const { createLibraryStore } = require('./database');
 const ffmpegExecutable = require('ffmpeg-static').replace('app.asar', 'app.asar.unpacked');
 const os = require('node:os');
 const { availableMemoryBytes } = require('./system-resources');
+const { extractAffinityPreview } = require('./affinity-preview');
 const { isMissingUpdateMetadataError } = require('./update-support');
 const { extractSnagxPreview } = require('./snagx-preview');
 const { execFile, spawn } = require('node:child_process');
@@ -28,7 +29,8 @@ const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.m4v', '.webm', '.avi', '.mkv
 const AUDIO_EXTENSIONS = new Set(['.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg', '.oga', '.opus']);
 const FONT_EXTENSIONS = new Set(['.ttf', '.otf', '.woff', '.woff2']);
 const DOCUMENT_EXTENSIONS = new Set(['.pdf', '.af', '.afdesign', '.afphoto', '.pspimage', '.ai', '.sketch', '.free', '.fig', '.eps', '.snagx']);
-const PREVIEWABLE_DOCUMENT_EXTENSIONS = new Set(['PDF', 'AI', 'EPS', 'SKETCH', 'FREE', 'SNAGX']);
+const AFFINITY_PREVIEW_EXTENSIONS = new Set(['AF', 'AFDESIGN', 'AFPHOTO']);
+const PREVIEWABLE_DOCUMENT_EXTENSIONS = new Set(['PDF', 'AI', 'EPS', 'SKETCH', 'FREE', 'AF', 'AFDESIGN', 'AFPHOTO', 'SNAGX']);
 const watchers = new Map();
 const thumbnailWorkers = [];
 const thumbnailQueue = [];
@@ -466,6 +468,12 @@ async function createAudioThumbnail(asset, target) {
 }
 async function extractZipPreview(source,target){const script=`Add-Type -AssemblyName System.IO.Compression.FileSystem;$z=[IO.Compression.ZipFile]::OpenRead($args[0]);try{$e=$z.Entries|Where-Object{$_.FullName -match '(?i)(^|/)(preview|thumbnail)(@2x)?\\.(png|jpe?g|webp)$'}|Sort-Object Length -Descending|Select-Object -First 1;if(!$e){exit 2};$s=$e.Open();$o=[IO.File]::Create($args[1]);try{$s.CopyTo($o)}finally{$o.Dispose();$s.Dispose()}}finally{$z.Dispose()}`;return new Promise((resolve)=>execFile('powershell.exe',['-NoProfile','-NonInteractive','-Command',script,source,target],{windowsHide:true,timeout:8000,maxBuffer:64*1024},(error)=>resolve(!error)));}
 async function createDocumentThumbnail(asset, target) {
+  if (AFFINITY_PREVIEW_EXTENSIONS.has(asset.extension)) {
+    if (asset.thumbnailPath && await pathAvailable(asset.thumbnailPath) && asset.proxyPath && await pathAvailable(asset.proxyPath)) return { ok:true,target:asset.thumbnailPath,proxyPath:asset.proxyPath,width:asset.width,height:asset.height };
+    const extracted=await extractAffinityPreview(asset.path,path.join(thumbnailDir,`${asset.id}.affinity-preview`));
+    if(!extracted){asset.proxyPath=null;asset.proxyVersion=null;return null;}
+    try{const metadata=await sharp(extracted.target,{limitInputPixels:100*1024*1024}).metadata();await sharp(extracted.target,{limitInputPixels:100*1024*1024}).resize({width:512,height:512,fit:'inside',withoutEnlargement:true}).flatten({background:'#20232d'}).jpeg({quality:78}).toFile(target);asset.proxyPath=extracted.target;asset.proxyVersion=3;return{ok:true,target,proxyPath:extracted.target,width:extracted.width,height:extracted.height,technicalMetadata:{format:'affinity',affinityType:asset.extension.toLowerCase(),affinityVersion:extracted.affinityVersion,previewFormat:metadata.format,hasAlpha:metadata.hasAlpha}};}catch(error){await fsp.rm(extracted.target,{force:true});throw error;}
+  }
   if (asset.extension==='SNAGX') {
     if (asset.thumbnailPath && await pathAvailable(asset.thumbnailPath) && asset.proxyPath && await pathAvailable(asset.proxyPath)) return { ok:true,target:asset.thumbnailPath,proxyPath:asset.proxyPath,width:asset.width,height:asset.height };
     const extracted=await extractSnagxPreview(asset.path,path.join(thumbnailDir,`${asset.id}.snagx-preview`));if(!extracted)return null;

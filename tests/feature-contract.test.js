@@ -20,6 +20,7 @@ const worldLand = fs.readFileSync(path.join(root, 'src', 'world-land.js'), 'utf8
 const icons = fs.readFileSync(path.join(root, 'src', 'icons.js'), 'utf8');
 const packageJson = fs.readFileSync(path.join(root, 'package.json'), 'utf8');
 const systemResources = fs.readFileSync(path.join(root, 'electron', 'system-resources.js'), 'utf8');
+const affinityPreview = fs.readFileSync(path.join(root, 'electron', 'affinity-preview.js'), 'utf8');
 const snagxPreview = fs.readFileSync(path.join(root, 'electron', 'snagx-preview.js'), 'utf8');
 
 test('UI exposes collection, smart-folder, batch, trash, media, metadata and editing surfaces', () => {
@@ -44,8 +45,8 @@ test('media resource errors do not become fatal UI errors',()=>{
   assert.match(renderer,/if\(!\(event instanceof ErrorEvent\)\)return/);assert.match(renderer,/elements\.inspectorVideo\.addEventListener\('error'/);assert.match(renderer,/recoverInspectorVideo/);
 });
 
-test('all file types support location, complete EXIF inspection, and stronger native drag handoff',()=>{
-  assert.match(renderer,/const assetIds=\[\.\.\.new Set\(ids\|\|\[\]\)\]/);assert.match(renderer,/Select one or more files first/);assert.match(renderer,/<button data-context-action="location">/);assert.match(html,/id="exif-metadata"/);assert.match(renderer,/function flattenedMetadata/);assert.match(renderer,/image\?flattenedMetadata\(asset\.exif\)/);assert.match(renderer,/text\/uri-list/);assert.match(renderer,/function startNativeAssetDrag/);assert.match(renderer,/addEventListener\('dragleave'/);assert.match(main,/nativeImage\.createFromPath/);assert.match(main,/startDrag\(\{files,icon\}\)/);
+test('all file types support location, complete EXIF inspection, and native cross-application drag handoff',()=>{
+  assert.match(renderer,/const assetIds=\[\.\.\.new Set\(ids\|\|\[\]\)\]/);assert.match(renderer,/Select one or more files first/);assert.match(renderer,/<button data-context-action="location">/);assert.match(html,/id="exif-metadata"/);assert.match(renderer,/function flattenedMetadata/);assert.match(renderer,/image\?flattenedMetadata\(asset\.exif\)/);assert.match(renderer,/addEventListener\('dragstart',[^\n]*if\(!event\.shiftKey\)\{event\.preventDefault\(\);window\.pigeon\.startAssetDrag\(ids\);return;\}/);assert.match(renderer,/text\/uri-list/);assert.match(renderer,/effectAllowed='copyMove'/);assert.match(preload,/startAssetDrag: \(ids\) => ipcRenderer\.send\('assets:start-drag', ids\)/);assert.match(main,/nativeImage\.createFromPath/);assert.match(main,/startDrag\(\{files,icon\}\)/);
 });
 
 test('Snagit SNAGX files receive safe archive thumbnails and full image previews',()=>{
@@ -55,8 +56,24 @@ test('Snagit SNAGX files receive safe archive thumbnails and full image previews
   assert.match(main,/asset\.proxyPath=extracted\.target;asset\.proxyVersion=3/);
   assert.match(snagxPreview,/thumbnail\\\.png/);
   assert.match(snagxPreview,/MAX_PREVIEW_BYTES/);
-  assert.match(renderer,/asset\.extension === 'SNAGX' && Boolean\(asset\.proxyPath\)/);
+  assert.match(renderer,/IMAGE_PREVIEW_DOCUMENT_EXTENSIONS=new Set\(\[[^\n]*'SNAGX'/);
+  assert.match(renderer,/function isImagePreviewDocument/);
   assert.match(packageJson,/"yauzl": "3\.4\.0"/);
+});
+
+test('Affinity documents receive bounded embedded thumbnails and full image previews',()=>{
+  for(const extension of ['.af','.afdesign','.afphoto'])assert.match(main,new RegExp(`DOCUMENT_EXTENSIONS[^\\n]*'\\${extension}'`));
+  for(const extension of ['AF','AFDESIGN','AFPHOTO'])assert.match(main,new RegExp(`PREVIEWABLE_DOCUMENT_EXTENSIONS[^\\n]*'${extension}'`));
+  assert.match(main,/extractAffinityPreview/);
+  assert.match(main,/AFFINITY_PREVIEW_EXTENSIONS\.has\(asset\.extension\)/);
+  assert.match(main,/format:'affinity'/);
+  assert.match(affinityPreview,/readBigUInt64LE\(24\)/);
+  assert.match(affinityPreview,/MAX_PREVIEW_BYTES/);
+  assert.match(affinityPreview,/thumbnailHeader\.subarray\(4, 8\).*'Thmb'/);
+  assert.match(renderer,/IMAGE_PREVIEW_DOCUMENT_EXTENSIONS=new Set\(\['AF','AFDESIGN','AFPHOTO','SNAGX'\]\)/);
+  assert.match(renderer,/fullImagePreview=visual&&\(asset\.kind==='image'\|\|isImagePreviewDocument\(asset\)\)/);
+  assert.match(styles,/-webkit-clip-path:polygon\(100% 0,100% 100%,0 100%\)/);
+  assert.match(styles,/\.thumbnail-fit-preview \.ui-icon\{[^}]*display:block[^}]*stroke:currentColor/);
 });
 
 test('targeted thumbnail rebuild, virtual full scroll, cover previews, metadata copy and native drag are wired',()=>{
@@ -635,7 +652,8 @@ test('media protocol implements thumbnails and byte ranges for seekable local pl
 
 test('internal drag moves collections and physical folders with targeted reconciliation',()=>{
   assert.match(renderer,/application\/x-pigeon-origin/);
-  assert.match(renderer,/effectAllowed = 'move'/);
+  assert.match(renderer,/if\(!event\.shiftKey\)/);
+  assert.match(renderer,/effectAllowed='copyMove'/);
   assert.match(renderer,/removeCollectionId:sourceCollectionId/);
   assert.match(renderer,/moveAssetsToFolder/);
   assert.match(preload,/moveAssetsToFolder:/);
