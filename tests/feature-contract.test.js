@@ -107,8 +107,8 @@ test('privacy-affected motion previews require the temporary reveal shortcut',()
   assert.match(renderer,/protectedMotion=Boolean\(asset\.thumbnailEffect/);assert.match(renderer,/protectedMotion&&!state\.thumbnailEffectRevealPressed/);assert.match(renderer,/revealShortcutPressed\(event\)\)start\(event,true\)/);assert.match(renderer,/revealShortcutPressed\(event\)\)stop\(\)/);assert.match(renderer,/thumbnailEffectRevealKey:'Alt'/);assert.match(html,/Reset to Alt/);
 });
 
-test('hovered video uses hold-Control sound and tree screenshots have terminal branches',()=>{
-  assert.match(renderer,/const keyDown=\(event\)=>\{if\(event\.key!==['"]Control['"]/);assert.match(renderer,/media\.muted=!controlHeld/);assert.match(renderer,/window\.addEventListener\('keyup',keyUp,true\)/);assert.match(renderer,/window\.removeEventListener\('keydown',keyDown,true\)/);assert.match(renderer,/controlHeld=Boolean\(event\?\.ctrlKey\)/);
+test('hovered video uses hold-Control or Alt sound and tree screenshots have terminal branches',()=>{
+  assert.match(renderer,/const soundModifier=\(event\)=>event\.key==='Control'\|\|event\.key==='Alt'/);assert.match(renderer,/media\.muted=!controlHeld/);assert.match(renderer,/window\.addEventListener\('keyup',keyUp,true\)/);assert.match(renderer,/window\.removeEventListener\('keydown',keyDown,true\)/);assert.match(renderer,/controlHeld=Boolean\(event\?\.ctrlKey\|\|event\?\.altKey\)/);
   assert.match(renderer,/tree-last/);assert.match(styles,/\.collection-item\.tree-last::after/);assert.match(main,/PIGEON_SMOKE_CAPTURE_TREE/);assert.match(main,/pigeon-tree-smoke\.png/);
 });
 
@@ -1110,6 +1110,6 @@ test('Help Tutorials provides a comic guided tour with complete navigation and p
   for(const id of ['tutorial-overlay','tutorial-highlight','tutorial-bubble','tutorial-back','tutorial-next','tutorial-end'])assert.match(html,new RegExp(`id="${id}"`));
   assert.match(renderer,/help: \[\['Tutorials', 'tutorials'/);assert.match(renderer,/function startTutorial\(/);assert.match(renderer,/function showTutorialStep\(/);assert.match(renderer,/Help → Tutorials/);
   assert.match(renderer,/Password-protect a collection/);assert.match(renderer,/Password protect folder/);assert.match(renderer,/Apply—and remove—privacy effects/);assert.match(renderer,/Blur or Pixelate/);assert.match(renderer,/Press B again to remove it/);
-  assert.match(renderer,/Hover to preview motion/);assert.match(renderer,/GIF, or animated WebP/);assert.match(renderer,/Hold Ctrl while hovering for temporary sound/);assert.match(renderer,/hold Alt—the default reveal key/);
+  assert.match(renderer,/Hover to preview motion/);assert.match(renderer,/GIF, or animated WebP/);assert.match(renderer,/Hold Ctrl or Alt while hovering for temporary sound/);assert.match(renderer,/Alt is also the default reveal key/);assert.match(renderer,/event\.key==='Control'\|\|event\.key==='Alt'/);
   assert.match(styles,/\.tutorial-dimmer/);assert.match(styles,/\.tutorial-highlight/);assert.match(styles,/\.tutorial-bubble/);assert.match(styles,/box-shadow:8px 9px 0/);
 });
