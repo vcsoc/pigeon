@@ -31,7 +31,11 @@ test('large grids delegate card interactions and batch visibility registration',
 });
 
 test('every Smart Folder asset receives a placeholder and thumbnails load safely after scroll settles',()=>{
-  assert.match(renderer,/state\.view === 'duplicates'\|\|state\.smartFolderId/);assert.match(renderer,/const assets = allAssets,stackCounts/);assert.match(renderer,/MAX_THUMBNAIL_LOADS=4/);assert.match(renderer,/thumbnailScrollUntil=Date\.now\(\)\+320/);assert.match(renderer,/const image=new Image\(\)/);assert.match(renderer,/await image\.decode\(\)/);assert.match(renderer,/preview\.appendChild\(image\)/);assert.match(renderer,/image\.alt=''/);assert.match(renderer,/rootMargin:'360px 0px'/);assert.match(main,/placeholders\.cards!==placeholders\.total/);assert.match(main,/placeholders\.pending<placeholders\.total-8/);
+  assert.match(renderer,/state\.view === 'duplicates'\|\|state\.smartFolderId/);assert.match(renderer,/const assets = allAssets,stackCounts/);assert.match(renderer,/MAX_THUMBNAIL_LOADS=4/);assert.match(renderer,/thumbnailScrollUntil=Date\.now\(\)\+320/);assert.match(renderer,/const image=new Image\(\)/);assert.match(renderer,/await image\.decode\(\)/);assert.match(renderer,/preview\.appendChild\(image\)/);assert.match(renderer,/image\.alt=''/);assert.match(renderer,/THUMBNAIL_READ_AHEAD_PX=1100/);assert.match(renderer,/rootMargin:`\$\{THUMBNAIL_READ_AHEAD_PX\}px 0px`/);assert.match(main,/placeholders\.cards!==placeholders\.total/);assert.match(main,/placeholders\.pending<placeholders\.total-8/);
+});
+
+test('inspector folder paths, bidirectional read-ahead and compact thumbnail spacing are wired',()=>{
+  assert.match(html,/id="meta-folder"/);assert.match(renderer,/metaFolder: \$\('#meta-folder'\)/);assert.match(renderer,/function assetFolderPath/);assert.match(renderer,/elements\.metaFolder\.textContent=folderPath/);assert.match(renderer,/function nextThumbnailCard/);assert.match(renderer,/thumbnailScrollDirection/);assert.match(renderer,/thumbnailScrollUntil=Date\.now\(\)\+320/);assert.match(styles,/padding: 6px; background: #191a1c/);assert.match(styles,/column-gap: 4px/);assert.match(styles,/\.asset-grid\.placeholder-grid\{grid-auto-rows:auto;row-gap:4px\}/);assert.match(styles,/border-radius: 5px; padding: 1px/);
 });
 
 test('media resource errors do not become fatal UI errors',()=>{
