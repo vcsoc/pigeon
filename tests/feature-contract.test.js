@@ -298,7 +298,7 @@ test('justified rows, tag autocomplete, and viewer editing controls are wired', 
   assert.match(renderer, /event\.key === 'Enter'/);
 });
 
-test('startup uses the transparent Pigeon logo everywhere', async () => {
+test('startup, About, runtime and platform packages use the transparent Pigeon logo everywhere', async () => {
   assert.match(html, /id="startup-splash"[^>]*>[\s\S]*?pigeon-logo\.png/);
   assert.match(html, /rel="icon"[^>]*pigeon-logo\.png/);
   assert.match(styles, /\.startup-splash \{[^}]*background: var\(--bg\)/);
@@ -311,7 +311,11 @@ test('startup uses the transparent Pigeon logo everywhere', async () => {
   assert.match(styles, /\.brand-mark \{[^}]*background: transparent/);
   assert.doesNotMatch(html, /pigeon\.png/);
   assert.match(main, /icon: path\.join\([^\n]*'pigeon-logo\.png'/);
-  assert.match(packageJson, /"icon": "pigeon-logo\.png"/);
+  assert.match(html,/id="about-dialog"[\s\S]*?pigeon-logo\.png/);
+  assert.match(packageJson,/"mac": \{[\s\S]*?"icon": "build\/icon\.icns"/);assert.match(packageJson,/"win": \{[\s\S]*?"icon": "build\/icon\.ico"/);assert.match(packageJson,/"linux": \{[\s\S]*?"icon": "build\/icons"/);assert.match(packageJson,/"icons:generate": "node scripts\/generate-app-icons\.js"/);
+  const ico=fs.readFileSync(path.join(root,'build','icon.ico')),icns=fs.readFileSync(path.join(root,'build','icon.icns'));assert.equal(ico.readUInt16LE(2),1);assert.ok(ico.readUInt16LE(4)>=7);assert.equal(icns.subarray(0,4).toString('ascii'),'icns');assert.equal(icns.readUInt32BE(4),icns.length);
+  for(const size of [16,32,48,64,128,256,512,1024]){const metadata=await sharp(path.join(root,'build','icons',`${size}x${size}.png`)).metadata();assert.equal(metadata.width,size);assert.equal(metadata.height,size);assert.equal(metadata.hasAlpha,true);}
+  const linuxIcon=await sharp(path.join(root,'build','icon.png')).metadata();assert.equal(linuxIcon.width,1024);assert.equal(linuxIcon.height,1024);
   const logo = sharp(path.join(root, 'pigeon-logo.png'));
   assert.equal((await logo.metadata()).hasAlpha, true);
   assert.equal((await logo.stats()).isOpaque, false);
@@ -1016,6 +1020,7 @@ test('Chrome and Edge Manifest V3 extension is installable and local-only', () =
   const manifest = JSON.parse(fs.readFileSync(path.join(root, 'browser-extension', 'manifest.json'), 'utf8'));
   assert.equal(manifest.manifest_version, 3);
   assert.equal(manifest.background.service_worker, 'service-worker.js');
+  assert.equal(manifest.action.default_icon['32'],'icons/icon-32.png');assert.equal(manifest.icons['128'],'icons/icon-128.png');for(const size of [16,32,48,128])assert(fs.existsSync(path.join(root,'browser-extension','icons',`icon-${size}.png`)));
   assert(!JSON.stringify(manifest).includes('nativeMessaging'));
   assert.match(fs.readFileSync(path.join(root, 'browser-extension', 'service-worker.js'), 'utf8'), /pigeon:\/\/import/);
   const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
