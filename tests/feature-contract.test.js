@@ -148,6 +148,10 @@ test('modified thumbnail clicks bypass marquee and all heavy background work use
   assert.match(main,/const INDEX_CPU_LIMIT = 20/);assert.match(main,/const MAX_BACKGROUND_THREADS = 4/);assert.match(main,/const THUMBNAIL_WORKER_COUNT = 2/);assert.match(main,/const BACKGROUND_HASH_WORKERS = 2/);assert.match(main,/const PDF_WORKER_LIMIT = 1/);assert.match(main,/const LARGE_SCAN_WORKER_LIMIT = 2/);assert.match(main,/Background work yielding to your laptop/);
 });
 
+test('large-file scans defer fingerprints, use size-aware background deadlines, and classify intentional worker exits',()=>{
+  assert.match(main,/SCAN_INLINE_HASH_MAX_BYTES = 8 \* 1024 \* 1024/);assert.match(main,/inlineHashMaxBytes: SCAN_INLINE_HASH_MAX_BYTES/);assert.match(main,/function fingerprintTimeoutForSize/);assert.match(main,/attempts: asset\.size>SCAN_INLINE_HASH_MAX_BYTES\?1:3/);assert.match(main,/entry\?\.expectedExit/);assert.match(main,/telemetry\.expectedExit = true/);assert.match(main,/schedulePortfolioBackground\(warmContentHashes, 500\)/);assert.match(main,/autoUpdater\.disableWebInstaller = true/);
+});
+
 test('thumbnail marquee selection auto-scrolls while background scans remain consolidated and responsive',()=>{
   assert.match(html,/id="selection-marquee"/);assert.match(styles,/\.selection-marquee/);assert.match(renderer,/function updateMarqueeSelection/);assert.match(renderer,/function runMarqueeAutoScroll/);assert.match(renderer,/setPointerCapture/);assert.match(renderer,/scrollSpeed/);assert.match(renderer,/paintChangedSelectionCards\(changed\)/);
   assert.match(main,/\['database','thumbnail','index-scan','fingerprint'\]/);assert.match(main,/offset\+=100/);assert.match(main,/const scanBroadcastQueues=new Map/);assert.match(main,/setTimeout\(drain,16\)/);assert.match(renderer,/collectionCounts=new Map/);

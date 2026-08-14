@@ -23,7 +23,8 @@ async function hashFile(filePath) {
       const stat = await fs.stat(item.filePath);
       if (!stat.isFile()) continue;
       const unchanged = item.existing && item.existing.size === stat.size && item.existing.modified === stat.mtimeMs;
-      results.push({ filePath: item.filePath, size: stat.size, created: stat.birthtimeMs, modified: stat.mtimeMs, contentHash: unchanged && item.existing.contentHash ? item.existing.contentHash : workerData.deferHash ? item.existing?.contentHash || null : await hashFile(item.filePath) });
+      const deferHash=workerData.deferHash||stat.size>=(Number(workerData.inlineHashMaxBytes)||Infinity);
+      results.push({ filePath: item.filePath, size: stat.size, created: stat.birthtimeMs, modified: stat.mtimeMs, contentHash: unchanged && item.existing.contentHash ? item.existing.contentHash : deferHash ? null : await hashFile(item.filePath) });
     } catch (error) { results.push({ filePath: item.filePath, error: error.message }); }
   }
   parentPort.postMessage({ threadId, results });

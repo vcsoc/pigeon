@@ -13,6 +13,7 @@ const { execFile, spawn } = require('node:child_process');
 const { Worker } = require('node:worker_threads');
 const chokidar = require('chokidar');
 const { autoUpdater } = require('electron-updater');
+autoUpdater.disableWebInstaller = true;
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'pigeon-asset', privileges: { secure: true, standard: true, supportFetchAPI: true, stream: true } },
@@ -63,6 +64,7 @@ const workerTelemetry = new Map();
 let backgroundEpoch = 0;
 const INDEX_CPU_LIMIT = 20;
 const INDEX_BATCH_SIZE = 24;
+const SCAN_INLINE_HASH_MAX_BYTES = 8 * 1024 * 1024;
 const MAX_BACKGROUND_THREADS = 4;
 const INDEX_WORKER_COUNT = Math.max(1,Math.min(MAX_BACKGROUND_THREADS,Math.max(1,Math.floor(os.cpus().length/3))));
 const THUMBNAIL_WORKER_COUNT = 2;
@@ -124,7 +126,7 @@ function trackWorker(worker, type, detail = {}) {
   if(showProgress)reportBackgroundProgress(progressId,{label:`${label} worker`,detail:detail.filesTotal?`${Number(detail.filesTotal).toLocaleString()} items`:'Running in background',total:detail.filesTotal||0});
   worker.on('error',(error)=>{writeFatalDiagnostic(`worker:${type}:error`,error,{id,threadId:worker.threadId});recordDiagnostic('error',`${type} worker exception`,error);if(showProgress)reportBackgroundProgress(progressId,{label:`${label} worker failed`,detail:error.message,done:true,status:'failed'});});
   worker.on('messageerror',(error)=>{writeFatalDiagnostic(`worker:${type}:messageerror`,error,{id,threadId:worker.threadId});recordDiagnostic('error',`${type} worker message could not be deserialized`,error);});
-  worker.once('exit', (code) => {const entry=workerTelemetry.get(id),successful=code===0||Boolean(entry?.filesTotal&&entry.filesCompleted>=entry.filesTotal);workerTelemetry.delete(id);if(showProgress)reportBackgroundProgress(progressId,{label:successful?`${label} worker complete`:`${label} worker stopped`,detail:successful?'Background work finished':`Exit code ${code}`,completed:entry?.filesTotal||0,total:entry?.filesTotal||0,done:true,status:successful?'completed':'failed'});if(code!==0&&!successful&&!app.isQuitting)recordDiagnostic('error',`${type} worker exited unexpectedly`,{id,code});}); return workerTelemetry.get(id);
+  worker.once('exit', (code) => {const entry=workerTelemetry.get(id),successful=code===0||Boolean(entry?.filesTotal&&entry.filesCompleted>=entry.filesTotal);workerTelemetry.delete(id);if(showProgress)reportBackgroundProgress(progressId,{label:successful?`${label} worker complete`:`${label} worker stopped`,detail:successful?'Background work finished':`Exit code ${code}`,completed:entry?.filesTotal||0,total:entry?.filesTotal||0,done:true,status:successful?'completed':'failed'});if(code!==0&&!successful&&!entry?.expectedExit&&!app.isQuitting)recordDiagnostic('error',`${type} worker exited unexpectedly`,{id,code});}); return workerTelemetry.get(id);
 }
 async function workerResourceTelemetry(entry) { try { const [cpuUsage, heap] = await Promise.all([typeof entry.worker.cpuUsage === 'function' ? entry.worker.cpuUsage(entry.lastCpuUsage).catch(() => null) : null, typeof entry.worker.getHeapStatistics === 'function' ? entry.worker.getHeapStatistics().catch(() => null) : null]); const elapsed = Math.max(1, Date.now() - (entry.lastSampleAt || entry.startedAt)); entry.lastSampleAt = Date.now(); if (cpuUsage) entry.lastCpuUsage = cpuUsage; return { cpu: cpuUsage ? Math.min(100, ((cpuUsage.user + cpuUsage.system) / 1000 / elapsed) * 100) : (entry.worker.performance?.eventLoopUtilization()?.utilization || 0) * 100, memoryBytes: heap?.usedHeapSize || entry.memoryBytes || 0 }; } catch { return { cpu: 0, memoryBytes: entry.memoryBytes || 0 }; } }
 async function telemetrySnapshot() {
@@ -496,7 +498,7 @@ function prepareVideoFiles(asset, includeProxy = false) {
 function hashFile(filePath, timeout = 10000) {
   return new Promise((resolve) => {
     const worker = new Worker(path.join(__dirname, 'hash-worker.js'), { workerData: { source: filePath } }); backgroundHashWorkers.add(worker); const telemetry = trackWorker(worker, 'fingerprint', { filesTotal: 1 }); telemetry.currentFile = filePath; let settled = false;
-    const finish = (value) => { if (settled) return; settled = true; telemetry.filesCompleted = value ? 1 : 0; telemetry.status = value ? 'completed' : 'failed'; clearTimeout(timer); backgroundHashWorkers.delete(worker); worker.terminate().catch(() => {}); resolve(value); };
+    const finish = (value) => { if (settled) return; settled = true; telemetry.filesCompleted = value ? 1 : 0; telemetry.status = value ? 'completed' : 'failed'; telemetry.expectedExit = true; clearTimeout(timer); backgroundHashWorkers.delete(worker); worker.terminate().catch(() => {}); resolve(value); };
     const timer = setTimeout(() => { recordDiagnostic('warning', 'File fingerprint timed out', { filePath, timeout }); finish(null); }, timeout);
     worker.once('message', (result) => finish(result.ok ? result.hash : null)); worker.once('error', (error) => { recordDiagnostic('error', 'Fingerprint worker failed', error); finish(null); }); worker.once('exit', () => finish(null));
   });
@@ -599,9 +601,9 @@ async function inspectFile(filePath, location, existing, { deferHash = false, in
 
 function inspectScanBatch(batch, location, previous, run, batchNumber) {
   return new Promise((resolve) => {
-    const worker = new Worker(path.join(__dirname, 'scan-worker.js'), { workerData: { batch: batch.map((filePath) => ({ filePath, existing: previous.get(path.resolve(filePath)) ? { size: previous.get(path.resolve(filePath)).size, modified: previous.get(path.resolve(filePath)).modified, contentHash: previous.get(path.resolve(filePath)).contentHash } : null })), deferHash: location.unstable, dutyCycle: Math.max(0.08, (INDEX_CPU_LIMIT / 100) / INDEX_WORKER_COUNT) }, resourceLimits: { maxOldGenerationSizeMb: 128 } });
+    const worker = new Worker(path.join(__dirname, 'scan-worker.js'), { workerData: { batch: batch.map((filePath) => ({ filePath, existing: previous.get(path.resolve(filePath)) ? { size: previous.get(path.resolve(filePath)).size, modified: previous.get(path.resolve(filePath)).modified, contentHash: previous.get(path.resolve(filePath)).contentHash } : null })), deferHash: location.unstable, inlineHashMaxBytes: SCAN_INLINE_HASH_MAX_BYTES, dutyCycle: Math.max(0.08, (INDEX_CPU_LIMIT / 100) / INDEX_WORKER_COUNT) }, resourceLimits: { maxOldGenerationSizeMb: 128 } });
     const telemetry = trackWorker(worker, 'index-scan', { portfolioId: run.portfolioId, filesTotal: batch.length, batch: batchNumber }); telemetry.currentFile = batch[0] || '';
-    let settled = false; const finish = async (result) => { if (settled) return; settled = true; clearTimeout(timer); telemetry.filesCompleted = result?.results?.length || 0; telemetry.status = result?.error ? 'failed' : 'completed'; try { telemetry.memoryBytes = worker.resourceLimits?.maxOldGenerationSizeMb ? worker.resourceLimits.maxOldGenerationSizeMb * 1024 * 1024 : 0; } catch { /* unavailable */ } try { await worker.terminate(); } catch {} resolve(result?.results || []); };
+    let settled = false; const finish = async (result) => { if (settled) return; settled = true; clearTimeout(timer); telemetry.filesCompleted = result?.results?.length || 0; telemetry.status = result?.error ? 'failed' : 'completed'; telemetry.expectedExit = true; try { telemetry.memoryBytes = worker.resourceLimits?.maxOldGenerationSizeMb ? worker.resourceLimits.maxOldGenerationSizeMb * 1024 * 1024 : 0; } catch { /* unavailable */ } try { await worker.terminate(); } catch {} resolve(result?.results || []); };
     const timer = setTimeout(() => { recordDiagnostic('warning', 'Index worker timed out', { location: location.path, batch: batchNumber }); finish({ error: 'timeout' }); }, location.unstable ? 15000 : 45000);
     worker.once('message', finish); worker.once('error', (error) => { recordDiagnostic('error', 'Index worker failed', error); finish({ error: error.message }); }); worker.once('exit', () => finish({ error: 'exited' }));
   });
@@ -667,7 +669,7 @@ async function scanLocation(locationId, { notify = true, resume = false } = {}) 
     const foundPaths = new Set(filePaths.map((filePath) => path.resolve(filePath))), currentAssets = jobLibrary.assets.filter((asset) => asset.locationId === location.id), retained = currentAssets.map((asset) => foundPaths.has(asset.path) ? asset : scanComplete ? ({ ...asset, sourceMissing: true, sourcePending: false, missingSince: asset.missingSince || Date.now() }) : ({ ...asset, sourcePending: true, sourceMissing: false }));
     jobLibrary.assets = jobLibrary.assets.filter((asset) => asset.locationId !== location.id).concat(retained); location.partialScan = !scanComplete; location.assetCount = retained.length; location.lastScanned = Date.now(); location.scanProgress.done = true; location.scanCheckpoint = null; await removeScanQueue(run.portfolioId,location.id);
     reportBackgroundProgress(progressId, { label: `${location.name} scan complete`, detail: `${foundPaths.size.toLocaleString()} files indexed`, completed: filePaths.length, total: filePaths.length, done: true });
-    const finalAssets=[...new Map([...assetsSinceCheckpoint,...retained.filter((asset)=>asset.sourceMissing||asset.sourcePending)].map((asset)=>[asset.id,asset])).values()]; const rerun = location.rescanRequested; location.rescanRequested = false; await persistScanBatch(location,finalAssets); if (notify){broadcastScanAssets(location,retained.filter((asset)=>asset.sourceMissing||asset.sourcePending),true);broadcastLocations();} schedulePortfolioBackground(warmThumbnailCache, 0); if (rerun) schedulePortfolioBackground(() => scanLocation(location.id), location.unstable ? 1200 : 250);
+    const finalAssets=[...new Map([...assetsSinceCheckpoint,...retained.filter((asset)=>asset.sourceMissing||asset.sourcePending)].map((asset)=>[asset.id,asset])).values()]; const rerun = location.rescanRequested; location.rescanRequested = false; await persistScanBatch(location,finalAssets); if (notify){broadcastScanAssets(location,retained.filter((asset)=>asset.sourceMissing||asset.sourcePending),true);broadcastLocations();} schedulePortfolioBackground(warmThumbnailCache, 0); schedulePortfolioBackground(warmContentHashes, 500); if (rerun) schedulePortfolioBackground(() => scanLocation(location.id), location.unstable ? 1200 : 250);
   } catch (error) { recordDiagnostic('error', `Scan failed for ${location.name}`, error); reportBackgroundProgress(progressId, { label: `Scan failed: ${location.name}`, detail: error.message, done: true, status: 'failed' }); }
   finally { location.scanning = false; location.checking = false; finishBackgroundRun(run); }
 }
@@ -720,6 +722,7 @@ async function refreshSourcesInBackground({ rescan = false } = {}) {
   return { online: jobLibrary.locations.filter((location) => location.online).length, total: jobLibrary.locations.length, rescanned: recovered.length, restored };
 }
 
+function fingerprintTimeoutForSize(size){return Math.min(10*60*1000,Math.max(15000,15000+Math.round((Math.max(0,Number(size)||0)/(1024*1024*1024))*120000)));}
 async function warmContentHashes() {
   const run = beginBackgroundRun('content-hashes'); if (!run) return;
   const jobLibrary = run.library, pending = jobLibrary.assets.filter((asset) => !asset.contentHash && !asset.sourcePending && !asset.sourceMissing && jobLibrary.locations.find((location) => location.id === asset.locationId)?.online === true && !jobLibrary.locations.find((location) => location.id === asset.locationId)?.unstable), total = pending.length, progressId = run.progressId;
@@ -730,7 +733,7 @@ async function warmContentHashes() {
     const workers = Array.from({ length: Math.min(BACKGROUND_HASH_WORKERS, pending.length) }, async () => { while (pending.length && backgroundRunActive(run)) {
       if(scanWorkActive()&&!(await waitForScanIdle(run)))break;
       if(!(await waitForIndexCpuBudget(run)))break;
-      const asset = pending.shift(), result = await retryBackground(async () => { const hash = await hashFile(asset.path, 8000); if (!hash) throw new Error('Fingerprint unavailable'); return hash; }, run, { attempts: 3, timeout: 9000, baseDelay: 100, label: `Fingerprint ${asset.filename}` });
+      const asset = pending.shift(),fingerprintTimeout=fingerprintTimeoutForSize(asset.size),result = await retryBackground(async () => { const hash = await hashFile(asset.path,fingerprintTimeout); if (!hash) throw new Error('Fingerprint unavailable'); return hash; }, run, { attempts: asset.size>SCAN_INLINE_HASH_MAX_BYTES?1:3, timeout:fingerprintTimeout+2000, baseDelay: 100, label: `Fingerprint ${asset.filename}` });
       if (!backgroundRunActive(run)) break; if (typeof result === 'string'){asset.contentHash = result;changedAssets.push(asset);} else failed += 1; completed += 1;
       if (completed % 10 === 0 || completed === total) reportBackgroundProgress(progressId, { label: 'Analyzing file fingerprints', detail: `${completed.toLocaleString()} of ${total.toLocaleString()}${failed ? ` · ${failed} failed` : ''}`, completed, total });
     } }); await Promise.allSettled(workers);
