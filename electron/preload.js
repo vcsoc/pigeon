@@ -7,6 +7,7 @@ process.on('warning',(warning)=>reportFatal('preload:warning',warning));
 contextBridge.exposeInMainWorld('pigeon', {
   getLibrary: () => ipcRenderer.invoke('library:get'),
   getAppInfo: () => ipcRenderer.invoke('app:info'),
+  getLegalDocuments: () => ipcRenderer.invoke('app:legal-documents'),
   getDiagnostics: () => ipcRenderer.invoke('diagnostics:get'),
   getTelemetry: () => ipcRenderer.invoke('telemetry:get'),
   buildFolderTree: (payload) => ipcRenderer.invoke('folder-tree:build', payload),

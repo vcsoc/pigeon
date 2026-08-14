@@ -257,13 +257,27 @@
     <div id="tag-autocomplete" class="tag-autocomplete hidden" popover="manual" role="listbox" aria-label="Existing tag suggestions"></div>
     <div id="asset-context-menu" class="app-menu context-menu hidden"></div><div id="sidebar-order-submenu" class="app-menu context-menu context-submenu hidden"></div>
     <section id="about-dialog" class="about-dialog hidden" aria-labelledby="about-title" aria-modal="true" role="dialog" tabindex="-1">
-      <div class="about-content">
-        <span id="about-version" class="about-version">Version</span>
-        <p class="about-credit">Developed by <strong>Chris Visser</strong></p>
-        <button id="about-github" class="about-github" type="button"><span id="about-github-icon"></span><span>github.com/vcsoc/pigeon</span></button>
-        <p class="about-dismiss-hint">Click anywhere or press Esc to close</p>
+      <div id="about-layout" class="about-layout">
+        <div class="about-summary">
+          <div class="startup-brand about-brand"><img src="../pigeon-logo.png" alt="Pigeon logo" /><div><strong id="about-title">pigeon</strong><span>sees all</span></div></div>
+          <div class="about-content">
+            <span id="about-version" class="about-version">Version</span>
+            <p class="about-credit">Developed by <strong>Chris Visser</strong></p>
+            <button id="about-github" class="about-github" type="button"><span id="about-github-icon"></span><span>github.com/vcsoc/pigeon</span></button>
+          </div>
+          <p class="about-dismiss-hint">Click outside this panel or press Esc to close</p>
+        </div>
+        <section class="about-licenses" aria-labelledby="about-licenses-title">
+          <header><div><span>Legal</span><h2 id="about-licenses-title">Licenses</h2></div></header>
+          <div id="about-license-tabs" class="about-license-tabs" role="tablist" aria-label="Pigeon licenses">
+            <button id="about-license-tab-community" type="button" role="tab" aria-selected="true" aria-controls="about-license-text" data-about-license="community">Community</button>
+            <button id="about-license-tab-commercial" type="button" role="tab" aria-selected="false" aria-controls="about-license-text" data-about-license="commercial">Commercial</button>
+            <button id="about-license-tab-notices" type="button" role="tab" aria-selected="false" aria-controls="about-license-text" data-about-license="notices">Notices</button>
+            <button id="about-license-tab-trademarks" type="button" role="tab" aria-selected="false" aria-controls="about-license-text" data-about-license="trademarks">Trademarks</button>
+          </div>
+          <pre id="about-license-text" class="about-license-text" role="tabpanel" tabindex="0">Loading license…</pre>
+        </section>
       </div>
-      <div class="startup-brand about-brand"><img src="../pigeon-logo.png" alt="Pigeon logo" /><div><strong id="about-title">pigeon</strong><span>sees all</span></div></div>
     </section>
     <dialog id="tag-assignment-dialog" class="settings-dialog tag-assignment-dialog">
       <header><strong>Assign tags</strong><button id="close-tag-assignment">×</button></header>

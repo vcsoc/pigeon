@@ -928,7 +928,7 @@ function renderInspector() {
   elements.inspectorContent.classList.toggle('hidden', !asset);
   if (!asset) return;
   const location = locationFor(asset);
-  const image = asset.kind === 'image', video = asset.kind === 'video', audio = asset.kind === 'audio';
+  const image = asset.kind === 'image' || (asset.extension === 'SNAGX' && Boolean(asset.proxyPath)), video = asset.kind === 'video', audio = asset.kind === 'audio';
   elements.inspectorImage.classList.toggle('hidden', !image);
   elements.inspectorVideo.classList.toggle('hidden', !video);
   elements.inspectorAudio.classList.toggle('hidden', !audio);
@@ -1221,8 +1221,16 @@ function requestConfirmation({ title, message, confirmText = 'Confirm' }) {
 function finishTextEntry(confirmed) {
   hideTagAutocomplete(); const resolver = textEntryResolve, confirmation = textEntryConfirmation, tagMode = textEntryTagMode; if (confirmed && tagMode) addTextEntryTags($('#text-entry-input').value.split(',')); const tagResult = [...textEntryTagValues.values()]; textEntryResolve = null; textEntryConfirmation = false; textEntryTagMode = false; if ($('#text-entry-dialog').open) $('#text-entry-dialog').close(); resolver?.(confirmed ? (confirmation ? true : tagMode ? tagResult : $('#text-entry-input').value) : null);
 }
+let aboutLegalDocuments = null;
+function selectAboutLegalDocument(key) {
+  const documents=aboutLegalDocuments||{},selected=documents[key]?key:Object.keys(documents)[0],text=$('#about-license-text');
+  $$('[data-about-license]').forEach((button)=>{const active=button.dataset.aboutLicense===selected;button.setAttribute('aria-selected',String(active));button.tabIndex=active?0:-1;if(active)text.setAttribute('aria-labelledby',button.id);});
+  text.textContent=documents[selected]||'License documents are unavailable.';
+}
 async function openAboutDialog() {
-  const about=$('#about-dialog'),info=await window.pigeon.getAppInfo();$('#about-version').textContent=`Version ${info.version}`;$('#about-github-icon').innerHTML=iconSvg('github');about.dataset.repository=info.repository;about.classList.remove('hidden');about.focus();
+  const about=$('#about-dialog'),info=await window.pigeon.getAppInfo();
+  if(!aboutLegalDocuments){try{aboutLegalDocuments=await window.pigeon.getLegalDocuments();}catch{aboutLegalDocuments={community:'License documents are unavailable.'};}}
+  $('#about-version').textContent=`Version ${info.version}`;$('#about-github-icon').innerHTML=iconSvg('github');about.dataset.repository=info.repository;selectAboutLegalDocument($('[data-about-license][aria-selected="true"]')?.dataset.aboutLicense||'community');about.classList.remove('hidden');about.focus();
 }
 function closeAboutView(){const about=$('#about-dialog');if(!about.classList.contains('hidden'))about.classList.add('hidden');}
 let portfolioTransferTarget = null, portfolioTransferDestination = null;
@@ -1487,7 +1495,7 @@ async function executeMenuAction(action) {
   if (action === 'settings') openSettings();
   if (action === 'about') openAboutDialog();
   if (action === 'diagnostics') openDiagnosticsConsole();
-  if (action === 'check-updates') { showToast('Checking GitHub for updates…'); try { const result = await window.pigeon.checkForUpdates(); if (result.status === 'current') showToast(`Pigeon ${result.currentVersion} is up to date`); if (result.status === 'development') showToast('Update checks are available in packaged builds'); } catch (error) { showToast(`Update check failed · ${error.message}`); } }
+  if (action === 'check-updates') { showToast('Checking GitHub for updates…'); try { const result = await window.pigeon.checkForUpdates(); if (result.status === 'current') showToast(`Pigeon ${result.currentVersion} is up to date`); if (result.status === 'unavailable') showToast('Updates are temporarily unavailable for this platform'); if (result.status === 'development') showToast('Update checks are available in packaged builds'); } catch (error) { showToast(`Update check failed · ${error.message}`); } }
   if (action === 'plugins') await window.pigeon.openPluginsFolder();
   if (action === 'quit') window.pigeon.closeWindow();
 }
@@ -1581,7 +1589,7 @@ async function loadTextReader(asset){const token=asset.id;try{const result=await
 function renderInternalViewer() {
   const asset = state.library.assets.find((item) => item.id === state.viewerAssetId);
   if (!asset) return;
-  const image = asset.kind === 'image', video = asset.kind === 'video', audio = asset.kind === 'audio',text=['TXT','JSON','YAML','YML'].includes(String(asset.extension).toUpperCase());
+  const image = asset.kind === 'image' || (asset.extension === 'SNAGX' && Boolean(asset.proxyPath)), video = asset.kind === 'video', audio = asset.kind === 'audio',text=['TXT','JSON','YAML','YML'].includes(String(asset.extension).toUpperCase());
   elements.viewerImage.classList.toggle('hidden', !image);
   elements.viewerVideo.classList.toggle('hidden', !video);
   elements.viewerAudio.classList.toggle('hidden', !audio);
@@ -2140,6 +2148,9 @@ $('#import-model-config').addEventListener('click', () => showToast('Model confi
 $('#regenerate-developer-token').addEventListener('click', () => { const token = crypto.randomUUID().replace(/-/g, ''); localStorage.setItem('pigeon.developerToken', token); $('#developer-token').value = token; });
 $('#close-settings').addEventListener('click', () => $('#settings-dialog').close());
 $('#about-dialog').addEventListener('click',closeAboutView);
+$('#about-layout').addEventListener('click',(event)=>event.stopPropagation());
+$('#about-license-tabs').addEventListener('click',(event)=>{const button=event.target.closest('[data-about-license]');if(button)selectAboutLegalDocument(button.dataset.aboutLicense);});
+$('#about-license-tabs').addEventListener('keydown',(event)=>{if(!['ArrowLeft','ArrowRight'].includes(event.key))return;const tabs=$$('[data-about-license]'),current=tabs.indexOf(document.activeElement);if(current<0)return;event.preventDefault();const next=tabs[(current+(event.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length];selectAboutLegalDocument(next.dataset.aboutLicense);next.focus();});
 $('#about-github').addEventListener('click',()=>window.pigeon.openExternal($('#about-dialog').dataset.repository));
 window.addEventListener('keydown',(event)=>{if(event.key==='Escape'&&!$('#about-dialog').classList.contains('hidden')){event.preventDefault();closeAboutView();}},true);
 function revealShortcutPressed(event){const configured=String(preferences.thumbnailEffectRevealKey||'Alt').replace('Control','Ctrl').split('+'),key=configured.at(-1),eventKey=event.key==='Control'?'Ctrl':event.key==='Meta'?'Meta':event.key.length===1?event.key.toUpperCase():event.key,required=new Set(configured.slice(0,-1));return eventKey===key&&(!required.has('Ctrl')||event.ctrlKey)&&(!required.has('Alt')||event.altKey)&&(!required.has('Shift')||event.shiftKey)&&(!required.has('Meta')||event.metaKey);}

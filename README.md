@@ -42,7 +42,13 @@ npm run dist:mac
 npm run dist:linux
 ```
 
-The workflow in `.github/workflows/build-desktop.yml` builds Windows x64, a universal macOS package, and Linux x64 on their native runners. It can be started manually or by pushing a version tag such as `v0.1.0`.
+The workflow in `.github/workflows/build-desktop.yml` builds Windows x64, a universal macOS package, and Linux x64 on their native runners. A version tag such as `v0.1.0` also publishes the installers and update metadata to the corresponding GitHub Release.
+
+## License
+
+Copyright © 2026 Chris Visser. Pigeon is source-available under the [PolyForm Shield License 1.0.0](LICENSE.md), which does not permit using this software to provide a competing product. See [`NOTICE.md`](NOTICE.md) for required notices, [`COMMERCIAL-LICENSE.md`](COMMERCIAL-LICENSE.md) for commercial and enterprise licensing, and [`TRADEMARKS.md`](TRADEMARKS.md) for branding rules.
+
+Pigeon is not distributed under an OSI-approved open-source license. Third-party components remain under their own licenses.
 
 ## Local data
 

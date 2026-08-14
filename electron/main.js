@@ -10,6 +10,8 @@ const { createLibraryStore } = require('./database');
 const ffmpegExecutable = require('ffmpeg-static').replace('app.asar', 'app.asar.unpacked');
 const os = require('node:os');
 const { availableMemoryBytes } = require('./system-resources');
+const { isMissingUpdateMetadataError } = require('./update-support');
+const { extractSnagxPreview } = require('./snagx-preview');
 const { execFile, spawn } = require('node:child_process');
 const { Worker } = require('node:worker_threads');
 const chokidar = require('chokidar');
@@ -25,8 +27,8 @@ const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bm
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.m4v', '.webm', '.avi', '.mkv', '.ogv']);
 const AUDIO_EXTENSIONS = new Set(['.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg', '.oga', '.opus']);
 const FONT_EXTENSIONS = new Set(['.ttf', '.otf', '.woff', '.woff2']);
-const DOCUMENT_EXTENSIONS = new Set(['.pdf', '.af', '.afdesign', '.afphoto', '.pspimage', '.ai', '.sketch', '.free', '.fig', '.eps']);
-const PREVIEWABLE_DOCUMENT_EXTENSIONS = new Set(['PDF', 'AI', 'EPS', 'SKETCH', 'FREE']);
+const DOCUMENT_EXTENSIONS = new Set(['.pdf', '.af', '.afdesign', '.afphoto', '.pspimage', '.ai', '.sketch', '.free', '.fig', '.eps', '.snagx']);
+const PREVIEWABLE_DOCUMENT_EXTENSIONS = new Set(['PDF', 'AI', 'EPS', 'SKETCH', 'FREE', 'SNAGX']);
 const watchers = new Map();
 const thumbnailWorkers = [];
 const thumbnailQueue = [];
@@ -464,6 +466,11 @@ async function createAudioThumbnail(asset, target) {
 }
 async function extractZipPreview(source,target){const script=`Add-Type -AssemblyName System.IO.Compression.FileSystem;$z=[IO.Compression.ZipFile]::OpenRead($args[0]);try{$e=$z.Entries|Where-Object{$_.FullName -match '(?i)(^|/)(preview|thumbnail)(@2x)?\\.(png|jpe?g|webp)$'}|Sort-Object Length -Descending|Select-Object -First 1;if(!$e){exit 2};$s=$e.Open();$o=[IO.File]::Create($args[1]);try{$s.CopyTo($o)}finally{$o.Dispose();$s.Dispose()}}finally{$z.Dispose()}`;return new Promise((resolve)=>execFile('powershell.exe',['-NoProfile','-NonInteractive','-Command',script,source,target],{windowsHide:true,timeout:8000,maxBuffer:64*1024},(error)=>resolve(!error)));}
 async function createDocumentThumbnail(asset, target) {
+  if (asset.extension==='SNAGX') {
+    if (asset.thumbnailPath && await pathAvailable(asset.thumbnailPath) && asset.proxyPath && await pathAvailable(asset.proxyPath)) return { ok:true,target:asset.thumbnailPath,proxyPath:asset.proxyPath,width:asset.width,height:asset.height };
+    const extracted=await extractSnagxPreview(asset.path,path.join(thumbnailDir,`${asset.id}.snagx-preview`));if(!extracted)return null;
+    try{const metadata=await sharp(extracted.target).metadata();await sharp(extracted.target).rotate().resize({width:512,height:512,fit:'inside',withoutEnlargement:true}).flatten({background:'#20232d'}).jpeg({quality:76}).toFile(target);asset.proxyPath=extracted.target;asset.proxyVersion=3;return{ok:true,target,proxyPath:extracted.target,width:metadata.width,height:metadata.height,technicalMetadata:{format:'snagx',previewEntry:extracted.entryName,previewFormat:metadata.format,hasAlpha:metadata.hasAlpha}};}catch(error){await fsp.rm(extracted.target,{force:true});throw error;}
+  }
   if (asset.thumbnailPath && await pathAvailable(asset.thumbnailPath) && !(asset.extension==='PDF'&&asset.pdfPreviewVersion!==2)) return { ok: true, target: asset.thumbnailPath };
   if (asset.extension==='SKETCH'||asset.extension==='FREE'){if(process.platform!=='win32')return null;const extracted=`${target}.embedded`;if(!(await extractZipPreview(asset.path,extracted)))return null;try{const metadata=await sharp(extracted).metadata();await sharp(extracted).resize({width:512,height:512,fit:'inside',withoutEnlargement:true}).flatten({background:'#20232d'}).jpeg({quality:72}).toFile(target);return{ok:true,target,width:metadata.width,height:metadata.height};}finally{await fsp.rm(extracted,{force:true});}}
   if (asset.extension !== 'PDF') { const ready = await runVideoFfmpeg(['-hide_banner', '-loglevel', 'error', '-i', asset.path, '-frames:v', '1', '-vf', 'scale=512:512:force_original_aspect_ratio=decrease', '-q:v', '5', '-y', target], 9000); return ready ? { ok: true, target } : null; }
@@ -1539,6 +1546,7 @@ const registerIpcHandler=ipcMain.handle.bind(ipcMain);
 ipcMain.handle=(channel,handler)=>registerIpcHandler(channel,async(event,...args)=>{try{return await handler(event,...args);}catch(error){const context={channel,senderId:event?.sender?.id,args:args.map((value)=>diagnosticValue(value).slice(0,2000))};writeFatalDiagnostic('ipc:handler',error,context);recordDiagnostic('error',`Unhandled IPC exception in ${channel}`,{error:diagnosticValue(error),...context});throw error;}});
 ipcMain.on('diagnostics:fatal',(_event,payload)=>{writeFatalDiagnostic(payload?.source||'preload',payload?.message||'Unknown fatal error',payload?.context||'');recordDiagnostic('error',payload?.message||'Preload exception',payload?.context||'');});
 ipcMain.handle('app:info', () => ({ name: 'Pigeon', version: app.getVersion(), repository: 'https://github.com/vcsoc/pigeon' }));
+ipcMain.handle('app:legal-documents', async () => Object.fromEntries(await Promise.all(Object.entries({ community:'LICENSE.md', commercial:'COMMERCIAL-LICENSE.md', notices:'NOTICE.md', trademarks:'TRADEMARKS.md' }).map(async ([key,file]) => [key,await fsp.readFile(path.join(app.getAppPath(),file),'utf8')]))));
 ipcMain.handle('diagnostics:get', () => diagnosticEntries.slice(-1000));
 ipcMain.handle('telemetry:get', () => telemetrySnapshot());
 ipcMain.handle('folder-tree:build', (_event, { collapsedKeys = [], limits = {} }) => new Promise((resolve) => { const locations = library.locations.map(({id,path})=>({id,path})), assets = library.assets.map(({locationId,path,created,modified,indexedAt})=>({locationId,path,created,modified,indexedAt})), emptyFolders=library.settings?.emptyFolders||{},worker = new Worker(path.join(__dirname, 'folder-tree-worker.js'), { workerData: { locations, assets, emptyFolders, collapsedKeys, limits } }), telemetry = trackWorker(worker, 'folder-tree', { filesTotal: assets.length }); let settled = false; const finish = (value) => { if (settled) return; settled = true; telemetry.filesCompleted = assets.length; worker.terminate().catch(() => {}); resolve(value || []); }; worker.once('message', finish); worker.once('error', (error) => { recordDiagnostic('error', 'Folder tree worker failed', error); finish([]); }); worker.once('exit', () => finish([])); }));
@@ -1550,7 +1558,14 @@ function formatUpdateBytes(value){const bytes=Math.max(0,Number(value)||0);if(by
 ipcMain.handle('app:check-for-updates', async () => {
   if (!app.isPackaged) return { status: 'development', currentVersion: app.getVersion() };
   autoUpdater.autoDownload = false; autoUpdater.autoInstallOnAppQuit = true;
-  const update = await autoUpdater.checkForUpdates(); const version = update?.updateInfo?.version; if (!version || version === app.getVersion()) return { status: 'current', currentVersion: app.getVersion() };
+  let update;
+  try { update = await autoUpdater.checkForUpdates(); }
+  catch (error) {
+    if (!isMissingUpdateMetadataError(error)) throw error;
+    recordDiagnostic('warning', 'Update metadata is unavailable for this platform', { platform: process.platform, version: app.getVersion() });
+    return { status: 'unavailable', currentVersion: app.getVersion(), reason: 'missing-update-metadata' };
+  }
+  const version = update?.updateInfo?.version; if (!version || version === app.getVersion()) return { status: 'current', currentVersion: app.getVersion() };
   const choice = await dialog.showMessageBox(mainWindow, { type: 'info', title: 'Pigeon Update Available', message: `Pigeon ${version} is available`, detail: `You are using ${app.getVersion()}. Download and install the update for ${process.platform}?`, buttons: ['Download and Install', 'Later'], defaultId: 0, cancelId: 1 }); if (choice.response !== 0) return { status: 'available', version };
   const progressId=`application:update:${version}`;let latest={transferred:0,total:0};
   const onDownloadProgress=(progress)=>{latest={transferred:Math.max(0,Number(progress.transferred)||0),total:Math.max(0,Number(progress.total)||0)};const percent=Number.isFinite(progress.percent)?Math.max(0,Math.min(100,progress.percent)):latest.total?latest.transferred/latest.total*100:0,speed=Math.max(0,Number(progress.bytesPerSecond)||0),detail=[`${percent.toFixed(0)}%`,latest.total?`${formatUpdateBytes(latest.transferred)} of ${formatUpdateBytes(latest.total)}`:formatUpdateBytes(latest.transferred),speed?`${formatUpdateBytes(speed)}/s`:null].filter(Boolean).join(' · ');reportBackgroundProgress(progressId,{label:`Downloading Pigeon ${version}`,detail,completed:latest.transferred,total:latest.total});};

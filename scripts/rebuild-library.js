@@ -9,7 +9,7 @@ const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bm
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.m4v', '.webm', '.avi', '.mkv']);
 const AUDIO_EXTENSIONS = new Set(['.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg']);
 const FONT_EXTENSIONS = new Set(['.ttf', '.otf', '.woff', '.woff2']);
-const DOCUMENT_EXTENSIONS = new Set(['.pdf', '.ai', '.psd', '.sketch', '.fig', '.eps']);
+const DOCUMENT_EXTENSIONS = new Set(['.pdf', '.ai', '.psd', '.sketch', '.fig', '.eps', '.snagx']);
 
 function id(value) { return crypto.createHash('sha1').update(value).digest('hex').slice(0, 16); }
 function hashFile(filePath) {

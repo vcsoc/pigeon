@@ -20,6 +20,7 @@ const worldLand = fs.readFileSync(path.join(root, 'src', 'world-land.js'), 'utf8
 const icons = fs.readFileSync(path.join(root, 'src', 'icons.js'), 'utf8');
 const packageJson = fs.readFileSync(path.join(root, 'package.json'), 'utf8');
 const systemResources = fs.readFileSync(path.join(root, 'electron', 'system-resources.js'), 'utf8');
+const snagxPreview = fs.readFileSync(path.join(root, 'electron', 'snagx-preview.js'), 'utf8');
 
 test('UI exposes collection, smart-folder, batch, trash, media, metadata and editing surfaces', () => {
   for (const id of ['collection-list', 'smart-folder-list', 'batch-bar', 'duplicates-count', 'trash-count', 'inspector-video', 'inspector-audio', 'sidebar-resizer', 'inspector-resizer', 'batch-stack', 'batch-unstack', 'settings-dialog', 'text-entry-dialog', 'smart-folder-dialog', 'smart-folder-name', 'smart-folder-rules', 'favorite-shortcut', 'portfolio-switcher', 'portfolio-switcher-search', 'portfolio-switcher-list', 'portfolio-select', 'switch-portfolio', 'new-portfolio', 'rename-portfolio', 'delete-portfolio', 'encrypt-locked-folders', 'confirm-folder-moves', 'rotate-left', 'rotate-right', 'tag-suggestions', 'tag-autocomplete', 'tag-assignment-dialog', 'batch-tag-input', 'viewer-crop-overlay', 'map-view', 'location-map', 'map-search-input', 'map-globe-mode', 'map-street-mode', 'map-save', 'location-shortcut', 'duplicate-controls', 'duplicate-similarity', 'show-all-duplicate-groups', 'thumbnail-title-line-1', 'thumbnail-title-line-2', 'thumbnail-title-line-3', 'tag-browser', 'media-viewer', 'viewer-video', 'asset-histogram', 'annotation-view']) {
@@ -45,6 +46,17 @@ test('media resource errors do not become fatal UI errors',()=>{
 
 test('all file types support location, complete EXIF inspection, and stronger native drag handoff',()=>{
   assert.match(renderer,/const assetIds=\[\.\.\.new Set\(ids\|\|\[\]\)\]/);assert.match(renderer,/Select one or more files first/);assert.match(renderer,/<button data-context-action="location">/);assert.match(html,/id="exif-metadata"/);assert.match(renderer,/function flattenedMetadata/);assert.match(renderer,/image\?flattenedMetadata\(asset\.exif\)/);assert.match(renderer,/text\/uri-list/);assert.match(renderer,/function startNativeAssetDrag/);assert.match(renderer,/addEventListener\('dragleave'/);assert.match(main,/nativeImage\.createFromPath/);assert.match(main,/startDrag\(\{files,icon\}\)/);
+});
+
+test('Snagit SNAGX files receive safe archive thumbnails and full image previews',()=>{
+  assert.match(main,/DOCUMENT_EXTENSIONS[^\n]*'\.snagx'/);
+  assert.match(main,/PREVIEWABLE_DOCUMENT_EXTENSIONS[^\n]*'SNAGX'/);
+  assert.match(main,/extractSnagxPreview/);
+  assert.match(main,/asset\.proxyPath=extracted\.target;asset\.proxyVersion=3/);
+  assert.match(snagxPreview,/thumbnail\\\.png/);
+  assert.match(snagxPreview,/MAX_PREVIEW_BYTES/);
+  assert.match(renderer,/asset\.extension === 'SNAGX' && Boolean\(asset\.proxyPath\)/);
+  assert.match(packageJson,/"yauzl": "3\.4\.0"/);
 });
 
 test('targeted thumbnail rebuild, virtual full scroll, cover previews, metadata copy and native drag are wired',()=>{
