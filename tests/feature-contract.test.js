@@ -22,6 +22,7 @@ const packageJson = fs.readFileSync(path.join(root, 'package.json'), 'utf8');
 const systemResources = fs.readFileSync(path.join(root, 'electron', 'system-resources.js'), 'utf8');
 const affinityPreview = fs.readFileSync(path.join(root, 'electron', 'affinity-preview.js'), 'utf8');
 const snagxPreview = fs.readFileSync(path.join(root, 'electron', 'snagx-preview.js'), 'utf8');
+const fileTypesSource = fs.readFileSync(path.join(root, 'electron', 'file-types.js'), 'utf8');
 
 test('UI exposes collection, smart-folder, batch, trash, media, metadata and editing surfaces', () => {
   for (const id of ['collection-list', 'smart-folder-list', 'batch-bar', 'duplicates-count', 'trash-count', 'inspector-video', 'inspector-audio', 'sidebar-resizer', 'inspector-resizer', 'batch-stack', 'batch-unstack', 'settings-dialog', 'text-entry-dialog', 'smart-folder-dialog', 'smart-folder-name', 'smart-folder-rules', 'favorite-shortcut', 'portfolio-switcher', 'portfolio-switcher-search', 'portfolio-switcher-list', 'portfolio-select', 'switch-portfolio', 'new-portfolio', 'rename-portfolio', 'delete-portfolio', 'encrypt-locked-folders', 'confirm-folder-moves', 'rotate-left', 'rotate-right', 'tag-suggestions', 'tag-autocomplete', 'tag-assignment-dialog', 'batch-tag-input', 'viewer-crop-overlay', 'map-view', 'location-map', 'map-search-input', 'map-globe-mode', 'map-street-mode', 'map-save', 'location-shortcut', 'duplicate-controls', 'duplicate-similarity', 'show-all-duplicate-groups', 'thumbnail-title-line-1', 'thumbnail-title-line-2', 'thumbnail-title-line-3', 'tag-browser', 'media-viewer', 'viewer-video', 'asset-histogram', 'annotation-view']) {
@@ -50,7 +51,7 @@ test('all file types support location, complete EXIF inspection, and native cros
 });
 
 test('Snagit SNAGX files receive safe archive thumbnails and full image previews',()=>{
-  assert.match(main,/DOCUMENT_EXTENSIONS[^\n]*'\.snagx'/);
+  assert.match(fileTypesSource,/design:[^\n]*'\.snagx'/);
   assert.match(main,/PREVIEWABLE_DOCUMENT_EXTENSIONS[^\n]*'SNAGX'/);
   assert.match(main,/extractSnagxPreview/);
   assert.match(main,/asset\.proxyPath=extracted\.target;asset\.proxyVersion=3/);
@@ -62,7 +63,7 @@ test('Snagit SNAGX files receive safe archive thumbnails and full image previews
 });
 
 test('Affinity documents receive bounded embedded thumbnails and full image previews',()=>{
-  for(const extension of ['.af','.afdesign','.afphoto'])assert.match(main,new RegExp(`DOCUMENT_EXTENSIONS[^\\n]*'\\${extension}'`));
+  for(const extension of ['.af','.afdesign','.afphoto'])assert.match(fileTypesSource,new RegExp(`design:[^\\n]*'\\${extension}'`));
   for(const extension of ['AF','AFDESIGN','AFPHOTO'])assert.match(main,new RegExp(`PREVIEWABLE_DOCUMENT_EXTENSIONS[^\\n]*'${extension}'`));
   assert.match(main,/extractAffinityPreview/);
   assert.match(main,/AFFINITY_PREVIEW_EXTENSIONS\.has\(asset\.extension\)/);
@@ -100,11 +101,11 @@ test('actions support topbar editing, reordered clearing/move/rename steps and l
   for(const step of ['clearCollections','clearTags','clearRating','moveFolder','autoRename'])assert.match(renderer,new RegExp(step));assert.match(renderer,/data-quick-edit/);assert.match(renderer,/wireShortcutStepReordering/);assert.match(renderer,/rename-pattern-suggestions/);assert.match(renderer,/created-date-time/);assert.match(styles,/font-size:13px/);assert.match(main,/assets:auto-rename/);assert.match(main,/assets:move-to-path/);assert.match(core,/operation\.clearCollections/);
 });
 test('SVG, Sketch and Lunacy files plus embedded workflow metadata and drag export are wired',()=>{
-  assert.match(main,/\.svg/);assert.match(main,/\.sketch/);assert.match(main,/\.free/);assert.match(main,/extractZipPreview/);assert.match(thumbnailWorker,/pngTextMetadata/);assert.match(thumbnailWorker,/workflow/);assert.match(html,/showAdditionalMetadata/);assert.match(renderer,/DownloadURL/);assert.match(styles,/\.folder-tree-toggle \{ width: 18px/);assert.match(renderer,/setTimeout\(\(\)=>\{if\(!button\.matches\(':hover'\)\)/);
+  assert.match(fileTypesSource,/\.svg/);assert.match(fileTypesSource,/\.sketch/);assert.match(fileTypesSource,/\.free/);assert.match(main,/extractZipPreview/);assert.match(thumbnailWorker,/pngTextMetadata/);assert.match(thumbnailWorker,/workflow/);assert.match(html,/showAdditionalMetadata/);assert.match(renderer,/DownloadURL/);assert.match(styles,/\.folder-tree-toggle \{ width: 18px/);assert.match(renderer,/setTimeout\(\(\)=>\{if\(!button\.matches\(':hover'\)\)/);
 });
 
 test('privacy-affected motion previews require the temporary reveal shortcut',()=>{
-  assert.match(renderer,/protectedMotion=Boolean\(asset\.thumbnailEffect/);assert.match(renderer,/protectedMotion&&!state\.thumbnailEffectRevealPressed/);assert.match(renderer,/revealShortcutPressed\(event\)\)start\(event,true\)/);assert.match(renderer,/revealShortcutPressed\(event\)\)stop\(\)/);assert.match(renderer,/thumbnailEffectRevealKey:'Alt'/);assert.match(html,/Reset to Alt/);
+  assert.match(renderer,/protectedMotion=Boolean\(asset\.thumbnailEffect/);assert.match(renderer,/protectedMotion&&!state\.thumbnailEffectRevealPressed/);assert.match(renderer,/revealShortcutPressed\(event\)\)\{clearTimeout\(startTimer\);startTimer=null;start\(event,true\);\}/);assert.match(renderer,/revealShortcutPressed\(event\)\)stop\(\)/);assert.match(renderer,/thumbnailEffectRevealKey:'Alt'/);assert.match(html,/Reset to Alt/);
 });
 
 test('hovered video uses hold-Control or Alt sound and tree screenshots have terminal branches',()=>{
@@ -687,7 +688,7 @@ test('refresh, robust facets, folder drops, media hover scrubbing, and expanded 
   assert.match(html, /data-pref="audioHoverPreview"/);
   assert.match(main, /createAudioThumbnail/);
   assert.match(main, /showwavespic/);
-  for (const extension of ['.af', '.psd', '.pdf', '.pspimage', '.ogg', '.mp3', '.wav']) assert.match(main, new RegExp(extension.replace('.', '\\.')));
+  for (const extension of ['.af', '.psd', '.pdf', '.pspimage', '.ogg', '.mp3', '.wav']) assert.match(`${main}\n${fileTypesSource}`, new RegExp(extension.replace('.', '\\.')));
   assert.match(renderer, /enablePhysicalFolderDrop/);
   assert.match(renderer, /collectionId:\s*target\.id/);
   assert.match(main, /target\.locationId/);
@@ -1112,4 +1113,10 @@ test('Help Tutorials provides a comic guided tour with complete navigation and p
   assert.match(renderer,/Password-protect a collection/);assert.match(renderer,/Password protect folder/);assert.match(renderer,/Apply—and remove—privacy effects/);assert.match(renderer,/Blur or Pixelate/);assert.match(renderer,/Press B again to remove it/);
   assert.match(renderer,/Hover to preview motion/);assert.match(renderer,/GIF, or animated WebP/);assert.match(renderer,/Hold Ctrl or Alt while hovering for temporary sound/);assert.match(renderer,/Alt is also the default reveal key/);assert.match(renderer,/event\.key==='Control'\|\|event\.key==='Alt'/);
   assert.match(styles,/\.tutorial-dimmer/);assert.match(styles,/\.tutorial-highlight/);assert.match(styles,/\.tutorial-bubble/);assert.match(styles,/box-shadow:8px 9px 0/);
+});
+
+test('focused file indexing and delayed hover playback are configurable',()=>{
+  assert.match(html,/data-preference-page="indexing"/);assert.match(html,/data-pref="indexAllFiles"/);assert.match(html,/data-index-category="images"/);assert.match(html,/data-index-category="documents"/);assert.match(html,/Documents and Markdown/);assert.match(html,/Presentations and PowerPoint/);assert.match(html,/data-pref="hoverPreviewDelay"/);
+  assert.match(renderer,/hoverPreviewDelay:250/);assert.match(renderer,/const scheduleStart=/);assert.match(renderer,/setTimeout\(\(\)=>\{startTimer=null;if\(hovering\)start\(modifiers\);\},delay\)/);assert.match(renderer,/clearTimeout\(startTimer\);startTimer=null/);
+  assert.match(main,/shouldIndexFile\(filePath,indexingPreferences\)/);assert.match(main,/preferences\.indexAllFiles===true/);assert.match(main,/previousPolicy!==nextPolicy/);assert.match(fileTypesSource,/DEFAULT_INDEX_CATEGORIES/);assert.match(fileTypesSource,/\.pptx/);assert.match(fileTypesSource,/\.markdown/);
 });

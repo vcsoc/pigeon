@@ -13,6 +13,7 @@ const { availableMemoryBytes } = require('./system-resources');
 const { extractAffinityPreview } = require('./affinity-preview');
 const { isMissingUpdateMetadataError } = require('./update-support');
 const { extractSnagxPreview } = require('./snagx-preview');
+const { IMAGE_EXTENSIONS, VIDEO_EXTENSIONS, AUDIO_EXTENSIONS, FONT_EXTENSIONS, DOCUMENT_EXTENSIONS, shouldIndexFile, dialogExtensions, indexingPolicySignature } = require('./file-types');
 const { execFile, spawn } = require('node:child_process');
 const { Worker } = require('node:worker_threads');
 const chokidar = require('chokidar');
@@ -24,11 +25,6 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'pigeon-map', privileges: { secure: true, standard: true, supportFetchAPI: true } }
 ]);
 
-const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.ico', '.avif', '.tif', '.tiff', '.svg', '.psd']);
-const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.m4v', '.webm', '.avi', '.mkv', '.ogv']);
-const AUDIO_EXTENSIONS = new Set(['.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg', '.oga', '.opus']);
-const FONT_EXTENSIONS = new Set(['.ttf', '.otf', '.woff', '.woff2']);
-const DOCUMENT_EXTENSIONS = new Set(['.pdf', '.af', '.afdesign', '.afphoto', '.pspimage', '.ai', '.sketch', '.free', '.fig', '.eps', '.snagx']);
 const AFFINITY_PREVIEW_EXTENSIONS = new Set(['AF', 'AFDESIGN', 'AFPHOTO']);
 const PREVIEWABLE_DOCUMENT_EXTENSIONS = new Set(['PDF', 'AI', 'EPS', 'SKETCH', 'FREE', 'AF', 'AFDESIGN', 'AFPHOTO', 'SNAGX']);
 const watchers = new Map();
@@ -658,12 +654,12 @@ async function scanLocation(locationId, { notify = true, resume = false } = {}) 
     location.online = await pathAvailable(location.path); location.checking = false;
     if (!backgroundRunActive(run)) return;
     if (!location.online) { reportBackgroundProgress(progressId, { label: `Scanning ${location.name}`, detail: 'Location is offline', done: true }); scheduleSave(); if (notify) broadcastLocations(); return; }
-    const previousAssets = jobLibrary.assets.filter((asset) => asset.locationId === location.id), previous = new Map(previousAssets.map((asset) => [asset.path, asset])), assetIndexes=new Map(jobLibrary.assets.map((asset,index)=>[asset.id,index])); let locationAssetCount=previousAssets.length, scanComplete = checkpoint?.complete !== false;
+    const indexingPreferences=jobLibrary.settings?.preferences||{},previousAssets = jobLibrary.assets.filter((asset) => asset.locationId === location.id), previous = new Map(previousAssets.map((asset) => [asset.path, asset])), assetIndexes=new Map(jobLibrary.assets.map((asset,index)=>[asset.id,index])); let locationAssetCount=previousAssets.length, scanComplete = checkpoint?.complete !== false;
     let filePaths = checkpoint ? await loadScanQueue(run.portfolioId,location.id) : null;
     if (!filePaths) {
       filePaths = [];
-      if (location.type === 'folder') { const walked = await walkFolder(location.path, (filePath) => { if (backgroundRunActive(run)) { const relativeFolder = normalizedSubfolder(path.dirname(path.relative(location.path, filePath))); if (!folderExcluded(location.id, relativeFolder)) { filePaths.push(filePath); location.scanProgress.discovered += 1; } } }, location.unstable ? 3500 : 8000); scanComplete = walked.complete; }
-      else filePaths.push(location.path);
+      if (location.type === 'folder') { const walked = await walkFolder(location.path, (filePath) => { if (backgroundRunActive(run)&&shouldIndexFile(filePath,indexingPreferences)) { const relativeFolder = normalizedSubfolder(path.dirname(path.relative(location.path, filePath))); if (!folderExcluded(location.id, relativeFolder)) { filePaths.push(filePath); location.scanProgress.discovered += 1; } } }, location.unstable ? 3500 : 8000); scanComplete = walked.complete; }
+      else if(shouldIndexFile(location.path,indexingPreferences))filePaths.push(location.path);
       if (!backgroundRunActive(run)) return;
       await saveScanQueue(run.portfolioId,location.id,filePaths); location.scanCheckpoint = { root: location.path, nextIndex: 0, discovered:filePaths.length, complete: scanComplete, startedAt: Date.now() }; await persistScanBatch(location,[]);
     }
@@ -682,7 +678,7 @@ async function scanLocation(locationId, { notify = true, resume = false } = {}) 
       reportBackgroundProgress(progressId, { label: `Adding files from ${location.name}`, detail: `${location.scanProgress.inspected.toLocaleString()} of ${filePaths.length.toLocaleString()} · ${workerCount} threads`, completed: location.scanProgress.inspected, total: filePaths.length }); if (notify) scheduleBroadcast(250); await new Promise((resolve) => setImmediate(resolve));
     }
     if (!backgroundRunActive(run)) return;
-    const foundPaths = new Set(filePaths.map((filePath) => path.resolve(filePath))), currentAssets = jobLibrary.assets.filter((asset) => asset.locationId === location.id), retained = currentAssets.map((asset) => foundPaths.has(asset.path) ? asset : scanComplete ? ({ ...asset, sourceMissing: true, sourcePending: false, missingSince: asset.missingSince || Date.now() }) : ({ ...asset, sourcePending: true, sourceMissing: false }));
+    const foundPaths = new Set([...filePaths.map((filePath) => path.resolve(filePath)),...previousAssets.filter((asset)=>!shouldIndexFile(asset.path,indexingPreferences)).map((asset)=>asset.path)]), currentAssets = jobLibrary.assets.filter((asset) => asset.locationId === location.id), retained = currentAssets.map((asset) => foundPaths.has(asset.path) ? asset : scanComplete ? ({ ...asset, sourceMissing: true, sourcePending: false, missingSince: asset.missingSince || Date.now() }) : ({ ...asset, sourcePending: true, sourceMissing: false }));
     jobLibrary.assets = jobLibrary.assets.filter((asset) => asset.locationId !== location.id).concat(retained); location.partialScan = !scanComplete; location.assetCount = retained.length; location.lastScanned = Date.now(); location.scanProgress.done = true; location.scanCheckpoint = null; await removeScanQueue(run.portfolioId,location.id);
     reportBackgroundProgress(progressId, { label: `${location.name} scan complete`, detail: `${foundPaths.size.toLocaleString()} files indexed`, completed: filePaths.length, total: filePaths.length, done: true });
     const finalAssets=[...new Map([...assetsSinceCheckpoint,...retained.filter((asset)=>asset.sourceMissing||asset.sourcePending)].map((asset)=>[asset.id,asset])).values()]; const rerun = location.rescanRequested; location.rescanRequested = false; await persistScanBatch(location,finalAssets); if (notify){broadcastScanAssets(location,retained.filter((asset)=>asset.sourceMissing||asset.sourcePending),true);broadcastLocations();} schedulePortfolioBackground(warmThumbnailCache, 0); schedulePortfolioBackground(warmContentHashes, 500); if (rerun) schedulePortfolioBackground(() => scanLocation(location.id), location.unstable ? 1200 : 250);
@@ -1001,7 +997,7 @@ async function importUrl(urlValue) {
   if (bytes.length > 250 * 1024 * 1024) throw new Error('Download exceeds the 250 MB safety limit');
   await fsp.mkdir(importsDir, { recursive: true });
   const headerType = response.headers.get('content-type') || '';
-  const extensionByType = headerType.includes('png') ? '.png' : headerType.includes('jpeg') ? '.jpg' : headerType.includes('webp') ? '.webp' : headerType.includes('gif') ? '.gif' : headerType.includes('mp4') ? '.mp4' : '';
+  const extensionByType = headerType.includes('png') ? '.png' : headerType.includes('jpeg') ? '.jpg' : headerType.includes('webp') ? '.webp' : headerType.includes('gif') ? '.gif' : headerType.includes('svg') ? '.svg' : headerType.includes('mp4') ? '.mp4' : headerType.includes('webm') ? '.webm' : headerType.includes('pdf') ? '.pdf' : headerType.includes('markdown') ? '.md' : headerType.includes('html') ? '.html' : headerType.includes('json') ? '.json' : headerType.includes('text/plain') ? '.txt' : '';
   const urlName = path.basename(decodeURIComponent(url.pathname)) || `download-${Date.now()}${extensionByType}`;
   const safeName = urlName.replace(/[<>:"/\\|?*\x00-\x1f]/g, '-').slice(0, 180);
   const target = path.join(importsDir, `${Date.now()}-${safeName}${path.extname(safeName) ? '' : extensionByType}`);
@@ -1667,7 +1663,8 @@ ipcMain.handle('library:add-default-pictures', async () => {
   return addLocations([picturesPath], 'folder');
 });
 ipcMain.handle('library:add-files', async () => {
-  const result = await dialog.showOpenDialog(mainWindow, { properties: ['openFile', 'multiSelections'], title: 'Index files in Pigeon' });
+  const preferences=library.settings?.preferences||{},extensions=dialogExtensions(preferences),filters=preferences.indexAllFiles===true||!extensions.length?undefined:[{name:'Configured media and documents',extensions}];
+  const result = await dialog.showOpenDialog(mainWindow, { properties: ['openFile', 'multiSelections'], title: 'Index files in Pigeon',filters });
   return result.canceled ? publicLibrarySummary() : addLocations(result.filePaths, 'file');
 });
 ipcMain.handle('library:import-dropped-files', (_event, payload) => Array.isArray(payload) ? importDroppedFiles(payload) : importDroppedFiles(payload?.paths, payload?.target));
@@ -2004,11 +2001,13 @@ ipcMain.handle('window:set-zoom', (_event, value) => {
 });
 ipcMain.handle('window:center-display',(_event,index)=>centerWindowOnDisplay(Math.max(0,Number(index)||0)));
 ipcMain.handle('preferences:update', async (_event, preferences = {}) => {
-  library.settings = library.settings || {}; library.settings.preferences = { ...(library.settings.preferences || {}), ...preferences };
+  library.settings = library.settings || {};const previousPreferences=library.settings.preferences||{},previousPolicy=indexingPolicySignature(previousPreferences); library.settings.preferences = { ...previousPreferences, ...preferences };
+  const nextPolicy=indexingPolicySignature(library.settings.preferences);
   await fsp.writeFile(runtimePreferencesFile, JSON.stringify({ hardwareAcceleration: preferences.hardwareAcceleration !== false }), 'utf8');
   app.setLoginItemSettings({ openAtLogin: Boolean(preferences.launchOnLogin), path: process.execPath });
   const folder = library.settings.preferences.autoImportFolder;
   if (preferences.autoImport && folder && !library.locations.some((location) => path.resolve(location.path) === path.resolve(folder))) await addLocations([folder], 'folder');
+  if(previousPolicy!==nextPolicy)for(const location of library.locations)schedulePortfolioBackground(()=>scanLocation(location.id),100);
   scheduleSave(); return library.settings.preferences;
 });
 ipcMain.handle('preferences:auto-import-folder', async () => {
