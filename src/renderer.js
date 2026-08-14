@@ -1472,7 +1472,63 @@ function closeFloatingMenus() {
   state.openFacet = null;
 }
 
+const tutorialSteps=[
+  {selector:'.brand-row',title:'Welcome to your portfolio',copy:'Pigeon references files where they already live. Use this portfolio switcher to keep separate libraries, collections, tags, and indexed locations.'},
+  {selector:'#primary-library-nav',title:'Your library views',copy:'Jump between everything, uncategorized or untagged assets, favorites, tags, duplicates, Trash, and local analytics. Counts update as your portfolio changes.'},
+  {selector:'#sidebar-section-smart-folders',title:'Smart Folders do the sorting',copy:'Smart Folders collect matching assets automatically from rules such as tags, ratings, type, folder, or collection membership.'},
+  {selector:'#sidebar-section-collections',title:'Collections are yours to arrange',copy:'Create nested collections and drag thumbnails between them. A normal drag can also leave Pigeon; Shift-drag keeps the operation inside Pigeon.'},
+  {selector:'#sidebar-section-indexed-locations',title:'Your files stay put',copy:'Indexed locations mirror real folders on disk. Drop an asset onto a physical folder here to move its source file, then let Pigeon keep the reference in sync.'},
+  {selector:'.toolbar',title:'Navigate, size, search, and arrange',copy:'The toolbar provides back/forward history, per-view thumbnail sizing, refresh, layouts, ordering, inspector controls, and fast portfolio search.'},
+  {selector:'#filter-bar',title:'Narrow the view',copy:'Combine color, tag, folder, shape, rating, and file-type filters. Save useful combinations as Smart Folders for one-click access later.'},
+  {selector:'#grid-wrap',title:'This is your visual workspace',copy:'Select one or many thumbnails to tag, rate, stack, favorite, organize, preview, or open. Resize thumbnails without changing the original files.'},
+  {selector:'#inspector',title:'Inspect without leaving the library',copy:'The inspector shows a preview, filename, rating, notes, tags, location, dimensions, camera details, colors, hashes, and embedded metadata.'},
+  {selector:'#sidebar-section-collections',title:'Password-protect a collection',copy:'Right-click a collection and choose “Password protect folder…”. Enter and confirm at least four characters. Use the same menu to lock it immediately, unlock it, or remove the password.'},
+  {selector:'#grid-wrap',title:'Apply—and remove—privacy effects',copy:'Select one or more thumbnails and press B to apply the privacy effect. Press B again to remove it. This is non-destructive: your original file is never blurred or pixelated.'},
+  {selector:'#settings-button',title:'Choose Blur or Pixelate',copy:'Open Preferences → Appearance → Thumbnail privacy effect to choose Blur or Pixelate and adjust its strength. Preferences → Shortcuts lets you change B and the temporary reveal key.'},
+  {selector:'#grid-wrap',title:'Hover to preview motion',copy:'Move your pointer over a video, GIF, or animated WebP thumbnail to play it in place. Move horizontally across a video to scrub through its timeline.'},
+  {selector:'#grid-wrap',title:'Temporary sound and private previews',copy:'Video hover previews start muted. Hold Ctrl while hovering for temporary sound. For a protected animated thumbnail, hold Alt—the default reveal key—to reveal and preview it; shortcuts can be customized.'},
+  {selector:'#app-menu-button',title:'You can return any time',copy:'That’s the essentials! Run this walkthrough again whenever you like from Help → Tutorials.'}
+];
+let tutorialIndex=-1,tutorialRestore=null;
+function tutorialTarget(step){const candidates=$$(step.selector||'.main-panel');return candidates.find((target)=>{const rect=target.getBoundingClientRect();return rect.width>4&&rect.height>4;})||$('.main-panel');}
+function positionTutorial(){
+  const overlay=$('#tutorial-overlay');if(overlay.classList.contains('hidden')||tutorialIndex<0)return;
+  const step=tutorialSteps[tutorialIndex],target=tutorialTarget(step),raw=target.getBoundingClientRect(),padding=8,left=Math.max(6,raw.left-padding),top=Math.max(6,raw.top-padding),right=Math.min(innerWidth-6,raw.right+padding),bottom=Math.min(innerHeight-6,raw.bottom+padding),width=Math.max(12,right-left),height=Math.max(12,bottom-top);
+  const dimmers=[['.tutorial-dimmer-top',0,0,innerWidth,top],['.tutorial-dimmer-right',right,top,Math.max(0,innerWidth-right),height],['.tutorial-dimmer-bottom',0,bottom,innerWidth,Math.max(0,innerHeight-bottom)],['.tutorial-dimmer-left',0,top,left,height]];
+  for(const [selector,x,y,w,h] of dimmers){const element=$(selector);Object.assign(element.style,{left:`${x}px`,top:`${y}px`,width:`${w}px`,height:`${h}px`});}
+  Object.assign($('#tutorial-highlight').style,{left:`${left}px`,top:`${top}px`,width:`${width}px`,height:`${height}px`});
+  const bubble=$('#tutorial-bubble'),gap=25,bubbleWidth=bubble.offsetWidth,bubbleHeight=bubble.offsetHeight,centerX=left+width/2,centerY=top+height/2,clamp=(value,min,max)=>Math.max(min,Math.min(max,value)),placements=[
+    {side:'bottom',space:innerHeight-bottom,x:clamp(centerX-bubbleWidth/2,14,innerWidth-bubbleWidth-14),y:bottom+gap,fits:innerHeight-bottom>=bubbleHeight+gap+14},
+    {side:'top',space:top,x:clamp(centerX-bubbleWidth/2,14,innerWidth-bubbleWidth-14),y:top-bubbleHeight-gap,fits:top>=bubbleHeight+gap+14},
+    {side:'right',space:innerWidth-right,x:right+gap,y:clamp(centerY-bubbleHeight/2,14,innerHeight-bubbleHeight-14),fits:innerWidth-right>=bubbleWidth+gap+14},
+    {side:'left',space:left,x:left-bubbleWidth-gap,y:clamp(centerY-bubbleHeight/2,14,innerHeight-bubbleHeight-14),fits:left>=bubbleWidth+gap+14}
+  ],placement=placements.find((item)=>item.fits)||placements.sort((a,b)=>b.space-a.space)[0];
+  bubble.dataset.side=placement.side;bubble.style.left=`${clamp(placement.x,14,innerWidth-bubbleWidth-14)}px`;bubble.style.top=`${clamp(placement.y,14,innerHeight-bubbleHeight-14)}px`;
+}
+function showTutorialStep(index){
+  tutorialIndex=Math.max(0,Math.min(tutorialSteps.length-1,index));const step=tutorialSteps[tutorialIndex];
+  $('#tutorial-step').textContent=`Tutorial · ${tutorialIndex+1} of ${tutorialSteps.length}`;$('#tutorial-title').textContent=step.title;$('#tutorial-copy').textContent=step.copy;$('#tutorial-back').disabled=tutorialIndex===0;$('#tutorial-next').textContent=tutorialIndex===tutorialSteps.length-1?'Finish ✓':'Next →';
+  tutorialTarget(step).scrollIntoView({block:'nearest',inline:'nearest'});requestAnimationFrame(()=>requestAnimationFrame(positionTutorial));
+}
+function endTutorial(completed=false){
+  if(tutorialIndex<0)return;$('#tutorial-overlay').classList.add('hidden');tutorialIndex=-1;for(const element of $$('.tutorial-force-visible'))element.classList.remove('tutorial-force-visible');
+  if(tutorialRestore?.sidebarCollapsed)$('.app-shell').classList.add('sidebar-collapsed');if(tutorialRestore?.inspectorHidden)elements.inspector.classList.add('hidden-panel');$('#inspector-toggle').classList.toggle('selected',Boolean(tutorialRestore?.inspectorSelected));$('#sidebar-tree-scroll').scrollTop=tutorialRestore?.sidebarScrollTop||0;tutorialRestore=null;
+  showToast(completed?'Tutorial complete · Run it again any time from Help → Tutorials':'Tutorial ended · Run it again any time from Help → Tutorials');
+}
+function startTutorial(){
+  closeFloatingMenus();tutorialRestore={sidebarCollapsed:$('.app-shell').classList.contains('sidebar-collapsed'),inspectorHidden:elements.inspector.classList.contains('hidden-panel'),inspectorSelected:$('#inspector-toggle').classList.contains('selected'),sidebarScrollTop:$('#sidebar-tree-scroll').scrollTop};$('.app-shell').classList.remove('sidebar-collapsed');elements.inspector.classList.remove('hidden-panel');$('#inspector-toggle').classList.add('selected');
+  for(const selector of ['[data-section-toggle="smart-folders"]','#sidebar-section-smart-folders','[data-section-toggle="collections"]','#sidebar-section-collections','[data-section-toggle="indexed-locations"]','#sidebar-section-indexed-locations'])$(selector)?.classList.add('tutorial-force-visible');
+  $('#tutorial-overlay').classList.remove('hidden');showTutorialStep(0);
+}
+$('#tutorial-overlay').addEventListener('click',(event)=>{if(event.target.closest('.tutorial-bubble button'))return;tutorialIndex===tutorialSteps.length-1?endTutorial(true):showTutorialStep(tutorialIndex+1);});
+$('#tutorial-back').addEventListener('click',(event)=>{event.stopPropagation();showTutorialStep(tutorialIndex-1);});
+$('#tutorial-next').addEventListener('click',(event)=>{event.stopPropagation();tutorialIndex===tutorialSteps.length-1?endTutorial(true):showTutorialStep(tutorialIndex+1);});
+$('#tutorial-end').addEventListener('click',(event)=>{event.stopPropagation();endTutorial(false);});
+window.addEventListener('resize',positionTutorial);
+window.addEventListener('keydown',(event)=>{if(tutorialIndex<0)return;if(event.key==='Escape'){event.preventDefault();endTutorial(false);}else if(event.key==='ArrowLeft'){event.preventDefault();showTutorialStep(tutorialIndex-1);}else if(event.key==='ArrowRight'||event.key==='Enter'||event.key===' '){event.preventDefault();tutorialIndex===tutorialSteps.length-1?endTutorial(true):showTutorialStep(tutorialIndex+1);}},true);
+
 async function executeMenuAction(action) {
+  if (action === 'tutorials') startTutorial();
   if (action === 'add-folder') await addFolder();
   if (action === 'add-files') await addFiles();
   if (action === 'rescan') { showToast('Rescanning indexed locations…'); await window.pigeon.rescan(state.locationId); }
@@ -1522,7 +1578,7 @@ function showAppSubmenu(group, anchor) {
     view: [['Show filters', 'toggle-filters', ''], ['Toggle inspector', 'toggle-inspector', ''], ['Toggle grid/list', 'toggle-layout', '']],
     actions: [['Rescan sources', 'rescan', ''], ['Open selected', 'open', '']],
     plugin: [['Open browser extension folder', 'open-extension', ''], ['Open plugins folder', 'open-plugins', ''], ['Run plugin…', 'run-plugin', '']],
-    help: [['Check for Updates…', 'check-updates', ''], ['Diagnostics Console', 'diagnostics', 'Ctrl+Shift+J'], ['About Pigeon', 'about', '']]
+    help: [['Tutorials', 'tutorials', ''], ['Check for Updates…', 'check-updates', ''], ['Diagnostics Console', 'diagnostics', 'Ctrl+Shift+J'], ['About Pigeon', 'about', '']]
   };
   elements.appSubmenu.innerHTML = (groups[group] || []).map(([label, action, shortcut]) => `<button data-menu-action="${action}"><span>${escapeHtml(label)}</span>${shortcut ? `<kbd>${escapeHtml(shortcut)}</kbd>` : ''}</button>`).join('');
   elements.appSubmenu.querySelectorAll('[data-menu-action]').forEach((button) => button.addEventListener('click', async () => {

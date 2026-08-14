@@ -16,6 +16,7 @@ Pigeon keeps source files in place. Operations that would alter pixels always ex
 10. **Trash, backup, export, migration, and folder sync** — schema migrations are non-destructive, saves are atomic, rotating backups are retained, trash removes references only, and user-selected sync folders merge metadata by update timestamp.
 11. **Annotations and derivative editing** — rectangle/text annotations, rotation, horizontal flip, and brightness adjustment export to a new PNG. Original files are never modified.
 12. **Plugins and automation** — `.js` plugins in the local plugin directory run in a time-limited worker/VM with no `require`, `process`, filesystem, or network capability. The exposed API is read-only `pigeon.assets` plus `pigeon.emit({type:'tag', ids, tag})`.
+13. **Guided tutorials** — Help → Tutorials opens a comic-style walkthrough that spotlights each application area while dimming the rest of the interface. Click anywhere or use Back/Next/End to navigate guidance for portfolios, views, filters, collections, indexed folders, password protection, blur/pixel privacy effects, hover motion previews, and temporary preview modifiers.
 
 ## Safety invariants
 

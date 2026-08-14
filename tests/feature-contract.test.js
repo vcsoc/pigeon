@@ -1105,3 +1105,11 @@ test('plugin worker blocks Node capability access', async () => {
   fs.rmSync(pluginFile, { force: true });
   assert.match(result.error, /require is not defined/);
 });
+
+test('Help Tutorials provides a comic guided tour with complete navigation and privacy guidance',()=>{
+  for(const id of ['tutorial-overlay','tutorial-highlight','tutorial-bubble','tutorial-back','tutorial-next','tutorial-end'])assert.match(html,new RegExp(`id="${id}"`));
+  assert.match(renderer,/help: \[\['Tutorials', 'tutorials'/);assert.match(renderer,/function startTutorial\(/);assert.match(renderer,/function showTutorialStep\(/);assert.match(renderer,/Help → Tutorials/);
+  assert.match(renderer,/Password-protect a collection/);assert.match(renderer,/Password protect folder/);assert.match(renderer,/Apply—and remove—privacy effects/);assert.match(renderer,/Blur or Pixelate/);assert.match(renderer,/Press B again to remove it/);
+  assert.match(renderer,/Hover to preview motion/);assert.match(renderer,/GIF, or animated WebP/);assert.match(renderer,/Hold Ctrl while hovering for temporary sound/);assert.match(renderer,/hold Alt—the default reveal key/);
+  assert.match(styles,/\.tutorial-dimmer/);assert.match(styles,/\.tutorial-highlight/);assert.match(styles,/\.tutorial-bubble/);assert.match(styles,/box-shadow:8px 9px 0/);
+});

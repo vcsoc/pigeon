@@ -317,6 +317,14 @@
     </dialog>
     <dialog id="shortcut-action-dialog" class="settings-dialog shortcut-action-dialog"><header><strong id="shortcut-action-title">Create Action</strong><button id="close-shortcut-action" type="button">×</button></header><div class="settings-content"><div class="shortcut-action-identity"><input id="shortcut-action-name" class="text-field" placeholder="Action name" maxlength="80" /><input id="shortcut-action-key" class="text-field" readonly placeholder="Shortcut (optional)" /></div><p>Select the thumbnails first, then press this shortcut anywhere outside an editable field.</p><div id="shortcut-action-steps" class="shortcut-action-steps"></div><datalist id="rename-pattern-suggestions"><option value="<created-date-time:YYMMDD-HHmmss>"></option><option value="<modified-date-time:YYYYMMDD-HHmmss>"></option><option value="<created-date-time:YYMM>-<name>"></option><option value="<name>-<counter:3>"></option><option value="<indexed-date-time:YYYY-MM-DD>-<counter:4>"></option></datalist><button id="add-shortcut-step" class="shortcut-add-step" type="button">＋ Add Step</button><footer><button id="cancel-shortcut-action" type="button">Cancel</button><button id="save-shortcut-action" class="primary-button" type="button">Create Action</button></footer></div></dialog>
     <aside id="update-toast" class="update-toast hidden" role="status" aria-live="polite"><div><strong id="update-toast-title">Pigeon update available</strong><span id="update-toast-message"></span></div><footer><button id="update-now" type="button">Update</button><button id="update-later" type="button">Later</button><button id="update-skip" type="button">Skip this version</button></footer></aside>
+    <section id="tutorial-overlay" class="tutorial-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="tutorial-title" aria-describedby="tutorial-copy">
+      <i class="tutorial-dimmer tutorial-dimmer-top"></i><i class="tutorial-dimmer tutorial-dimmer-right"></i><i class="tutorial-dimmer tutorial-dimmer-bottom"></i><i class="tutorial-dimmer tutorial-dimmer-left"></i>
+      <div id="tutorial-highlight" class="tutorial-highlight" aria-hidden="true"></div><button id="tutorial-advance" class="tutorial-advance" type="button" aria-label="Continue tutorial"></button>
+      <article id="tutorial-bubble" class="tutorial-bubble" data-side="bottom">
+        <span id="tutorial-step" class="tutorial-step">Tutorial</span><h2 id="tutorial-title"></h2><p id="tutorial-copy"></p>
+        <footer><button id="tutorial-back" type="button">← Back</button><button id="tutorial-next" type="button">Next →</button><button id="tutorial-end" type="button">End</button></footer>
+      </article>
+    </section>
     <div id="toast" class="toast hidden"></div>
     <script src="icons.js"></script>
     <script src="world-land.js"></script>
