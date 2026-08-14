@@ -804,6 +804,7 @@ test('sidebar keyboard navigation, recursive exports, and update checks are wire
   assert.match(main, /library:export-group/);
   assert.match(main, /app:check-for-updates/);
   assert.match(main, /autoUpdater\.downloadUpdate/);
+  assert.match(main,/autoUpdater\.on\('download-progress',onDownloadProgress\)/);assert.match(main,/Downloading Pigeon \$\{version\}/);assert.match(main,/formatUpdateBytes\(latest\.transferred\)/);assert.match(main,/completed:latest\.transferred,total:latest\.total/);assert.match(main,/autoUpdater\.removeListener\('download-progress',onDownloadProgress\)/);assert.match(main,/Update download failed/);
 });
 
 test('telemetry console and resumable CPU-limited parallel indexing are wired', () => {
