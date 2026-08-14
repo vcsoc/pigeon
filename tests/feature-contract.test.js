@@ -34,6 +34,14 @@ test('every Smart Folder asset receives a placeholder and thumbnails load safely
   assert.match(renderer,/state\.view === 'duplicates'\|\|state\.smartFolderId/);assert.match(renderer,/const assets = allAssets,stackCounts/);assert.match(renderer,/MAX_THUMBNAIL_LOADS=4/);assert.match(renderer,/thumbnailScrollUntil=Date\.now\(\)\+320/);assert.match(renderer,/const image=new Image\(\)/);assert.match(renderer,/await image\.decode\(\)/);assert.match(renderer,/preview\.appendChild\(image\)/);assert.match(renderer,/image\.alt=''/);assert.match(renderer,/rootMargin:'360px 0px'/);assert.match(main,/placeholders\.cards!==placeholders\.total/);assert.match(main,/placeholders\.pending<placeholders\.total-8/);
 });
 
+test('media resource errors do not become fatal UI errors',()=>{
+  assert.match(renderer,/if\(!\(event instanceof ErrorEvent\)\)return/);assert.match(renderer,/elements\.inspectorVideo\.addEventListener\('error'/);assert.match(renderer,/recoverInspectorVideo/);
+});
+
+test('all file types support location, complete EXIF inspection, and stronger native drag handoff',()=>{
+  assert.match(renderer,/const assetIds=\[\.\.\.new Set\(ids\|\|\[\]\)\]/);assert.match(renderer,/Select one or more files first/);assert.match(renderer,/<button data-context-action="location">/);assert.match(html,/id="exif-metadata"/);assert.match(renderer,/function flattenedMetadata/);assert.match(renderer,/image\?flattenedMetadata\(asset\.exif\)/);assert.match(renderer,/text\/uri-list/);assert.match(renderer,/function startNativeAssetDrag/);assert.match(renderer,/addEventListener\('dragleave'/);assert.match(main,/nativeImage\.createFromPath/);assert.match(main,/startDrag\(\{files,icon\}\)/);
+});
+
 test('targeted thumbnail rebuild, virtual full scroll, cover previews, metadata copy and native drag are wired',()=>{
   assert.match(renderer,/data-context-action="rebuild-thumbnails"/);assert.match(preload,/rebuildThumbnails/);assert.match(main,/assets:rebuild-thumbnails/);assert.match(renderer,/thumbnailVisibilityObserver/);assert.match(renderer,/const assets = allAssets/);assert.match(renderer,/state\.kind='all';state\.query=''/);assert.match(styles,/\.asset-preview img[^}]*object-fit:cover/);assert.match(html,/copy-additional-metadata/);assert.match(html,/copy-comfyui-metadata/);assert.match(renderer,/ComfyUI workflow copied/);assert.match(renderer,/window\.pigeon\.startAssetDrag/);assert.match(main,/sender\.startDrag/);
 });
