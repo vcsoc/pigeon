@@ -228,7 +228,7 @@ html[data-theme="midnight"] { --bg: #151a25; --panel: #1d2230; --sidebar: #191e2
 .duplicates-layout .duplicate-row .asset-image-placeholder, .duplicates-layout .duplicate-row .asset-file { width: 100%; height: 100%; min-height: 0; aspect-ratio: 1; }
 .grid-sentinel { width: 150px; height: 30px; margin: 18px auto 6px; border: 1px solid var(--line-strong); border-radius: 7px; display: block; background: #282c38; color: #9da3b3; font-size: 10.5px; }
 .grid-sentinel:hover { background: #303543; color: #e0e2e8; }
-.asset-card { display: block; width: 100%; margin: 0; border: 1px solid transparent; border-radius: 8px; padding: 3px; background: transparent; position: relative; }
+.asset-card { content-visibility:auto;contain:layout style paint;contain-intrinsic-size:auto 220px;display: block; width: 100%; margin: 0; border: 1px solid transparent; border-radius: 8px; padding: 3px; background: transparent; position: relative; }
 .asset-card:hover { background: rgba(255,255,255,.035); }
 .asset-card.selected { border-color: #5a83ff; background: rgba(74,104,202,.18); box-shadow: 0 0 0 1px rgba(59,107,255,.3); }
 .asset-card.multi-selected { border-color:#5a83ff; background:rgba(74,104,202,.15); box-shadow:0 0 0 1px rgba(59,107,255,.24); }

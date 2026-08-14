@@ -26,8 +26,12 @@ test('UI exposes collection, smart-folder, batch, trash, media, metadata and edi
   }
 });
 
+test('large grids delegate card interactions and batch visibility registration',()=>{
+  assert.match(renderer,/elements\.grid\.addEventListener\('click'/);assert.match(renderer,/elements\.grid\.addEventListener\('dragstart'/);assert.match(renderer,/elements\.grid\.addEventListener\('pointerover'/);assert.match(renderer,/requestIdleCallback/);assert.match(renderer,/count<1200/);assert.match(renderer,/gridAssetForCard/);assert.match(styles,/content-visibility:auto/);assert.doesNotMatch(renderer,/\$\$\('\.asset-card'\)\.forEach\(\(card\) => \{[\s\S]*card\.addEventListener\('click'/);
+});
+
 test('every Smart Folder asset receives a placeholder and thumbnails load safely after scroll settles',()=>{
-  assert.match(renderer,/state\.view === 'duplicates'\|\|state\.smartFolderId/);assert.match(renderer,/const assets = allAssets,stackCounts/);assert.match(renderer,/MAX_THUMBNAIL_LOADS=4/);assert.match(renderer,/thumbnailScrollUntil=Date\.now\(\)\+320/);assert.match(renderer,/const image=new Image\(\)/);assert.match(renderer,/await image\.decode\(\)/);assert.match(renderer,/preview\.appendChild\(image\)/);assert.match(renderer,/image\.alt=''/);assert.match(renderer,/rootMargin:'360px 0px'/);assert.match(main,/placeholders\.cards!==placeholders\.total/);assert.match(main,/placeholders\.pending>=placeholders\.total/);
+  assert.match(renderer,/state\.view === 'duplicates'\|\|state\.smartFolderId/);assert.match(renderer,/const assets = allAssets,stackCounts/);assert.match(renderer,/MAX_THUMBNAIL_LOADS=4/);assert.match(renderer,/thumbnailScrollUntil=Date\.now\(\)\+320/);assert.match(renderer,/const image=new Image\(\)/);assert.match(renderer,/await image\.decode\(\)/);assert.match(renderer,/preview\.appendChild\(image\)/);assert.match(renderer,/image\.alt=''/);assert.match(renderer,/rootMargin:'360px 0px'/);assert.match(main,/placeholders\.cards!==placeholders\.total/);assert.match(main,/placeholders\.pending<placeholders\.total-8/);
 });
 
 test('targeted thumbnail rebuild, virtual full scroll, cover previews, metadata copy and native drag are wired',()=>{
