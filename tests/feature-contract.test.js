@@ -963,7 +963,8 @@ test('availability refresh and inline About Pigeon view are wired', () => {
   assert.match(styles, /\.about-dialog \{ position:fixed; inset:0/);
   assert.match(html,/startup-brand about-brand/);
   assert.match(html,/id="about-title">pigeon<\/strong><span>sees all<\/span>/);
-  assert.match(styles,/\.about-brand/);
+  assert.match(styles,/\.startup-brand \{ position:absolute; left:0; bottom:0/);
+  assert.doesNotMatch(styles,/\.about-brand\.startup-brand/);
 });
 
 test('Preferences exposes applicable searchable feature shortcuts and wires their commands',()=>{
