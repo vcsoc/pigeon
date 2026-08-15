@@ -1149,6 +1149,7 @@ async function runPlugin(pluginName) {
 
 function savedWindowOptions(){let saved=null;try{saved=JSON.parse(fs.readFileSync(windowStateFile,'utf8'));}catch{}const displays=screen.getAllDisplays(),intersects=(bounds,area)=>bounds&&bounds.x<area.x+area.width&&bounds.x+bounds.width>area.x&&bounds.y<area.y+area.height&&bounds.y+bounds.height>area.y;if(saved&&displays.some((display)=>intersects(saved,display.workArea)))return{x:saved.x,y:saved.y,width:Math.max(920,saved.width||1440),height:Math.max(620,saved.height||900)};const area=screen.getPrimaryDisplay().workArea,width=Math.min(1440,area.width),height=Math.min(900,area.height);return{x:area.x+Math.round((area.width-width)/2),y:area.y+Math.round((area.height-height)/2),width,height};}
 function centerWindowOnDisplay(index=0){if(!mainWindow)return false;const primary=screen.getPrimaryDisplay(),displays=[primary,...screen.getAllDisplays().filter((display)=>display.id!==primary.id)],display=displays[index]||primary,area=display.workArea,bounds=mainWindow.getBounds(),width=Math.min(bounds.width,area.width),height=Math.min(bounds.height,area.height);mainWindow.unmaximize();mainWindow.setBounds({x:area.x+Math.round((area.width-width)/2),y:area.y+Math.round((area.height-height)/2),width,height});return Boolean(displays[index]);}
+function revealMainWindow(){if(!mainWindow||mainWindow.isDestroyed())return false;if(mainWindow.isMinimized())mainWindow.restore();if(!mainWindow.isVisible())mainWindow.show();mainWindow.focus();return true;}
 function createWindow() {
   mainWindow = new BrowserWindow({
     ...savedWindowOptions(),
@@ -1174,7 +1175,7 @@ function createWindow() {
   mainWindow.webContents.on('did-fail-load',(_event,code,description,url,isMainFrame)=>{if(isMainFrame){writeFatalDiagnostic('electron:did-fail-load',description,{code,url});recordDiagnostic('error','Renderer failed to load',{code,description,url});}});
   mainWindow.on('unresponsive',()=>{writeFatalDiagnostic('electron:window-unresponsive','Main window stopped responding');recordDiagnostic('error','Application window is unresponsive');});
   mainWindow.webContents.on('console-message', (_event, details) => { if (details.level === 'warning' || details.level === 'error') recordDiagnostic(details.level, details.message, `${details.sourceId}:${details.lineNumber}`); });
-  mainWindow.once('ready-to-show',()=>{if(mainWindow&&!mainWindow.isDestroyed())mainWindow.show();});
+  const revealFallback=setTimeout(revealMainWindow,2500);mainWindow.once('show',()=>clearTimeout(revealFallback));mainWindow.once('ready-to-show',revealMainWindow);mainWindow.webContents.once('did-finish-load',revealMainWindow);
   mainWindow.loadFile(path.join(__dirname, '..', 'src', 'index.html'));
   if (smokeTest) {
     mainWindow.webContents.once('did-finish-load', async () => {
@@ -2055,7 +2056,7 @@ async function handleProtocolUrl(value) {
 app.on('second-instance', (_event, argv) => {
   const value = argv.find((argument) => argument.startsWith('pigeon://'));
   if (value) handleProtocolUrl(value);
-  if (mainWindow) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.focus(); }
+  revealMainWindow();
 });
 app.on('open-url', (event, value) => { event.preventDefault(); pendingProtocolUrls.push(value); });
 

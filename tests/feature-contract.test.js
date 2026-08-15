@@ -158,7 +158,7 @@ test('preloaded magnifier, true viewer scale, scoped thumbnail sizes and matchin
 });
 
 test('startup restores scoped layout before reveal and automatic updates use actionable in-app prompts',()=>{
-  assert.match(main,/show: false/);assert.match(main,/once\('ready-to-show'/);assert.match(html,/id="startup-version"/);assert.match(html,/class="startup-loader"/);assert.match(styles,/@keyframes startup-loading-spin/);
+  assert.match(main,/show: false/);assert.match(main,/once\('ready-to-show',revealMainWindow\)/);assert.match(main,/webContents\.once\('did-finish-load',revealMainWindow\)/);assert.match(main,/setTimeout\(revealMainWindow,2500\)/);assert.match(main,/app\.on\('second-instance',[\s\S]{0,250}revealMainWindow\(\)/);assert.match(html,/id="startup-version"/);assert.match(html,/class="startup-loader"/);assert.match(styles,/@keyframes startup-loading-spin/);
   assert.match(renderer,/SHARED_DEFAULT_THUMBNAIL_VIEWS=new Set\(\['all','uncategorized','untagged'\]\)/);assert.match(renderer,/scope==='default'\?settings\.default/);assert.match(renderer,/if\(scope==='default'\)\{settings\.default=next/);assert.match(renderer,/preferredPanelWidths/);assert.match(renderer,/restoreScopedThumbnailSize\(\);/);
   assert.match(html,/id="update-toast"/);assert.match(html,/id="update-now"/);assert.match(html,/id="update-later"/);assert.match(html,/id="update-skip"/);assert.match(renderer,/pigeon\.update\.deferUntil/);assert.match(renderer,/pigeon\.update\.skippedVersion/);assert.match(renderer,/setInterval\(\(\)=>runUpdateCheck\(\),6\*60\*60\*1000\)/);assert.match(preload,/installUpdate/);assert.match(main,/app:install-update/);assert.doesNotMatch(main,/Pigeon Update Available/);
 });
