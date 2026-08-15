@@ -681,6 +681,8 @@ test('refresh, robust facets, folder drops, media hover scrubbing, and expanded 
   assert.match(preload, /refreshSources:/);
   assert.match(main, /library:refresh-sources/);
   assert.match(main, /staleAssets/);
+  assert.match(renderer, /sourceStatusChanged/);
+  assert.match(renderer, /if\(sourceStatusChanged\)\{ renderSidebar\(false\); renderGrid\(\); renderInspector\(\); \}/);
   assert.match(renderer, /rating: 'ratings', shape: 'shapes', color: 'colors'/);
   assert.match(renderer, /attachHoverMediaPreview/);
   assert.match(renderer, /media\.currentTime = desiredTime/);
@@ -873,12 +875,18 @@ test('telemetry console and resumable CPU-limited parallel indexing are wired', 
 });
 
 test('diagnostics controls and cross-portfolio grouping transfer are wired', () => {
-  for (const id of ['diagnostics-copy-all','portfolio-transfer','portfolio-transfer-list','portfolio-transfer-move','confirm-portfolio-transfer']) assert.match(html, new RegExp(`id="${id}"`));
+  for (const id of ['diagnostics-copy-all','portfolio-transfer','portfolio-transfer-list','portfolio-transfer-move','portfolio-transfer-move-description','confirm-portfolio-transfer','batch-portfolio']) assert.match(html, new RegExp(`id="${id}"`));
   assert.match(preload, /removeDiagnostic/);
   assert.match(preload, /transferToPortfolio/);
   assert.match(main, /diagnostics:remove/);
   assert.match(main, /portfolio:transfer/);
   assert.match(main, /excludedFolders/);
+  assert.match(main, /type === 'assets'/);
+  assert.match(main, /stageAssetFiles/);
+  assert.match(main, /temporaryTransfer: true/);
+  assert.match(main, /asset\.deletedAt = asset\.deletedAt \|\| deletedAt/);
+  assert.match(renderer, /Copy \/ move selected to portfolio/);
+  assert.match(renderer, /batch-portfolio/);
   assert.match(renderer, /data-copy-diagnostic/);
   assert.match(renderer, /data-remove-diagnostic/);
   assert.match(renderer, /diagnostics-copy-all/);

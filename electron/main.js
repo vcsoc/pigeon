@@ -7,6 +7,7 @@ const crypto = require('node:crypto');
 const sharp = require('sharp');
 const libraryCore = require('./library-core');
 const { createLibraryStore } = require('./database');
+const { stageAssetFiles } = require('./portfolio-transfer');
 const ffmpegExecutable = require('ffmpeg-static').replace('app.asar', 'app.asar.unpacked');
 const os = require('node:os');
 const { availableMemoryBytes } = require('./system-resources');
@@ -1626,24 +1627,45 @@ ipcMain.handle('portfolio:switch', async (_event, id) => {
   refreshSourcesInBackground().then(() => { schedulePortfolioBackground(warmThumbnailCache, 500); schedulePortfolioBackground(warmContentHashes, 300); }).catch((error) => recordDiagnostic('error', 'Portfolio background resume failed', error));
   return publicLibrarySummary();
 });
-ipcMain.handle('portfolio:transfer', async (_event, { type, id, subfolder = '', destinationId, move = false }) => {
+ipcMain.handle('portfolio:transfer', async (_event, { type, id, ids = [], subfolder = '', destinationId, move = false }) => {
   const destination = portfolios.find((item) => item.id === destinationId); if (!destination || destination.id === activePortfolioId) throw new Error('Choose another portfolio');
-  await saveLibraryNow(); const store = createLibraryStore(destination.database || portfolioDatabasePath(destination.id)), target = store.load() || libraryCore.migrateLibrary({});
-  let assetIds = new Set(), transferAssets = [], transferredName = '';
-  if (type === 'collection') {
-    const root = library.collections.find((item) => item.id === id); if (!root) throw new Error('Collection does not exist'); transferredName = root.name;
-    const collectionIds = collectionDescendants(id), copies = library.collections.filter((item) => collectionIds.has(item.id)).map((item) => ({ ...item, parentId: item.id === id ? null : item.parentId, lock: null }));
-    for (const item of copies) { const existing = target.collections.find((entry) => entry.id === item.id); if (existing) Object.assign(existing, item); else target.collections.push(item); }
-    transferAssets = library.assets.filter((asset) => (asset.collectionIds || []).some((collectionId) => collectionIds.has(collectionId))).map((asset) => JSON.parse(JSON.stringify(asset))); assetIds = new Set(transferAssets.map((asset) => asset.id));
-    if (move) libraryCore.removeCollection(library, id);
-  } else if (type === 'folder') {
-    const location = library.locations.find((item) => item.id === id); if (!location) throw new Error('Indexed folder does not exist'); const folder = normalizedSubfolder(subfolder), prefix = folder ? `${folder.toLowerCase()}/` : '';
-    transferredName = folder ? folder.split('/').pop() : location.name; transferAssets = library.assets.filter((asset) => { if (asset.locationId !== id) return false; if (!folder) return true; const relative = normalizedSubfolder(path.relative(location.path, asset.path)).toLowerCase(); return relative.startsWith(prefix); }).map((asset) => JSON.parse(JSON.stringify(asset))); assetIds = new Set(transferAssets.map((asset) => asset.id));
-    if (!target.locations.some((item) => item.id === location.id)) target.locations.push({ ...location, scanning: false, checking: false, transferredFrom: activePortfolioId });
-    if (move) { if (!folder) library.locations = library.locations.filter((item) => item.id !== id); else { library.settings.excludedFolders = [...new Set([...(library.settings.excludedFolders || []), `${id}:${folder.toLowerCase()}`])]; } }
-  } else throw new Error('Unsupported transfer type');
-  for (const copy of transferAssets) { const existing = target.assets.find((item) => item.id === copy.id); if (existing) Object.assign(existing, copy); else target.assets.push(copy); }
-  store.save(target); store.close(); if (move) await saveLibraryNow(); broadcast(); return { name: transferredName, assets: assetIds.size, moved: Boolean(move), destination: destination.name };
+  await saveLibraryNow();
+  const store = createLibraryStore(destination.database || portfolioDatabasePath(destination.id));
+  let stagedFolder = null, destinationSaved = false;
+  try {
+    const target = store.load() || libraryCore.migrateLibrary({});
+    let assetIds = new Set(), transferAssets = [], transferredName = '', applySourceMove = () => {};
+    if (type === 'collection') {
+      const root = library.collections.find((item) => item.id === id); if (!root) throw new Error('Collection does not exist'); transferredName = root.name;
+      const collectionIds = collectionDescendants(id), copies = library.collections.filter((item) => collectionIds.has(item.id)).map((item) => ({ ...item, parentId: item.id === id ? null : item.parentId, lock: null }));
+      for (const item of copies) { const existing = target.collections.find((entry) => entry.id === item.id); if (existing) Object.assign(existing, item); else target.collections.push(item); }
+      transferAssets = library.assets.filter((asset) => (asset.collectionIds || []).some((collectionId) => collectionIds.has(collectionId))).map((asset) => JSON.parse(JSON.stringify(asset))); assetIds = new Set(transferAssets.map((asset) => asset.id));
+      applySourceMove = () => libraryCore.removeCollection(library, id);
+    } else if (type === 'folder') {
+      const location = library.locations.find((item) => item.id === id); if (!location) throw new Error('Indexed folder does not exist'); const folder = normalizedSubfolder(subfolder), prefix = folder ? `${folder.toLowerCase()}/` : '';
+      transferredName = folder ? folder.split('/').pop() : location.name; transferAssets = library.assets.filter((asset) => { if (asset.locationId !== id) return false; if (!folder) return true; const relative = normalizedSubfolder(path.relative(location.path, asset.path)).toLowerCase(); return relative.startsWith(prefix); }).map((asset) => JSON.parse(JSON.stringify(asset))); assetIds = new Set(transferAssets.map((asset) => asset.id));
+      if (!target.locations.some((item) => item.id === location.id)) target.locations.push({ ...location, scanning: false, checking: false, transferredFrom: activePortfolioId });
+      applySourceMove = () => { if (!folder) library.locations = library.locations.filter((item) => item.id !== id); else library.settings.excludedFolders = [...new Set([...(library.settings.excludedFolders || []), `${id}:${folder.toLowerCase()}`])]; };
+    } else if (type === 'assets') {
+      const selectedIds = new Set(Array.isArray(ids) ? ids.map(String) : []), selectedAssets = library.assets.filter((asset) => selectedIds.has(asset.id) && !asset.deletedAt && !isAssetLocked(asset));
+      if (!selectedAssets.length) throw new Error('Select one or more available thumbnails');
+      const sourcePortfolio = portfolios.find((item) => item.id === activePortfolioId), transferId = crypto.randomUUID(), timestamp = new Date().toISOString().replace('T', ' ').slice(0, 16), baseName = `Transferred from ${sourcePortfolio?.name || 'Portfolio'} · ${timestamp}`;
+      let collectionName = baseName, suffix = 2; while (target.collections.some((item) => item.parentId === null && item.name.toLowerCase() === collectionName.toLowerCase())) collectionName = `${baseName} ${suffix++}`;
+      const collection = libraryCore.createCollection(target, collectionName), locationId = makeId(`portfolio-transfer-location:${destination.id}:${transferId}`);
+      stagedFolder = path.join(app.getPath('userData'), 'portfolio-transfers', destination.id, transferId);
+      const staged = await stageAssetFiles(selectedAssets, stagedFolder), location = { id: locationId, name: collectionName, path: stagedFolder, type: 'folder', online: true, removable: false, unstable: false, scanning: false, checking: false, temporaryTransfer: true, transferredFrom: activePortfolioId, assetCount: staged.length, addedAt: Date.now(), lastScanned: Date.now() };
+      target.locations.push(location); transferredName = collectionName; assetIds = new Set(selectedAssets.map((asset) => asset.id));
+      transferAssets = staged.map(({ asset, filename, targetPath, thumbnailPath }) => ({ ...JSON.parse(JSON.stringify(asset)), id: makeId(`portfolio-transfer-asset:${destination.id}:${transferId}:${asset.id}`), locationId, path: targetPath, filename, name: path.basename(filename, path.extname(filename)), thumbnailPath, thumbnailFailedAt: thumbnailPath ? asset.thumbnailFailedAt : null, thumbnailFailedModified: thumbnailPath ? asset.thumbnailFailedModified : null, thumbnailError: thumbnailPath ? asset.thumbnailError : null, collectionIds: [collection.id], deletedAt: null, sourceMissing: false, sourcePending: false, missingSince: null, transferredFrom: { portfolioId: activePortfolioId, assetId: asset.id, path: asset.path, transferredAt: Date.now(), mode: move ? 'move' : 'copy' } }));
+      applySourceMove = () => { const deletedAt = Date.now(); for (const asset of selectedAssets) asset.deletedAt = asset.deletedAt || deletedAt; };
+    } else throw new Error('Unsupported transfer type');
+    for (const copy of transferAssets) { const existing = target.assets.find((item) => item.id === copy.id); if (existing) Object.assign(existing, copy); else target.assets.push(copy); }
+    store.save(target); destinationSaved = true;
+    if (move) { applySourceMove(); await saveLibraryNow(); }
+    broadcast(); return { name: transferredName, assets: assetIds.size, moved: Boolean(move), destination: destination.name };
+  } catch (error) {
+    if (stagedFolder && !destinationSaved) await fsp.rm(stagedFolder, { recursive: true, force: true }).catch(() => {});
+    throw error;
+  } finally { store.close(); }
 });
 ipcMain.handle('portfolio:remove', async (_event, id) => {
   if (portfolios.length <= 1) throw new Error('At least one portfolio is required');

@@ -18,6 +18,7 @@ Pigeon keeps source files in place. Operations that would alter pixels always ex
 12. **Plugins and automation** — `.js` plugins in the local plugin directory run in a time-limited worker/VM with no `require`, `process`, filesystem, or network capability. The exposed API is read-only `pigeon.assets` plus `pigeon.emit({type:'tag', ids, tag})`.
 13. **Guided tutorials** — Help → Tutorials opens a comic-style walkthrough that spotlights each application area while dimming the rest of the interface. Click anywhere or use Back/Next/End to navigate guidance for portfolios, views, filters, collections, indexed folders, password protection, blur/pixel privacy effects, hover motion previews, and temporary preview modifiers.
 14. **Focused file indexing** — new discovery defaults to configurable media and content categories covering common images and RAW formats, video, audio, documents and Markdown, presentations, spreadsheets, design files, fonts, and 3D models. Preferences can enable or disable each category, add custom extensions, or index every file type.
+15. **Selected-item portfolio transfers** — the thumbnail context menu and batch bar can copy selected files into another portfolio. Pigeon stages independent file copies in a managed transfer folder and groups them in a destination collection. Move mode performs the destination copy first, then moves the source portfolio references to Trash.
 
 ## Safety invariants
 
