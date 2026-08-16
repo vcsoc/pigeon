@@ -136,7 +136,7 @@ test('appearance tree colors, hierarchical action destinations, custom F2 and fa
 });
 
 test('animated image hover, viewport magnifier, reorder markers and sidebar-only mutation broadcasts are wired',()=>{
-  assert.match(renderer,/animatedImage=asset\.kind==='image'/);assert.match(renderer,/thumbnail-hover-media animated-image/);assert.match(styles,/\.thumbnail-hover-media\.animated-image/);assert.match(renderer,/asset\.mediaUrl\|\|asset\.previewUrl/);
+  assert.match(renderer,/animatedImage=asset\.kind==='image'/);assert.match(renderer,/thumbnail-hover-media animated-image/);assert.match(styles,/\.thumbnail-hover-media\.animated-image/);assert.match(renderer,/asset\.mediaUrl\|\|asset\.previewUrl/);assert.match(renderer,/function stopAllHoverPreviews/);assert.match(renderer,/elements\.gridWrap\.addEventListener\('scroll',stopAllHoverPreviews/);assert.match(renderer,/pointerIsOverPreview/);assert.match(renderer,/document\.elementFromPoint\(pointerX,pointerY\)/);assert.match(renderer,/if\(media!==activeMedia\|\|!pointerIsOverPreview\(\)\)return/);
   assert.match(styles,/\.hover-fit-preview \{ position:fixed/);assert.match(styles,/background:transparent/);assert.match(renderer,/elements\.gridWrap\.getBoundingClientRect/);assert.match(renderer,/delayDone/);
   assert.match(renderer,/function sidebarDropZone/);assert.match(renderer,/drop-before/);assert.match(renderer,/drop-after/);assert.match(renderer,/dropZone/);assert.match(styles,/\.collection-item\.drop-before::after/);assert.match(styles,/background:#66a6ff/);
   assert.match(main,/collection:rename[\s\S]{0,180}broadcastSidebar\(\)/);assert.match(main,/collection:move[\s\S]{0,400}broadcastSidebar\(\)/);assert.match(main,/smart-folder:move[\s\S]{0,180}broadcastSidebar\(\)/);assert.match(main,/sidebar:reorder-items[\s\S]{0,1000}broadcastSidebar\(\)/);
@@ -1125,6 +1125,6 @@ test('Help Tutorials provides a comic guided tour with complete navigation and p
 
 test('focused file indexing and delayed hover playback are configurable',()=>{
   assert.match(html,/data-preference-page="indexing"/);assert.match(html,/data-pref="indexAllFiles"/);assert.match(html,/data-index-category="images"/);assert.match(html,/data-index-category="documents"/);assert.match(html,/Documents and Markdown/);assert.match(html,/Presentations and PowerPoint/);assert.match(html,/data-pref="hoverPreviewDelay"/);
-  assert.match(renderer,/hoverPreviewDelay:250/);assert.match(renderer,/const scheduleStart=/);assert.match(renderer,/setTimeout\(\(\)=>\{startTimer=null;if\(hovering\)start\(modifiers\);\},delay\)/);assert.match(renderer,/clearTimeout\(startTimer\);startTimer=null/);
+  assert.match(renderer,/hoverPreviewDelay:250/);assert.match(renderer,/const scheduleStart=/);assert.match(renderer,/setTimeout\(\(\)=>\{startTimer=null;if\(pointerIsOverPreview\(\)\)start\(modifiers\);\},delay\)/);assert.match(renderer,/clearTimeout\(startTimer\);startTimer=null/);
   assert.match(main,/shouldIndexFile\(filePath,indexingPreferences\)/);assert.match(main,/preferences\.indexAllFiles===true/);assert.match(main,/previousPolicy!==nextPolicy/);assert.match(fileTypesSource,/DEFAULT_INDEX_CATEGORIES/);assert.match(fileTypesSource,/\.pptx/);assert.match(fileTypesSource,/\.markdown/);
 });
