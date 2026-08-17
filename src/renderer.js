@@ -307,7 +307,7 @@ async function refreshSimilarityGroups(renderAfter = true) {
       const groups=await window.pigeon.findSimilarGroups(state.duplicateSimilarity,sourceId);
       if(generation!==similarityRefreshGeneration||sourceId!==state.duplicateSourceId)return;
       state.duplicateGroups=groups;state.duplicateIds=new Set(groups.flat());
-      lastSimilarityRefreshAt=Date.now();if(renderAfter&&state.view==='duplicates'){resetRenderLimit();render();}
+      lastSimilarityRefreshAt=Date.now();invalidateAssetViewCache();if(renderAfter&&state.view==='duplicates'){resetRenderLimit();render();}
       else $('#duplicates-count').textContent=state.duplicateIds.size;
     } catch(error){if(generation===similarityRefreshGeneration)showToast(error.message);}
     finally{if(similarityRefreshPromise===request)similarityRefreshPromise=null;}
@@ -368,6 +368,22 @@ function filteredAssets() {
     seenStacks.add(asset.stackId); return true;
   });
 }
+
+let assetViewRevision=0,cooperativeAssetView=null;
+const assetViewTaskQueue=[],assetViewTaskChannel=new MessageChannel();let assetViewSliceStarted=0,assetViewTaskRunning=false;const continueAssetViewTasks=()=>{assetViewSliceStarted=performance.now();assetViewTaskChannel.port2.postMessage(0);};assetViewTaskChannel.port1.onmessage=()=>{if(!assetViewSliceStarted)assetViewSliceStarted=performance.now();const task=assetViewTaskQueue.shift();assetViewTaskRunning=true;task?.();assetViewTaskRunning=false;if(!assetViewTaskQueue.length){assetViewSliceStarted=0;return;}if(performance.now()-assetViewSliceStarted>=6)requestAnimationFrame(continueAssetViewTasks);else assetViewTaskChannel.port2.postMessage(0);};function scheduleAssetViewTask(task){const idle=!assetViewTaskQueue.length&&!assetViewTaskRunning;assetViewTaskQueue.push(task);if(idle)continueAssetViewTasks();}
+const COOPERATIVE_VIEW_THRESHOLD=1000,VIRTUAL_ASSET_WINDOW=480;
+function invalidateAssetViewCache(){assetViewRevision+=1;cooperativeAssetView?.job?.cancel();cooperativeAssetView=null;}
+function captureAssetViewCriteria(){const location=state.locationId?state.library.locations.find((item)=>item.id===state.locationId):null,root=location?.type==='folder'?String(location.path||'').replace(/\\/g,'/').replace(/\/$/,''):'',selectedFolder=`${root}${state.locationSubfolder?`/${state.locationSubfolder}`:''}`.toLowerCase(),smartFolder=state.smartFolderId?(state.library.smartFolders||[]).find((item)=>item.id===state.smartFolderId):null;return{view:state.view,locationId:state.locationId,locationType:location?.type,selectedFolder,includeSubfolderContent:state.includeSubfolderContent,collectionId:state.collectionId,smartFilters:smartFolder?.filters||null,smartFolderId:state.smartFolderId,similarIds:state.similarIds?new Set(state.similarIds):null,duplicateIds:new Set(state.duplicateIds),showCheckedOnly:state.showCheckedOnly,kind:state.kind,extensions:new Set(state.filters.extensions),ratings:new Set(state.filters.ratings),shapes:new Set(state.filters.shapes),locations:new Set(state.filters.locations),tags:new Set([...state.filters.tags].map((tag)=>String(tag).toLowerCase())),colors:new Set(state.filters.colors),query:state.query.trim().toLowerCase(),order:currentAssetOrder(),now:Date.now(),expandedStacks:new Set(state.expandedStackIds)};}
+function assetMatchesViewCriteria(asset,criteria){if(asset.locked)return false;const trash=criteria.view==='trash'&&!criteria.locationId&&!criteria.collectionId&&!criteria.smartFolderId;if(trash?!asset.deletedAt:Boolean(asset.deletedAt))return false;if(criteria.locationId){if(asset.locationId!==criteria.locationId)return false;if(criteria.locationType==='folder'){const source=String(asset.path||'').replace(/\\/g,'/').toLowerCase(),parent=source.slice(0,source.lastIndexOf('/'));if(criteria.includeSubfolderContent?!source.startsWith(`${criteria.selectedFolder}/`):parent!==criteria.selectedFolder)return false;}}else if(criteria.collectionId){if(!(asset.collectionIds||[]).includes(criteria.collectionId))return false;}else if(criteria.smartFolderId){if(criteria.smartFilters&&!matchesSavedFilters(asset,criteria.smartFilters))return false;}else if(criteria.view==='uncategorized'){if((asset.tags||[]).length||(asset.collectionIds||[]).length)return false;}else if(criteria.view==='untagged'){if((asset.tags||[]).length)return false;}else if(criteria.view==='favorites'){if(!asset.favorite)return false;}else if(criteria.view==='offline'){if(!isOffline(asset))return false;}else if(criteria.view==='five-stars'){if(asset.rating!==5)return false;}else if(criteria.view==='recent'){if(criteria.now-asset.indexedAt>=1000*60*60*24*7)return false;}else if(criteria.view==='duplicates'&&!criteria.duplicateIds.has(asset.id))return false;if(criteria.similarIds&&!criteria.similarIds.has(asset.id)||criteria.showCheckedOnly&&!asset.quickChecked)return false;if(!['trash','duplicates','untagged'].includes(criteria.view)&&!criteria.extensions.size&&criteria.kind==='visual'){if(asset.kind!=='image'&&asset.kind!=='video')return false;}else if(!['trash','duplicates','untagged'].includes(criteria.view)&&!criteria.extensions.size&&criteria.kind!=='all'&&asset.kind!==criteria.kind)return false;if(criteria.extensions.size&&!criteria.extensions.has(String(asset.extension).toLowerCase())||criteria.ratings.size&&!criteria.ratings.has(asset.rating||0)||criteria.shapes.size&&!criteria.shapes.has(shapeFor(asset))||criteria.locations.size&&!criteria.locations.has(asset.locationId))return false;if(criteria.tags.size&&![...criteria.tags].some((tag)=>(asset.tags||[]).some((assetTag)=>assetTag.toLowerCase()===tag)))return false;if(criteria.colors.size&&(!asset.dominantColor||![...criteria.colors].some((color)=>colorDistance(color,asset.dominantColor)<105)))return false;if(criteria.query&&![asset.filename,asset.path,asset.note,...(asset.tags||[])].join(' ').toLowerCase().includes(criteria.query))return false;return true;}
+function compareAssetsForView(first,second,order){const factor=order.direction==='asc'?1:-1,a=order.field==='name'?String(first.name||first.filename||'').toLowerCase():Number(first[order.field])||0,b=order.field==='name'?String(second.name||second.filename||'').toLowerCase():Number(second[order.field])||0,difference=typeof a==='string'?a.localeCompare(b):a-b;return difference*factor||String(first.id).localeCompare(String(second.id));}
+function assetViewSignature(){return JSON.stringify([assetViewRevision,state.library.assets.length,state.library.streamGeneration||state.streamGeneration,state.view,state.locationId,state.locationSubfolder,state.includeSubfolderContent,state.collectionId,state.smartFolderId,state.kind,state.query,state.showCheckedOnly,currentAssetOrder(),[...state.expandedStackIds].sort(),...Object.entries(state.filters).map(([name,values])=>[name,[...values].sort()])]);}
+function completeCooperativeAssetView(view,indices,criteria){if(cooperativeAssetView!==view||view.signature!==assetViewSignature())return;const finish=(finalIndices)=>{if(cooperativeAssetView!==view)return;view.indices=finalIndices;view.previewIndices=finalIndices.slice(0,VIRTUAL_ASSET_WINDOW);view.total=finalIndices.length;view.ready=true;view.job=null;requestAnimationFrame(()=>{if(cooperativeAssetView===view)renderGrid();});};if(criteria.smartFolderId||criteria.view==='duplicates'||!criteria.hasCollapsedStack){finish(indices);return;}const collapsed=[],seen=new Set();let cursor=0;const step=()=>{if(cooperativeAssetView!==view)return;for(let count=0;cursor<indices.length&&count<4096;cursor++,count++){const index=indices[cursor],asset=state.library.assets[index];if(!asset?.stackId||criteria.expandedStacks.has(asset.stackId)||!seen.has(asset.stackId)){collapsed.push(index);if(asset?.stackId)seen.add(asset.stackId);}}if(cursor<indices.length)setTimeout(step,0);else finish(collapsed);};step();}
+function startCooperativeAssetView(signature){cooperativeAssetView?.job?.cancel();const criteria=captureAssetViewCriteria(),view={signature,criteria,previewIndices:[],indices:null,total:state.library.totalAssets??state.library.assets.length,ready:false,job:null};cooperativeAssetView=view;view.job=window.PigeonCooperativeView.build({source:state.library.assets,predicate:(asset)=>{const matches=assetMatchesViewCriteria(asset,criteria);if(matches&&asset.stackId&&!criteria.expandedStacks.has(asset.stackId))criteria.hasCollapsedStack=true;return matches;},compare:(first,second)=>compareAssetsForView(first,second,criteria.order),previewLimit:VIRTUAL_ASSET_WINDOW,schedule:scheduleAssetViewTask,onPreview:(indices,progress)=>{if(cooperativeAssetView!==view)return;view.previewIndices=indices;view.scanned=progress.scanned;requestAnimationFrame(()=>{if(cooperativeAssetView===view&&!elements.grid.querySelector('.asset-card'))renderGrid();});},onProgress:(progress)=>{if(cooperativeAssetView===view)view.progress=progress;},onDone:(indices)=>completeCooperativeAssetView(view,indices,criteria)});return view;}
+function virtualGridMetrics(total){const width=Math.max(320,elements.gridWrap.clientWidth-12),cardWidth=Math.max(80,Number($('#zoom-slider').value)||240);let columns,rowHeight;if(state.layout==='list'){columns=1;rowHeight=62;}else if(state.layout==='justified'){columns=Math.max(1,Math.floor(width/Math.max(100,cardWidth)));rowHeight=Math.max(82,cardWidth*.58+32);}else{columns=Math.max(1,Math.floor((width+4)/(cardWidth+4)));rowHeight=cardWidth/1.32+32;}const rows=Math.max(1,Math.ceil(total/columns)),estimatedRowHeight=Math.min(rowHeight,30000000/rows);return{columns,estimatedRowHeight,actualRowHeight:rowHeight,total};}
+function currentAssetViewSnapshot(){if(state.library.assets.length<COOPERATIVE_VIEW_THRESHOLD){const assets=filteredAssets();return{assets,total:assets.length,ready:true,virtual:false,start:0,metrics:null};}const signature=assetViewSignature(),view=cooperativeAssetView?.signature===signature?cooperativeAssetView:startCooperativeAssetView(signature),indices=view.ready?view.indices:view.previewIndices,total=view.ready?view.total:view.total,virtual=view.ready&&total>VIRTUAL_ASSET_WINDOW,metrics=virtual?virtualGridMetrics(total):null;let start=virtual?Math.max(0,Math.min(total-VIRTUAL_ASSET_WINDOW,state.virtualStart||0)):0;if(metrics)start=Math.floor(start/metrics.columns)*metrics.columns;return{assets:indices.slice(start,start+VIRTUAL_ASSET_WINDOW).map((index)=>state.library.assets[index]).filter(Boolean),indices,total,ready:view.ready,virtual,start,metrics};}
+function currentViewIndices(){const signature=assetViewSignature(),view=cooperativeAssetView?.signature===signature?cooperativeAssetView:null;if(view?.ready)return view.indices;if(view)return view.previewIndices;return filteredAssets().map((asset)=>rendererAssetIndexes.get(asset.id)).filter((index)=>index!==undefined);}
+function currentViewAssetAt(index,indices=currentViewIndices()){const assetIndex=indices[Math.max(0,Math.min(indices.length-1,index))];return assetIndex===undefined?null:state.library.assets[assetIndex];}
+function currentViewIndexOf(id,indices=currentViewIndices()){for(let position=0;position<indices.length;position++)if(state.library.assets[indices[position]]?.id===id)return position;return-1;}
 
 async function ensureCollectionUnlocked(collection) {
   if (!collection?.locked) return true;
@@ -790,9 +806,9 @@ function renderGrid() {
   }
   const analyticsMode = state.view === 'analytics'; elements.analyticsView.classList.toggle('hidden', !analyticsMode); $('.content-area').classList.toggle('analytics-active', analyticsMode);
   if (analyticsMode) { elements.grid.classList.add('hidden'); elements.empty.classList.add('hidden'); elements.tagBrowser.classList.add('hidden'); elements.sentinel.classList.add('hidden'); $('#duplicate-controls').classList.add('hidden'); renderAnalytics(); saveNavigationState(); return; }
-  const allAssets = filteredAssets(),duplicateMode = !state.library.loading && state.view === 'duplicates' && !state.locationId && !state.collectionId && !state.smartFolderId;
-  state.virtualStart=0;state.virtualMetrics=null;
-  const assets = allAssets,stackCounts=new Map(); for(const item of state.library.assets)if(item.stackId&&!item.deletedAt)stackCounts.set(item.stackId,(stackCounts.get(item.stackId)||0)+1);
+  const assetView=currentAssetViewSnapshot(),allAssetCount=assetView.total,assets=assetView.assets,duplicateMode = !state.library.loading && state.view === 'duplicates' && !state.locationId && !state.collectionId && !state.smartFolderId;
+  state.virtualMetrics=assetView.metrics;
+  const stackCounts=new Map(),visibleStackIds=new Set(assets.map((asset)=>asset.stackId).filter(Boolean));if(visibleStackIds.size)for(const item of state.library.assets)if(item.stackId&&!item.deletedAt&&visibleStackIds.has(item.stackId))stackCounts.set(item.stackId,(stackCounts.get(item.stackId)||0)+1);
   const loading = state.library.loading === true || state.library.assetStreamPending === true;
   const noLibrary = !loading && (state.library.totalAssets ?? state.library.assets.length) === 0;
   const noSources=noLibrary&&(state.library.locations||[]).length===0;
@@ -819,10 +835,11 @@ function renderGrid() {
   elements.grid.classList.toggle('hidden', loading || noLibrary);
   elements.gridWrap.classList.toggle('layout-list', state.layout === 'list');
   elements.gridWrap.classList.toggle('layout-justified', state.layout === 'justified');
-  elements.count.textContent = loading ? 'Loading…' : `${allAssets.length} ${allAssets.length === 1 ? 'item' : 'items'}`;
+  elements.count.textContent = loading ? 'Loading…' : assetView.ready?`${allAssetCount} ${allAssetCount===1?'item':'items'}`:`Preparing ${allAssetCount.toLocaleString()} references…`;
   rotatedThumbnailObserver.disconnect();thumbnailVisibilityObserver.disconnect();pendingThumbnailCards.clear();clearTimeout(thumbnailSettleTimer);
-  elements.grid.classList.remove('virtualized-grid');elements.grid.style.height='';elements.grid.style.minHeight='';elements.grid.style.paddingTop='';
-  elements.grid.innerHTML = assets.map((asset,assetIndex) => {
+  elements.grid.classList.toggle('virtualized-grid',assetView.virtual);elements.grid.style.height='';elements.grid.style.minHeight='';elements.grid.style.paddingTop='';
+  const virtualTop=assetView.virtual?Math.floor(assetView.start/assetView.metrics.columns)*assetView.metrics.estimatedRowHeight:0,remaining=assetView.virtual?Math.max(0,allAssetCount-assetView.start-assets.length):0,virtualBottom=assetView.virtual?Math.ceil(remaining/assetView.metrics.columns)*assetView.metrics.estimatedRowHeight:0;
+  elements.grid.innerHTML = `${virtualTop?`<div class="virtual-grid-spacer" style="height:${virtualTop}px" aria-hidden="true"></div>`:''}${assets.map((asset,assetIndex) => {
     const visual = ['image', 'video', 'audio', 'document'].includes(asset.kind) && Boolean(asset.thumbnailPath), previewFailed = Boolean(asset.thumbnailFailedAt && !asset.thumbnailPath);
     const originalRatio = Math.max(.35, Math.min(3.5, asset.width && asset.height ? asset.width / asset.height : asset.kind === 'audio' ? 3.75 : 1.35));
     const quarterTurn = Boolean((Number(asset.rotation) || 0) % 180);
@@ -845,7 +862,7 @@ function renderGrid() {
       <div class="asset-preview ${quarterTurn ? 'quarter-turned' : ''}" style="--original-ratio:${originalRatio};--preview-ratio:${ratio}" ${visual&&!eagerThumbnail?`data-thumbnail-src="${protectedUrl(asset.previewUrl)}" data-thumbnail-transform="${rotationTransform(asset)}"`:''}>${preview}${fullImagePreview?`<button class="thumbnail-fit-preview" type="button" title="Hover for full preview" aria-label="Preview ${escapeHtml(asset.name)}">${iconSvg('search')}</button>`:''}${stackBadge}${asset.sourceMissing ? '<span class="source-missing-overlay">Source Missing</span>' : isOffline(asset) ? '<span class="card-offline">Offline</span>' : ''}</div>
       <div class="card-meta ${titleHtml ? '' : 'no-titles'}"><span class="card-titles">${titleHtml}</span>${asset.favorite ? '<span class="card-favorite">★</span>' : ''}</div>
     </article>`;
-  }).join('');
+  }).join('')}${virtualBottom?`<div class="virtual-grid-spacer" style="height:${virtualBottom}px" aria-hidden="true"></div>`:''}`;
   if (duplicateMode) {
     const cardsById = new Map($$('.asset-card').map((card) => [card.dataset.assetId, card])); elements.grid.innerHTML = '';
     state.duplicateGroups.forEach((group, index) => {
@@ -859,7 +876,7 @@ function renderGrid() {
   if (state.layout === 'grid') scheduleMasonry();
   renderBatchBar();
   requestAnimationFrame(() => { if(Date.now()>=state.postMoveRevealUntil&&Math.abs(elements.gridWrap.scrollTop-state.gridScrollTop)>2&&state.virtualStart===0)elements.gridWrap.scrollTop = state.gridScrollTop; });
-  elements.sentinel.classList.add('hidden');elements.sentinel.textContent='';
+  elements.sentinel.classList.toggle('hidden',assetView.virtual||assetView.ready&&assets.length>=allAssetCount);elements.sentinel.textContent=assetView.ready?'Load more thumbnails':`Preparing results… ${assetView.progress?.scanned?.toLocaleString?.()||0} / ${state.library.assets.length.toLocaleString()}`;elements.sentinel.disabled=!assetView.ready;
   const checking = state.library.locations.some((location) => location.checking);
   const totalAssets = state.library.totalAssets ?? state.library.assets.length;
   const scanningLocation = state.library.locations.find((location) => location.scanning), progress = scanningLocation?.scanProgress;
@@ -1055,6 +1072,8 @@ function updateSubfolderContentToggle() { const button = $('#subfolder-content-t
 function render() { updateSubfolderContentToggle(); renderTagSuggestions(); renderSidebar(false); renderGrid(); renderInspector(); }
 function resetRenderLimit() { state.renderLimit = 480;state.virtualStart=0;state.virtualMetrics=null; }
 function clearSelection() { state.selectedIds.clear(); state.selectionAnchorId = null; }
+function selectAllVisibleAssetsCooperatively(){const indices=currentViewIndices();state.selectedIds.clear();state.selectedId=null;state.selectionAnchorId=null;let cursor=0;const add=()=>{for(let count=0;cursor<indices.length&&count<4096;cursor++,count++){const asset=state.library.assets[indices[cursor]];if(asset){state.selectedIds.add(asset.id);if(!state.selectedId)state.selectedId=asset.id;}}if(cursor<indices.length){scheduleAssetViewTask(add);return;}state.selectionAnchorId=state.selectedId;updateCardSelectionStyles();renderInspector();showToast(`${indices.length} item${indices.length===1?'':'s'} selected`);};scheduleAssetViewTask(add);}
+function extendSelectionRangeCooperatively(indices,start,end,selectedId){let cursor=Math.min(start,end),last=Math.max(start,end);const add=()=>{for(let count=0;cursor<=last&&count<4096;cursor++,count++){const id=state.library.assets[indices[cursor]]?.id;if(id)state.selectedIds.add(id);}if(cursor<=last){scheduleAssetViewTask(add);return;}state.selectedId=selectedId;updateCardSelectionStyles();scheduleSelectionInspector();};scheduleAssetViewTask(add);}
 let selectionInspectorFrame=null;
 function paintCardSelection(card){if(!card)return;const selected=state.selectedIds.has(card.dataset.assetId);card.classList.toggle('selected',selected&&card.dataset.assetId===state.selectedId);card.classList.toggle('multi-selected',selected);card.setAttribute('aria-selected',String(selected));}
 function paintChangedSelectionCards(ids){for(const id of new Set(ids.filter(Boolean)))paintCardSelection(elements.grid.querySelector(`[data-asset-id="${CSS.escape(id)}"]`));renderBatchBar();}
@@ -1116,14 +1135,14 @@ function selectAssetWithEvent(id, event) {
     state.selectionAnchorId=state.selectedId;paintChangedSelectionCards([previousPrimary,id,state.selectedId]);scheduleSelectionInspector();return;
   }
   if (event.shiftKey && state.selectionAnchorId) {
-    const visibleIds=filteredAssets().map((asset)=>asset.id),start=visibleIds.indexOf(state.selectionAnchorId),end=visibleIds.indexOf(id),changed=[previousPrimary];
-    if(start>=0&&end>=0)for(const selectedId of visibleIds.slice(Math.min(start,end),Math.max(start,end)+1)){if(!state.selectedIds.has(selectedId))changed.push(selectedId);state.selectedIds.add(selectedId);}
+    const visibleIndices=currentViewIndices(),start=currentViewIndexOf(state.selectionAnchorId,visibleIndices),end=currentViewIndexOf(id,visibleIndices),changed=[previousPrimary];
+    if(start>=0&&end>=0&&Math.abs(end-start)>4096){extendSelectionRangeCooperatively(visibleIndices,start,end,id);return;}if(start>=0&&end>=0)for(let position=Math.min(start,end);position<=Math.max(start,end);position+=1){const selectedId=state.library.assets[visibleIndices[position]]?.id;if(!selectedId)continue;if(!state.selectedIds.has(selectedId))changed.push(selectedId);state.selectedIds.add(selectedId);}
     state.selectedId=id;changed.push(id);paintChangedSelectionCards(changed);scheduleSelectionInspector();return;
   }
   const previouslySelected=[...elements.grid.querySelectorAll('.asset-card.selected,.asset-card.multi-selected')].map((card)=>card.dataset.assetId);state.selectedIds=new Set([id]);state.selectedId=id;state.selectionAnchorId=id;paintChangedSelectionCards([...previouslySelected,id]);scheduleSelectionInspector();
 }
-function successorAfterRemoving(ids){const before=filteredAssets().map((asset)=>asset.id),removed=new Set(ids),positions=ids.map((id)=>before.indexOf(id)).filter((index)=>index>=0);if(!positions.length)return null;const firstIndex=Math.min(...positions),remaining=before.filter((id)=>!removed.has(id)),remainingBefore=before.slice(0,firstIndex).filter((id)=>!removed.has(id)).length;return remaining[Math.min(remainingBefore,remaining.length-1)]||null;}
-function selectAndRevealSuccessor(id){if(!id)return;state.postMoveRevealUntil=Date.now()+900;state.selectedId=id;state.selectedIds=new Set([id]);state.selectionAnchorId=id;const index=filteredAssets().findIndex((asset)=>asset.id===id),metrics=state.virtualMetrics;if(metrics&&index>=0){elements.gridWrap.scrollTop=Math.floor(index/metrics.columns)*metrics.estimatedRowHeight;renderGrid();}else updateCardSelectionStyles();renderInspector();focusSelectedAsset({lockScroll:true});}
+function successorAfterRemoving(ids){const indices=currentViewIndices(),removed=new Set(ids);let firstIndex=-1;for(let position=0;position<indices.length;position++){const id=state.library.assets[indices[position]]?.id;if(removed.has(id)){firstIndex=position;break;}}if(firstIndex<0)return null;for(let position=firstIndex;position<indices.length;position++){const id=state.library.assets[indices[position]]?.id;if(id&&!removed.has(id))return id;}for(let position=firstIndex-1;position>=0;position--){const id=state.library.assets[indices[position]]?.id;if(id&&!removed.has(id))return id;}return null;}
+function selectAndRevealSuccessor(id){if(!id)return;state.postMoveRevealUntil=Date.now()+900;state.selectedId=id;state.selectedIds=new Set([id]);state.selectionAnchorId=id;const index=currentViewIndexOf(id),metrics=state.virtualMetrics;if(metrics&&index>=0){state.virtualStart=Math.max(0,index-metrics.columns*6);elements.gridWrap.scrollTop=Math.floor(index/metrics.columns)*metrics.estimatedRowHeight;renderGrid();}else updateCardSelectionStyles();renderInspector();focusSelectedAsset({lockScroll:true});}
 async function removeSelectedFromCurrentCollection() {
   if (!state.collectionId) return false;
   const collectionId = state.collectionId, ids = [...state.selectedIds].filter((id) => (state.library.assets.find((asset) => asset.id === id)?.collectionIds || []).includes(collectionId));
@@ -1141,6 +1160,7 @@ function renderBatchBar() {
 function currentSmartFolderDependsOnTags(){const folder=state.library.smartFolders?.find((item)=>item.id===state.smartFolderId);return Boolean(folder?.filters?.rules?.some((rule)=>rule.field==='tags'));}
 function patchTagMetadataCards(ids=[]){for(const id of ids){const asset=state.library.assets.find((item)=>item.id===id),card=elements.grid.querySelector(`[data-asset-id="${CSS.escape(id)}"]`);if(!asset||!card)continue;card.dataset.tags=(asset.tags||[]).join(' ').toLowerCase();for(const line of card.querySelectorAll('[data-title-field="tags"]'))line.textContent=titleText(asset,'tags');}}
 function reconcileThumbnailCards(changedIds=[],{sidebar=true}={}){
+  if(state.library.assets.length>=COOPERATIVE_VIEW_THRESHOLD){invalidateAssetViewCache();for(const id of changedIds){state.selectedIds.delete(id);if(state.selectedId===id)state.selectedId=null;}renderGrid();renderBatchBar();renderInspector();if(sidebar)renderSidebar(false);saveNavigationState();return;}
   const desired=filteredAssets(),desiredVisible=desired,desiredSet=new Set(desiredVisible.map((asset)=>asset.id)),cards=new Map($$('.asset-card').map((card)=>[card.dataset.assetId,card]));
   for(const [id,card] of cards)if(!desiredSet.has(id)){card.classList.add('asset-card-removing');card.remove();}
   for(const asset of desiredVisible){const card=cards.get(asset.id);if(card&&card.isConnected)elements.grid.appendChild(card);}
@@ -1711,9 +1731,8 @@ function renderInternalViewer() {
   elements.mediaViewer.classList.toggle('full-view', !state.viewerFit);
   elements.viewerMinimap.classList.toggle('hidden', state.viewerFit || !image);
   $('#viewer-fit').textContent = state.viewerFit ? 'Fit' : 'Full';
-  const visible = filteredAssets();
-  const position = visible.findIndex((item) => item.id === asset.id);
-  $('#viewer-position').textContent = position >= 0 ? `${position + 1} / ${visible.length}` : '';
+  const visibleIndices=currentViewIndices(),position=currentViewIndexOf(asset.id,visibleIndices);
+  $('#viewer-position').textContent=position>=0?`${position+1} / ${visibleIndices.length}`:'';
   requestAnimationFrame(() => { applyViewerImageFit(); if (state.viewerFit) { $('.viewer-stage').scrollTo(0, 0); } updateViewerMinimap(); updateViewerCropOverlay();renderPixelatedSurface($('.viewer-stage'),elements.viewerImage,Boolean(asset.thumbnailEffect&&image)); });
 }
 function openInternalViewer(id) {
@@ -1733,11 +1752,10 @@ elements.viewerVideo.addEventListener('error', () => { if (elements.viewerVideo.
 elements.viewerVideo.addEventListener('stalled', () => { if (elements.viewerVideo.readyState < 2 && elements.viewerVideo.currentTime === 0) recoverViewerVideo(state.viewerAssetId, 'timeout'); });
 function navigateViewer(direction) {
   cancelViewerCrop();
-  const visible = filteredAssets();
-  if (!visible.length) return;
-  const index = visible.findIndex((item) => item.id === state.viewerAssetId);
-  const next = Math.min(visible.length - 1, Math.max(0, (index < 0 ? 0 : index) + direction));
-  state.viewerAssetId = visible[next].id;
+  const visibleIndices=currentViewIndices();
+  if(!visibleIndices.length)return;
+  const index=currentViewIndexOf(state.viewerAssetId,visibleIndices),next=Math.min(visibleIndices.length-1,Math.max(0,(index<0?0:index)+direction)),nextAsset=currentViewAssetAt(next,visibleIndices);if(!nextAsset)return;
+  state.viewerAssetId=nextAsset.id;
   state.selectedId = state.viewerAssetId;
   state.selectedIds = new Set([state.selectedId]);
   updateCardSelectionStyles(); renderInspector(); renderInternalViewer();
@@ -2305,7 +2323,7 @@ document.addEventListener('keydown', (event) => {
   if (!editing && state.mapOpen && event.key === 'Escape') { event.preventDefault(); closeMapView(); return; }
   const commandKey = event.metaKey || event.ctrlKey;
   if(!editing&&event.ctrlKey&&event.altKey&&/^[1-9]$/.test(event.key)){event.preventDefault();window.pigeon.centerWindowOnDisplay(Number(event.key)-1).then((exact)=>showToast(exact?`Moved to display ${event.key}`:'Requested display unavailable · moved to primary display'));return;}
-  if(!editing&&commandKey&&event.key.toLowerCase()==='a'){event.preventDefault();const ids=filteredAssets().map((asset)=>asset.id);state.selectedIds=new Set(ids);state.selectedId=ids[0]||null;state.selectionAnchorId=state.selectedId;updateCardSelectionStyles();renderInspector();showToast(`${ids.length} item${ids.length===1?'':'s'} selected`);return;}
+  if(!editing&&commandKey&&event.key.toLowerCase()==='a'){event.preventDefault();selectAllVisibleAssetsCooperatively();return;}
   if(!editing&&commandKey&&event.key.toLowerCase()==='c'){event.preventDefault();const ids=state.selectedIds.size?[...state.selectedIds]:state.selectedId?[state.selectedId]:[];window.pigeon.copyAssets(ids).then((result)=>showToast(`${result.copied} file${result.copied===1?'':'s'} copied to clipboard`)).catch((error)=>showToast(error.message));return;}
   if(!editing&&commandKey&&event.key.toLowerCase()==='v'){event.preventDefault();window.pigeon.pasteAssets().then((result)=>showToast(result.imported?`${result.imported} file${result.imported===1?'':'s'} pasted into Needs Organization`:'Clipboard does not contain files or an image')).catch((error)=>showToast(error.message));return;}
   if (commandKey && (event.key === '+' || event.key === '=' || event.code === 'NumpadAdd')) { event.preventDefault(); applyWindowZoom(state.uiZoom + .1); return; }
@@ -2425,20 +2443,16 @@ window.addEventListener('resize', () => {
   }, 80);
 });
 
-function loadMoreAssets() {
-  const total = filteredAssets().length;
-  if (state.renderLimit >= total) return;
-  state.renderLimit = Math.min(total, state.renderLimit + 240);
-  renderGrid();
-}
+function loadMoreAssets(){const snapshot=currentAssetViewSnapshot();if(!snapshot.ready||snapshot.virtual||snapshot.assets.length>=snapshot.total)return;state.renderLimit=Math.min(snapshot.total,state.renderLimit+240);renderGrid();}
 elements.sentinel.addEventListener('click', loadMoreAssets);
 const loadMoreObserver = new IntersectionObserver((entries) => { if (entries.some((entry) => entry.isIntersecting)) loadMoreAssets(); }, { root: elements.gridWrap, rootMargin: '700px 0px' });
-elements.gridWrap.addEventListener('scroll',()=>{const scrollTop=elements.gridWrap.scrollTop;if(Math.abs(scrollTop-thumbnailLastScrollTop)>1)thumbnailScrollDirection=scrollTop>thumbnailLastScrollTop?1:-1;thumbnailLastScrollTop=scrollTop;thumbnailScrollUntil=Date.now()+320;clearTimeout(thumbnailSettleTimer);scheduleSettledThumbnailLoads();},{passive:true});
+let virtualScrollFrame=null;
+elements.gridWrap.addEventListener('scroll',()=>{const scrollTop=elements.gridWrap.scrollTop;if(Math.abs(scrollTop-thumbnailLastScrollTop)>1)thumbnailScrollDirection=scrollTop>thumbnailLastScrollTop?1:-1;thumbnailLastScrollTop=scrollTop;thumbnailScrollUntil=Date.now()+320;clearTimeout(thumbnailSettleTimer);scheduleSettledThumbnailLoads();const metrics=state.virtualMetrics;if(!metrics||metrics.total<=VIRTUAL_ASSET_WINDOW||virtualScrollFrame)return;virtualScrollFrame=requestAnimationFrame(()=>{virtualScrollFrame=null;const firstRow=Math.max(0,Math.floor(elements.gridWrap.scrollTop/metrics.estimatedRowHeight)-6),target=firstRow*metrics.columns,maxStart=Math.max(0,metrics.total-VIRTUAL_ASSET_WINDOW),next=Math.min(maxStart,target);if(Math.abs(next-state.virtualStart)>=metrics.columns*4){state.virtualStart=next;const scroll=elements.gridWrap.scrollTop;renderGrid();elements.gridWrap.scrollTop=scroll;}});},{passive:true});
 
 applyStaticIcons(); populatePreferenceInputs(); applyPreferences(false);
 setTimeout(()=>runUpdateCheck(),5000);setInterval(()=>runUpdateCheck(),6*60*60*1000);
 window.pigeon.onLibraryChanged((library) => {
-  if(scanRenderHandle!==null){(window.cancelIdleCallback||clearTimeout)(scanRenderHandle);scanRenderHandle=null;}clearTimeout(streamRenderTimer);rendererAssetIndexes.clear();elements.grid.innerHTML='';elements.grid.classList.add('hidden');
+  invalidateAssetViewCache();if(scanRenderHandle!==null){(window.cancelIdleCallback||clearTimeout)(scanRenderHandle);scanRenderHandle=null;}clearTimeout(streamRenderTimer);rendererAssetIndexes.clear();elements.grid.innerHTML='';elements.grid.classList.add('hidden');
   if (backgroundTaskPortfolioId && library.activePortfolioId && backgroundTaskPortfolioId !== library.activePortfolioId) { backgroundTasks.clear(); renderBackgroundProgress(); }
   backgroundTaskPortfolioId = library.activePortfolioId || backgroundTaskPortfolioId;
   state.streamGeneration = library.streamGeneration || 0;
@@ -2453,10 +2467,10 @@ window.pigeon.onLibraryAssets(({ generation, assets, done }) => {
   if (generation !== state.streamGeneration) return;
   for(const asset of assets){if(asset.locked)continue;rendererAssetIndexes.set(asset.id,state.library.assets.length);state.library.assets.push(asset);}if(assets.length)invalidateTagCache();
   if (!done) return;
-  state.library.assetStreamPending=false;state.library.totalAssets=state.library.assets.length;refreshDuplicateIds();if(state.view==='duplicates'&&state.duplicateSourceId)refreshSimilarityGroups();render();finishStartupSplash();scheduleFolderTreeBuild();scheduleTagBrowserPrewarm();if(isInternalViewerOpen())renderInternalViewer();
+  invalidateAssetViewCache();state.library.assetStreamPending=false;state.library.totalAssets=state.library.assets.length;refreshDuplicateIds();if(state.view==='duplicates'&&state.duplicateSourceId)refreshSimilarityGroups();render();finishStartupSplash();scheduleFolderTreeBuild();scheduleTagBrowserPrewarm();if(isInternalViewerOpen())renderInternalViewer();
 });
 function scheduleScanGridRender(){ if(scanRenderHandle!==null)return; const run=()=>{scanRenderHandle=null;if(performance.now()-lastUserInteractionAt<250){scheduleScanGridRender();return;}renderGrid();updateLocationProgressUI();}; scanRenderHandle=window.requestIdleCallback?requestIdleCallback(run,{timeout:1500}):setTimeout(run,750); }
-window.pigeon.onScanAssets(({portfolioId,locationId,assets,done})=>{ if(portfolioId!==state.library.activePortfolioId||state.library.loading||state.library.assetStreamPending)return; const wasEmpty=state.library.assets.length===0; if(assets.length)invalidateTagCache();let added=0; for(const asset of assets){const index=rendererAssetIndexes.get(asset.id);if(index===undefined){rendererAssetIndexes.set(asset.id,state.library.assets.length);state.library.assets.push(asset);added+=1;}else state.library.assets[index]=asset;} state.library.totalAssets=state.library.assets.length; const location=state.library.locations.find((item)=>item.id===locationId);if(location)location.assetCount=(location.assetCount||0)+added; updateLocationProgressUI(); if(done){refreshDuplicateIds();scheduleFolderTreeBuild();scheduleScanGridRender();scheduleTagBrowserPrewarm();}else if(wasEmpty&&added)scheduleScanGridRender(); });
+window.pigeon.onScanAssets(({portfolioId,locationId,assets,done})=>{ if(portfolioId!==state.library.activePortfolioId||state.library.loading||state.library.assetStreamPending)return; const wasEmpty=state.library.assets.length===0; if(assets.length){invalidateTagCache();invalidateAssetViewCache();}let added=0; for(const asset of assets){const index=rendererAssetIndexes.get(asset.id);if(index===undefined){rendererAssetIndexes.set(asset.id,state.library.assets.length);state.library.assets.push(asset);added+=1;}else state.library.assets[index]=asset;} state.library.totalAssets=state.library.assets.length; const location=state.library.locations.find((item)=>item.id===locationId);if(location)location.assetCount=(location.assetCount||0)+added; updateLocationProgressUI(); if(done){refreshDuplicateIds();scheduleFolderTreeBuild();scheduleScanGridRender();scheduleTagBrowserPrewarm();}else if(wasEmpty&&added)scheduleScanGridRender(); });
 function updateLocationProgressUI() { for (const location of state.library.locations) { const row=elements.locationList.querySelector(`[data-location-id="${location.id}"]`); if (!row) continue; row.classList.toggle('offline',!location.online); row.classList.toggle('scanning',Boolean(location.scanning)); const count=row.querySelector('.location-root-button small'); if(count) count.textContent=location.assetCount||0; } const scanning=state.library.locations.find((location)=>location.scanning),progress=scanning?.scanProgress; if(scanning) elements.status.textContent=`Indexing ${scanning.name}… ${progress?.inspected||0}${progress?.discovered?` / ${progress.discovered}`:''}`; }
 window.pigeon.onLocationsChanged(({ locations, loading, totalAssets }) => {
   const structureChanged = locations.length !== state.library.locations.length || locations.some((location,index)=>location.id!==state.library.locations[index]?.id || location.path!==state.library.locations[index]?.path);

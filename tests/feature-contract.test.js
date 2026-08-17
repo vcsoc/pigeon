@@ -13,6 +13,7 @@ const libraryCore = fs.readFileSync(path.join(root, 'electron', 'library-core.js
 const core = libraryCore;
 const thumbnailWorker = fs.readFileSync(path.join(root, 'electron', 'thumbnail-worker.js'), 'utf8');
 const textDocumentPreview = fs.readFileSync(path.join(root,'electron','text-document-preview.js'),'utf8');
+const cooperativeView=fs.readFileSync(path.join(root,'src','cooperative-view.js'),'utf8');
 const folderTreeWorker = fs.readFileSync(path.join(root, 'electron', 'folder-tree-worker.js'), 'utf8');
 const database = fs.readFileSync(path.join(root, 'electron', 'database.js'), 'utf8');
 const renderer = fs.readFileSync(path.join(root, 'src', 'renderer.js'), 'utf8');
@@ -36,7 +37,11 @@ test('large grids delegate card interactions and batch visibility registration',
 });
 
 test('every Smart Folder asset receives a placeholder and thumbnails load safely after scroll settles',()=>{
-  assert.match(renderer,/state\.view === 'duplicates'\|\|state\.smartFolderId/);assert.match(renderer,/const assets = allAssets,stackCounts/);assert.match(renderer,/MAX_THUMBNAIL_LOADS=16/);assert.match(renderer,/thumbnailScrollUntil=Date\.now\(\)\+320/);assert.match(renderer,/const image=new Image\(\)/);assert.match(renderer,/queueMicrotask\(drainThumbnailLoads\)/);assert.match(renderer,/preview\.appendChild\(image\)/);assert.match(renderer,/image\.alt=''/);assert.match(renderer,/THUMBNAIL_READ_AHEAD_PX=1800/);assert.match(renderer,/rootMargin:`\$\{THUMBNAIL_READ_AHEAD_PX\}px 0px`/);assert.match(renderer,/assetIndex<64/);assert.match(renderer,/fetchpriority="high"/);assert.match(main,/placeholders\.cards!==placeholders\.total/);assert.match(main,/placeholders\.pending<placeholders\.total-8/);
+  assert.match(renderer,/criteria\.smartFolderId\|\|criteria\.view==='duplicates'/);assert.match(renderer,/assets=assetView\.assets/);assert.match(renderer,/MAX_THUMBNAIL_LOADS=16/);assert.match(renderer,/thumbnailScrollUntil=Date\.now\(\)\+320/);assert.match(renderer,/const image=new Image\(\)/);assert.match(renderer,/queueMicrotask\(drainThumbnailLoads\)/);assert.match(renderer,/preview\.appendChild\(image\)/);assert.match(renderer,/image\.alt=''/);assert.match(renderer,/THUMBNAIL_READ_AHEAD_PX=1800/);assert.match(renderer,/rootMargin:`\$\{THUMBNAIL_READ_AHEAD_PX\}px 0px`/);assert.match(renderer,/assetIndex<64/);assert.match(renderer,/fetchpriority="high"/);assert.match(main,/placeholders\.cards!==placeholders\.total/);assert.match(main,/placeholders\.pending<placeholders\.total-8/);
+});
+
+test('huge portfolio views cooperatively sort and keep a fixed virtual DOM window',()=>{
+  assert.match(html,/cooperative-view\.js[\s\S]*renderer\.js/);assert.match(renderer,/COOPERATIVE_VIEW_THRESHOLD=1000,VIRTUAL_ASSET_WINDOW=480/);assert.match(renderer,/function currentAssetViewSnapshot/);assert.match(renderer,/scheduleAssetViewTask/);assert.match(renderer,/performance\.now\(\)-assetViewSliceStarted>=6/);assert.match(renderer,/30000000\/rows/);assert.match(renderer,/state\.virtualStart=next/);assert.match(renderer,/selectAllVisibleAssetsCooperatively/);assert.match(styles,/\.virtual-grid-spacer/);assert.match(cooperativeView,/filterChunk=512,runSize=2048,mergeChunk=1024/);
 });
 
 test('inspector folder paths, bidirectional read-ahead and compact thumbnail spacing are wired',()=>{
@@ -87,7 +92,7 @@ test('privacy shortcuts paint before persistence and do not animate behind key i
 });
 
 test('targeted thumbnail rebuild, virtual full scroll, cover previews, metadata copy and native drag are wired',()=>{
-  assert.match(renderer,/data-context-action="rebuild-thumbnails"/);assert.match(preload,/rebuildThumbnails/);assert.match(main,/assets:rebuild-thumbnails/);assert.match(renderer,/thumbnailVisibilityObserver/);assert.match(renderer,/const assets = allAssets/);assert.match(renderer,/state\.kind='all';state\.query=''/);assert.match(styles,/\.asset-preview img[^}]*object-fit:cover/);assert.match(html,/copy-additional-metadata/);assert.match(html,/copy-comfyui-metadata/);assert.match(renderer,/ComfyUI workflow copied/);assert.match(renderer,/window\.pigeon\.startAssetDrag/);assert.match(main,/sender\.startDrag/);
+  assert.match(renderer,/data-context-action="rebuild-thumbnails"/);assert.match(preload,/rebuildThumbnails/);assert.match(main,/assets:rebuild-thumbnails/);assert.match(renderer,/thumbnailVisibilityObserver/);assert.match(renderer,/currentAssetViewSnapshot/);assert.match(renderer,/VIRTUAL_ASSET_WINDOW=480/);assert.match(renderer,/virtual-grid-spacer/);assert.match(cooperativeView,/filterChunk=512/);assert.match(cooperativeView,/mergeChunk=1024/);assert.match(html,/cooperative-view\.js/);assert.match(renderer,/state\.kind='all';state\.query=''/);assert.match(styles,/\.asset-preview img[^}]*object-fit:cover/);assert.match(html,/copy-additional-metadata/);assert.match(html,/copy-comfyui-metadata/);assert.match(renderer,/ComfyUI workflow copied/);assert.match(renderer,/window\.pigeon\.startAssetDrag/);assert.match(main,/sender\.startDrag/);
 });
 
 test('trash and auto-tag mutations reconcile cards without full thumbnail reloads',()=>{
@@ -279,7 +284,7 @@ test('Ctrl+A selects thumbnails and Ctrl+C/Ctrl+V use the native file clipboard'
   assert.match(main,/clipboard\.readImage\(\)/);
   assert.match(main,/importDroppedFiles\(paths\)/);
   assert.match(renderer,/event\.key\.toLowerCase\(\)==='a'/);
-  assert.match(renderer,/state\.selectedIds=new Set\(ids\)/);
+  assert.match(renderer,/selectAllVisibleAssetsCooperatively\(\)/);
   assert.match(renderer,/event\.key\.toLowerCase\(\)==='c'/);
   assert.match(renderer,/window\.pigeon\.copyAssets/);
   assert.match(renderer,/event\.key\.toLowerCase\(\)==='v'/);
