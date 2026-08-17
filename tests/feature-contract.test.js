@@ -31,7 +31,7 @@ test('UI exposes collection, smart-folder, batch, trash, media, metadata and edi
 });
 
 test('large grids delegate card interactions and batch visibility registration',()=>{
-  assert.match(renderer,/elements\.grid\.addEventListener\('click'/);assert.match(renderer,/elements\.grid\.addEventListener\('dragstart'/);assert.match(renderer,/elements\.grid\.addEventListener\('pointerover'/);assert.match(renderer,/requestIdleCallback/);assert.match(renderer,/count<1200/);assert.match(renderer,/gridAssetForCard/);assert.match(styles,/content-visibility:auto/);assert.doesNotMatch(renderer,/\$\$\('\.asset-card'\)\.forEach\(\(card\) => \{[\s\S]*card\.addEventListener\('click'/);
+  assert.match(renderer,/elements\.grid\.addEventListener\('pointerdown'/);assert.match(renderer,/preserveDragSelection/);assert.match(renderer,/elements\.grid\.addEventListener\('click'/);assert.match(renderer,/elements\.grid\.addEventListener\('dragstart'/);assert.match(renderer,/elements\.grid\.addEventListener\('pointerover'/);assert.match(renderer,/requestIdleCallback/);assert.match(renderer,/count<1200/);assert.match(renderer,/gridAssetForCard/);assert.match(styles,/content-visibility:auto/);assert.doesNotMatch(renderer,/\$\$\('\.asset-card'\)\.forEach\(\(card\) => \{[\s\S]*card\.addEventListener\('click'/);
 });
 
 test('every Smart Folder asset receives a placeholder and thumbnails load safely after scroll settles',()=>{
@@ -1063,7 +1063,7 @@ test('Analytics and All Tags preserve the previous library position for back and
   assert.match(renderer,/captureNavigationSnapshot/);
   assert.match(renderer,/rememberTemporaryViewOrigin/);
   assert.match(renderer,/if\(view==='tags'\)rememberTemporaryViewOrigin\(\)/);
-  assert.match(renderer,/selectedTagNames/);assert.match(renderer,/event\.shiftKey&&tagSelectionAnchor/);assert.match(renderer,/event\.ctrlKey\|\|event\.metaKey/);assert.match(renderer,/setTagRowSelection\(row,selected\)/);assert.match(renderer,/elements\.tagBrowser\.addEventListener\('click'/);assert.match(renderer,/renderedTagBrowserCatalog===catalog/);assert.match(renderer,/scheduleTagBrowserPrewarm/);assert.match(renderer,/confirmAndDeleteTags/);assert.match(renderer,/removeTagBrowserRows/);assert.match(preload,/deleteTags:/);assert.match(libraryCore,/function deleteTags/);assert.match(main,/persistAssetBatch\(result\.assets\)/);assert.match(styles,/tag-browser:not\(\.hidden\)[^}]*grid-template-columns/);
+  assert.match(renderer,/selectedTagNames/);assert.match(renderer,/event\.shiftKey&&tagSelectionAnchor/);assert.match(renderer,/event\.ctrlKey\|\|event\.metaKey/);assert.match(renderer,/setTagRowSelection\(row,selected\)/);assert.match(renderer,/elements\.tagBrowser\.addEventListener\('pointerdown'/);assert.match(renderer,/selectTagRowWithEvent/);assert.match(renderer,/elements\.tagBrowser\.addEventListener\('click'/);assert.match(renderer,/renderedTagBrowserCatalog===catalog/);assert.match(renderer,/scheduleTagBrowserPrewarm/);assert.match(renderer,/confirmAndDeleteTags/);assert.match(renderer,/removeTagBrowserRows/);assert.match(preload,/deleteTags:/);assert.match(libraryCore,/function deleteTags/);assert.match(main,/persistAssetBatch\(result\.assets\)/);assert.match(styles,/tag-browser:not\(\.hidden\)[^}]*grid-template-columns/);
   assert.match(renderer,/function openAnalytics[^\n]*rememberTemporaryViewOrigin\(\)/);
   assert.match(renderer,/gridScrollTop:Math\.max\(0,Number\(elements\.gridWrap\.scrollTop\)\|\|0\)/);
   assert.match(renderer,/\['analytics','tags'\]\.includes\(state\.view\)&&navigationReturnState/);
