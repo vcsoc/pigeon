@@ -240,7 +240,7 @@ test('common interactions paint immediately and defer expensive renderer work',(
   assert.match(renderer,/function renderNavigationDestination/);
   assert.match(renderer,/requestAnimationFrame\(\(\)=>requestAnimationFrame/);
   assert.match(renderer,/const heights=cards\.map/);
-  assert.match(renderer,/Object\.assign\(asset,patch\);patchCardMetadata\(asset,patch\);renderInspector\(\)/);
+  assert.match(renderer,/Object\.assign\(asset,patch\);if\(Object\.hasOwn\(patch,'tags'\)\)invalidateTagCache\(\);patchCardMetadata\(asset,patch\);renderInspector\(\)/);
   assert.match(renderer,/searchRenderFrame=requestAnimationFrame/);
   assert.match(styles,/grid-wrap\.navigation-pending::after/);
 });
@@ -321,6 +321,8 @@ test('justified rows, tag autocomplete, and viewer editing controls are wired', 
   assert.match(renderer, /renderTagSuggestions/);
   assert.match(renderer, /allExistingTags/);
   assert.match(renderer, /cachedExistingTags/);
+  assert.match(renderer, /cachedTagCatalog/);
+  assert.match(renderer, /renderedTagSuggestions!==tags/);
   assert.match(renderer, /data-tag-create="true"/);
   assert.match(renderer, /Create &quot;/);
   assert.match(renderer, /enableTagAutocomplete/);
@@ -1015,7 +1017,7 @@ test('Preferences exposes applicable searchable feature shortcuts and wires thei
 
 test('inspector privacy, Quick Check, aligned shortcuts, and developer telemetry overlay are wired',()=>{
   for(const id of ['meta-extension','developer-overlay','developer-overlay-metrics','developer-overlay-opacity','favorite-shortcut','location-shortcut'])assert.match(html,new RegExp(`id="${id}"`));
-  assert.match(styles,/#meta-folder,#meta-file\{white-space:normal/);assert.match(styles,/\.asset-card\.quick-checked::before/);assert.match(styles,/\.preview-card\.privacy-effect-view|\.privacy-effect-view img/);assert.match(styles,/\.privacy-effects-disabled/);assert.match(styles,/\.shortcut-key-input\{width:150px/);assert.match(styles,/\.developer-overlay\{[^}]*right:calc\(var\(--inspector-width\) \+ 7px\)/);assert.match(styles,/\.developer-metric i\{[^}]*right:0/);assert.match(styles,/\.developer-opacity-control/);
+  assert.match(styles,/#meta-folder,#meta-file\{white-space:normal/);assert.match(styles,/\.asset-card\.quick-checked::before/);assert.match(styles,/\.preview-card\.privacy-effect-view|\.privacy-effect-view img/);assert.match(styles,/body\.privacy-effects-disabled \.privacy-effect-view img/);assert.match(styles,/\.shortcut-key-input\{width:150px/);assert.match(styles,/\.developer-overlay\{[^}]*right:calc\(var\(--inspector-width\) \+ 7px\)/);assert.match(styles,/\.developer-metric i\{[^}]*right:0/);assert.match(styles,/\.developer-opacity-control/);
   assert.match(renderer,/state\.showCheckedOnly/);assert.match(renderer,/asset\.quickChecked/);assert.match(renderer,/toggleQuickCheck/);assert.match(renderer,/toggleCheckedOnly/);assert.match(renderer,/toggleAllPrivacyEffects/);assert.match(renderer,/Ctrl\+Alt\+D/);assert.match(renderer,/toggleDeveloperOverlay/);assert.match(renderer,/setDeveloperOverlayOpacity/);assert.match(renderer,/pigeon\.developerOverlayOpacity/);assert.match(renderer,/queuedItems/);assert.match(renderer,/appearance:'palette'/);assert.match(renderer,/addEventListener\('dragenter',showCollectionDrop\)/);
   assert.match(libraryCore,/quickChecked: Boolean\(asset\.quickChecked\)/);assert.match(main,/'quickChecked'/);assert.match(main,/queuedItems/);
 });
@@ -1061,7 +1063,7 @@ test('Analytics and All Tags preserve the previous library position for back and
   assert.match(renderer,/captureNavigationSnapshot/);
   assert.match(renderer,/rememberTemporaryViewOrigin/);
   assert.match(renderer,/if\(view==='tags'\)rememberTemporaryViewOrigin\(\)/);
-  assert.match(renderer,/selectedTagNames/);assert.match(renderer,/event\.shiftKey&&tagSelectionAnchor/);assert.match(renderer,/event\.ctrlKey\|\|event\.metaKey/);assert.match(renderer,/confirmAndDeleteTags/);assert.match(renderer,/removeTagBrowserRows/);assert.match(preload,/deleteTags:/);assert.match(libraryCore,/function deleteTags/);assert.match(main,/persistAssetBatch\(result\.assets\)/);assert.match(styles,/tag-browser:not\(\.hidden\)[^}]*grid-template-columns/);
+  assert.match(renderer,/selectedTagNames/);assert.match(renderer,/event\.shiftKey&&tagSelectionAnchor/);assert.match(renderer,/event\.ctrlKey\|\|event\.metaKey/);assert.match(renderer,/setTagRowSelection\(row,selected\)/);assert.match(renderer,/elements\.tagBrowser\.addEventListener\('click'/);assert.match(renderer,/renderedTagBrowserCatalog===catalog/);assert.match(renderer,/scheduleTagBrowserPrewarm/);assert.match(renderer,/confirmAndDeleteTags/);assert.match(renderer,/removeTagBrowserRows/);assert.match(preload,/deleteTags:/);assert.match(libraryCore,/function deleteTags/);assert.match(main,/persistAssetBatch\(result\.assets\)/);assert.match(styles,/tag-browser:not\(\.hidden\)[^}]*grid-template-columns/);
   assert.match(renderer,/function openAnalytics[^\n]*rememberTemporaryViewOrigin\(\)/);
   assert.match(renderer,/gridScrollTop:Math\.max\(0,Number\(elements\.gridWrap\.scrollTop\)\|\|0\)/);
   assert.match(renderer,/\['analytics','tags'\]\.includes\(state\.view\)&&navigationReturnState/);

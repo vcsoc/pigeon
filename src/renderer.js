@@ -720,42 +720,20 @@ function renderSidebar(rebuildFolderTree = false) {
   });
 }
 
-let selectedTagNames = new Set(), tagSelectionAnchor = null;
-function paintTagBrowserSelection(){for(const row of $$('.tag-manager-item')){const selected=selectedTagNames.has(row.dataset.tag.toLowerCase());row.classList.toggle('selected',selected);row.setAttribute('aria-selected',String(selected));}}
-function updateTagBrowserSummary(){const count=$$('.tag-manager-item').length,assets=state.library.assets.filter((asset)=>!asset.deletedAt).length;elements.count.textContent=`${count} ${count===1?'tag':'tags'}`;elements.status.textContent=`${count} tags across ${assets} references`;$('#tags-count').textContent=String(count);}
+let selectedTagNames = new Set(), tagSelectionAnchor = null, renderedTagBrowserCatalog = null, tagBrowserPrewarmHandle = null;
+function setTagRowSelection(row,selected){if(!row)return;row.classList.toggle('selected',selected);row.setAttribute('aria-selected',String(selected));}
+function updateTagBrowserSummary(){const count=$$('.tag-manager-item').length;elements.count.textContent=`${count} ${count===1?'tag':'tags'}`;elements.status.textContent=`${count} tags across ${cachedVisibleAssetCount} references`;$('#tags-count').textContent=String(count);}
 function removeTagBrowserRows(tags){const targets=new Set(tags.map((tag)=>tag.toLowerCase()));for(const row of $$('.tag-manager-item'))if(targets.has(row.dataset.tag.toLowerCase()))row.remove();for(const group of $$('.tag-letter-group')){const count=group.querySelectorAll('.tag-manager-item').length;if(!count)group.remove();else group.querySelector('.tag-letter-heading small').textContent=`(${count})`;}if(!$('.tag-manager-item'))elements.tagBrowser.innerHTML='<div class="facet-empty">No tags yet</div>';updateTagBrowserSummary();}
-async function confirmAndDeleteTags(tags){const unique=[...new Map(tags.map((tag)=>[tag.toLowerCase(),tag])).values()];if(!unique.length)return;const multiple=unique.length>1,confirmed=await requestConfirmation({title:multiple?`Delete ${unique.length} Tags`:'Delete Tag',message:multiple?`Remove ${unique.length} selected tags from every asset?\n\n${unique.join(', ')}`:`Remove “${unique[0]}” from every asset?`,confirmText:'Delete'});if(!confirmed)return;await window.pigeon.deleteTags(unique);const targets=new Set(unique.map((tag)=>tag.toLowerCase()));for(const asset of state.library.assets)asset.tags=(asset.tags||[]).filter((tag)=>!targets.has(tag.toLowerCase()));cachedExistingTags=null;const tagMode=state.view==='tags'&&!state.locationId&&!state.collectionId&&!state.smartFolderId;if(tagMode){removeTagBrowserRows(unique);for(const tag of targets)selectedTagNames.delete(tag);tagSelectionAnchor=null;paintTagBrowserSelection();}else render();showToast(`Deleted ${unique.length} tag${unique.length===1?'':'s'}`);}
+async function confirmAndDeleteTags(tags){const unique=[...new Map(tags.map((tag)=>[tag.toLowerCase(),tag])).values()];if(!unique.length)return;const multiple=unique.length>1,confirmed=await requestConfirmation({title:multiple?`Delete ${unique.length} Tags`:'Delete Tag',message:multiple?`Remove ${unique.length} selected tags from every asset?\n\n${unique.join(', ')}`:`Remove “${unique[0]}” from every asset?`,confirmText:'Delete'});if(!confirmed)return;await window.pigeon.deleteTags(unique);const targets=new Set(unique.map((tag)=>tag.toLowerCase()));for(const asset of state.library.assets)asset.tags=(asset.tags||[]).filter((tag)=>!targets.has(tag.toLowerCase()));invalidateTagCache();const tagMode=state.view==='tags'&&!state.locationId&&!state.collectionId&&!state.smartFolderId;if(tagMode){removeTagBrowserRows(unique);for(const tag of targets)selectedTagNames.delete(tag);tagSelectionAnchor=null;}else render();showToast(`Deleted ${unique.length} tag${unique.length===1?'':'s'}`);}
 function renderTagBrowser() {
-  const byKey = new Map();
-  for (const asset of state.library.assets.filter((item) => !item.deletedAt)) for (const tag of asset.tags || []) {
-    const key = tag.toLocaleLowerCase();
-    const entry = byKey.get(key) || { name: tag, count: 0 };
-    entry.count += 1; byKey.set(key, entry);
-  }
-  const groups = new Map();
-  for (const entry of [...byKey.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))) {
-    const letter = /^[a-z]/i.test(entry.name) ? entry.name[0].toUpperCase() : '#';
-    if (!groups.has(letter)) groups.set(letter, []);
-    groups.get(letter).push(entry);
-  }
-  selectedTagNames=new Set([...selectedTagNames].filter((key)=>byKey.has(key)));elements.tagBrowser.innerHTML = groups.size ? [...groups].map(([letter, tags]) => `<section class="tag-letter-group" data-tag-letter="${escapeHtml(letter)}"><h2 class="tag-letter-heading">${escapeHtml(letter)} <small>(${tags.length})</small></h2><div class="tag-manager-grid">${tags.map((tag) => `<div class="tag-manager-item" data-tag="${escapeHtml(tag.name)}" tabindex="0" role="option" aria-selected="false"><span class="tag-manager-bullet">•</span><button class="tag-manager-name" title="Show assets tagged ${escapeHtml(tag.name)}">${escapeHtml(tag.name)}</button><span class="tag-manager-count">${tag.count}</span><span class="tag-manager-actions"><button class="tag-edit" title="Rename tag">✎</button><button class="tag-delete" title="Delete tag">×</button></span></div>`).join('')}</div></section>`).join('') : '<div class="facet-empty">No tags yet</div>';
-  $$('.tag-manager-item').forEach((row) => {
-    const tag = row.dataset.tag;
-    row.addEventListener('click',(event)=>{if(event.target.closest('.tag-manager-actions'))return;const rows=$$('.tag-manager-item'),key=tag.toLowerCase();if(event.shiftKey&&tagSelectionAnchor){const from=rows.findIndex((item)=>item.dataset.tag.toLowerCase()===tagSelectionAnchor),to=rows.indexOf(row);if(from>=0)for(const item of rows.slice(Math.min(from,to),Math.max(from,to)+1))selectedTagNames.add(item.dataset.tag.toLowerCase());}else if(event.ctrlKey||event.metaKey){if(selectedTagNames.has(key))selectedTagNames.delete(key);else selectedTagNames.add(key);tagSelectionAnchor=key;}else{selectedTagNames=new Set([key]);tagSelectionAnchor=key;}paintTagBrowserSelection();});
-    row.querySelector('.tag-manager-name').addEventListener('dblclick', () => {
-      Object.values(state.filters).forEach((values) => values?.clear?.());
-      state.filters.tags = new Set([tag]); state.kind = 'all'; state.view = 'all'; state.locationId = null; state.collectionId = null; state.smartFolderId = null; state.gridScrollTop = 0;
-      elements.title.textContent = tag; updateFilterChips(); render();
-    });
-    row.querySelector('.tag-edit').addEventListener('click', async () => {
-      const name = await requestText({ title: 'Rename Tag', label: 'Tag name', value: tag, confirmText: 'Rename' });
-      if (name && name.trim() && name.trim().toLowerCase() !== tag.toLowerCase()) await window.pigeon.renameTag(tag, name.trim());
-    });
-    row.querySelector('.tag-delete').addEventListener('click',()=>confirmAndDeleteTags(selectedTagNames.has(tag.toLowerCase())?$$('.tag-manager-item').filter((item)=>selectedTagNames.has(item.dataset.tag.toLowerCase())).map((item)=>item.dataset.tag):[tag]));
-  });
-  paintTagBrowserSelection();
+  const catalog=tagCatalog();if(renderedTagBrowserCatalog===catalog)return;const byKey=new Map(catalog.map((entry)=>[entry.name.toLowerCase(),entry])),groups=new Map();
+  for (const entry of catalog) {const letter=/^[a-z]/i.test(entry.name)?entry.name[0].toUpperCase():'#';if(!groups.has(letter))groups.set(letter,[]);groups.get(letter).push(entry);}
+  selectedTagNames=new Set([...selectedTagNames].filter((key)=>byKey.has(key)));elements.tagBrowser.innerHTML=groups.size?[...groups].map(([letter,tags])=>`<section class="tag-letter-group" data-tag-letter="${escapeHtml(letter)}"><h2 class="tag-letter-heading">${escapeHtml(letter)} <small>(${tags.length})</small></h2><div class="tag-manager-grid">${tags.map((tag)=>{const selected=selectedTagNames.has(tag.name.toLowerCase());return `<div class="tag-manager-item ${selected?'selected':''}" data-tag="${escapeHtml(tag.name)}" tabindex="0" role="option" aria-selected="${selected}"><span class="tag-manager-bullet">•</span><button class="tag-manager-name" title="Show assets tagged ${escapeHtml(tag.name)}">${escapeHtml(tag.name)}</button><span class="tag-manager-count">${tag.count}</span><span class="tag-manager-actions"><button class="tag-edit" title="Rename tag">✎</button><button class="tag-delete" title="Delete tag">×</button></span></div>`;}).join('')}</div></section>`).join(''):'<div class="facet-empty">No tags yet</div>';renderedTagBrowserCatalog=catalog;
 }
-elements.tagBrowser.addEventListener('keydown',(event)=>{if(event.key!=='Delete'||!selectedTagNames.size)return;event.preventDefault();event.stopPropagation();confirmAndDeleteTags($$('.tag-manager-item').filter((row)=>selectedTagNames.has(row.dataset.tag.toLowerCase())).map((row)=>row.dataset.tag));});
+function scheduleTagBrowserPrewarm(){if(tagBrowserPrewarmHandle!==null)return;const run=()=>{tagBrowserPrewarmHandle=null;if(state.library.loading||state.library.assetStreamPending)return;renderTagBrowser();};tagBrowserPrewarmHandle=window.requestIdleCallback?requestIdleCallback(run,{timeout:1200}):setTimeout(run,180);}
+elements.tagBrowser.addEventListener('click',async(event)=>{const row=event.target.closest('.tag-manager-item');if(!row)return;const tag=row.dataset.tag,key=tag.toLowerCase();if(event.target.closest('.tag-delete')){const tags=selectedTagNames.has(key)?$$('.tag-manager-item.selected').map((item)=>item.dataset.tag):[tag];confirmAndDeleteTags(tags);return;}if(event.target.closest('.tag-edit')){const name=await requestText({title:'Rename Tag',label:'Tag name',value:tag,confirmText:'Rename'});if(name&&name.trim()&&name.trim().toLowerCase()!==key)await window.pigeon.renameTag(tag,name.trim());return;}if(event.ctrlKey||event.metaKey){const selected=!selectedTagNames.has(key);if(selected)selectedTagNames.add(key);else selectedTagNames.delete(key);tagSelectionAnchor=key;setTagRowSelection(row,selected);return;}if(event.shiftKey&&tagSelectionAnchor){const rows=$$('.tag-manager-item'),from=rows.findIndex((item)=>item.dataset.tag.toLowerCase()===tagSelectionAnchor),to=rows.indexOf(row);if(from>=0)for(const item of rows.slice(Math.min(from,to),Math.max(from,to)+1)){selectedTagNames.add(item.dataset.tag.toLowerCase());setTagRowSelection(item,true);}return;}for(const item of $$('.tag-manager-item.selected'))setTagRowSelection(item,false);selectedTagNames=new Set([key]);tagSelectionAnchor=key;setTagRowSelection(row,true);});
+elements.tagBrowser.addEventListener('dblclick',(event)=>{const row=event.target.closest('.tag-manager-item'),tag=row?.dataset.tag;if(!tag||!event.target.closest('.tag-manager-name'))return;Object.values(state.filters).forEach((values)=>values?.clear?.());state.filters.tags=new Set([tag]);state.kind='all';state.view='all';state.locationId=null;state.collectionId=null;state.smartFolderId=null;state.gridScrollTop=0;elements.title.textContent=tag;updateFilterChips();render();});
+elements.tagBrowser.addEventListener('keydown',(event)=>{if(event.key!=='Delete'||!selectedTagNames.size)return;event.preventDefault();event.stopPropagation();confirmAndDeleteTags($$('.tag-manager-item.selected').map((row)=>row.dataset.tag));});
 
 function analyticsAssets() {
   const scope = state.analyticsScope || { type: 'portfolio' }, assets = state.library.assets.filter((asset) => !asset.deletedAt && !asset.locked);
@@ -1012,14 +990,16 @@ elements.inspectorVideo.addEventListener('error', () => { if (elements.inspector
 elements.inspectorVideo.addEventListener('stalled', () => { if (elements.inspectorVideo.dataset.userRequested === 'true' && elements.inspectorVideo.readyState < 2) recoverInspectorVideo(); });
 let activeTagAutocompleteInput = null;
 const tagAutocompleteInputs = new WeakSet();
-let cachedExistingTags = null;
+let cachedExistingTags = null, cachedTagCatalog = null, cachedVisibleAssetCount = 0, renderedTagSuggestions = null;
+function invalidateTagCache(){cachedExistingTags=null;cachedTagCatalog=null;renderedTagBrowserCatalog=null;}
 function allExistingTags(refresh = false) {
   if (!refresh && cachedExistingTags) return cachedExistingTags;
-  const configured = [...Object.values(state.library.settings?.folderAutoTags || {}), ...Object.values(state.library.settings?.collectionAutoTags || {})].flatMap((rule) => rule.tags || []), canonical = new Map();
-  for (const asset of state.library.assets) if (!asset.deletedAt) for (const tag of asset.tags || []) { const value = String(tag).trim(); if (value && !canonical.has(value.toLowerCase())) canonical.set(value.toLowerCase(), value); }
+  const configured = [...Object.values(state.library.settings?.folderAutoTags || {}), ...Object.values(state.library.settings?.collectionAutoTags || {})].flatMap((rule) => rule.tags || []), canonical = new Map(), catalog = new Map();cachedVisibleAssetCount=0;
+  for (const asset of state.library.assets) if (!asset.deletedAt) {cachedVisibleAssetCount+=1;for (const tag of asset.tags || []) { const value = String(tag).trim(),key=value.toLowerCase(); if (value && !canonical.has(key)) canonical.set(key, value);if(value){const entry=catalog.get(key)||{name:value,count:0};entry.count+=1;catalog.set(key,entry);}}}
   for (const tag of configured) { const value = String(tag).trim(); if (value && !canonical.has(value.toLowerCase())) canonical.set(value.toLowerCase(), value); }
-  cachedExistingTags = [...canonical.values()].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })); return cachedExistingTags;
+  const compare=(a,b)=>a.localeCompare(b,undefined,{sensitivity:'base'});cachedTagCatalog=[...catalog.values()].sort((a,b)=>compare(a.name,b.name));cachedExistingTags=[...canonical.values()].sort(compare);return cachedExistingTags;
 }
+function tagCatalog(){if(!cachedTagCatalog)allExistingTags();return cachedTagCatalog;}
 function hideTagAutocomplete() { const popup = $('#tag-autocomplete'); if (popup.matches(':popover-open')) popup.hidePopover(); popup.classList.add('hidden'); activeTagAutocompleteInput?.setAttribute('aria-expanded', 'false'); activeTagAutocompleteInput = null; }
 function mountTagAutocomplete(input, popup) { const host = input.closest('dialog[open]') || document.body; if (popup.parentElement === host) return; if (popup.matches(':popover-open')) popup.hidePopover(); host.appendChild(popup); }
 function currentTagToken(input) {
@@ -1050,7 +1030,7 @@ function enableTagAutocomplete(input, { multiple = false } = {}) {
   const refresh = () => { if (input.dataset.tagAutocomplete === 'true') renderTagAutocomplete(input); }; input.addEventListener('focus', refresh); input.addEventListener('input', refresh); input.addEventListener('click', refresh);
 }
 function renderTagSuggestions() {
-  const tags = allExistingTags(true); $('#tag-suggestions').innerHTML = tags.map((tag) => `<option value="${escapeHtml(tag)}"></option>`).join('');
+  const tags = allExistingTags(); if(renderedTagSuggestions!==tags){$('#tag-suggestions').innerHTML=tags.map((tag)=>`<option value="${escapeHtml(tag)}"></option>`).join('');renderedTagSuggestions=tags;}
   enableTagAutocomplete(elements.tags, { multiple: true }); enableTagAutocomplete($('#batch-tag-input'), { multiple: true });
   if (activeTagAutocompleteInput) renderTagAutocomplete(activeTagAutocompleteInput);
 }
@@ -1206,7 +1186,7 @@ function navigateAssets(key) {
 }
 async function updateSelected(patch) {
   const id=state.selectedId,asset=state.library.assets.find((item)=>item.id===id);if(!asset)return null;
-  const previous=Object.fromEntries(Object.keys(patch).map((key)=>[key,asset[key]])),revision=(updateSelected.revisions?.get(id)||0)+1;updateSelected.revisions??=new Map();updateSelected.revisions.set(id,revision);Object.assign(asset,patch);patchCardMetadata(asset,patch);renderInspector();
+  const previous=Object.fromEntries(Object.keys(patch).map((key)=>[key,asset[key]])),revision=(updateSelected.revisions?.get(id)||0)+1;updateSelected.revisions??=new Map();updateSelected.revisions.set(id,revision);Object.assign(asset,patch);if(Object.hasOwn(patch,'tags'))invalidateTagCache();patchCardMetadata(asset,patch);renderInspector();
   try{const updated=await window.pigeon.updateAsset(id,patch);if(!updated)return null;Object.assign(asset,updated);if(updateSelected.revisions.get(id)===revision){patchCardMetadata(asset,patch);renderInspector();}return updated;}
   catch(error){if(updateSelected.revisions.get(id)===revision){Object.assign(asset,previous);patchCardMetadata(asset,patch);renderInspector();}showToast(error.message);return null;}
 }
@@ -1226,7 +1206,7 @@ async function addTagsToAssets(ids, tags) {
   const targets = [...new Set(ids)], additions = [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))]; if (!targets.length || !additions.length) return 0;
   const count = await window.pigeon.batchUpdateAssets(targets, { addTags: additions }, { silent: true });
   for (const asset of state.library.assets) if (targets.includes(asset.id)) { const existing = new Map((asset.tags || []).map((tag) => [tag.toLowerCase(), tag])); for (const tag of additions) if (!existing.has(tag.toLowerCase())) existing.set(tag.toLowerCase(), tag); asset.tags = [...existing.values()]; }
-  cachedExistingTags = null; renderInspector(); showToast(`Added ${additions.length} tag${additions.length === 1 ? '' : 's'} to ${count} asset${count === 1 ? '' : 's'}`); return count;
+  invalidateTagCache(); renderInspector(); showToast(`Added ${additions.length} tag${additions.length === 1 ? '' : 's'} to ${count} asset${count === 1 ? '' : 's'}`); return count;
 }
 function renderIconPicker(query = '') {
   const names = Object.keys(window.PIGEON_ICONS).filter((name) => !query || name.includes(query.toLowerCase())); $('#icon-picker-grid').innerHTML = names.map((name) => `<button data-icon-name="${name}" class="${iconPickerTarget?.current === name ? 'selected' : ''}" title="${name.replace(/-/g,' ')}">${iconSvg(name)}</button>`).join('');
@@ -2441,21 +2421,21 @@ window.pigeon.onLibraryChanged((library) => {
   if (backgroundTaskPortfolioId && library.activePortfolioId && backgroundTaskPortfolioId !== library.activePortfolioId) { backgroundTasks.clear(); renderBackgroundProgress(); }
   backgroundTaskPortfolioId = library.activePortfolioId || backgroundTaskPortfolioId;
   state.streamGeneration = library.streamGeneration || 0;
-  state.library = libraryCoreSafe(library); state.duplicateGroups = []; state.duplicateIds.clear();
+  state.library = libraryCoreSafe(library); invalidateTagCache(); state.duplicateGroups = []; state.duplicateIds.clear();
   if (!state.library.loading && !state.library.assetStreamPending && !(state.library.totalAssets ?? state.library.assets.length)) finishStartupSplash();
   if (!state.library.loading && !state.library.assetStreamPending && state.navigationRestoredPortfolioId !== state.library.activePortfolioId) { restoreNavigationState(); updateFilterChips(); }
   resetRenderLimit();
   render(); scheduleFolderTreeBuild();
 });
-window.pigeon.onSidebarChanged(({collections,smartFolders,settings,activePortfolioId})=>{if(activePortfolioId!==state.library.activePortfolioId)return;state.library.collections=collections||state.library.collections;state.library.smartFolders=smartFolders||state.library.smartFolders;state.library.settings={...(state.library.settings||{}),...(settings||{})};renderSidebar(false);renderTagSuggestions();});
+window.pigeon.onSidebarChanged(({collections,smartFolders,settings,activePortfolioId})=>{if(activePortfolioId!==state.library.activePortfolioId)return;state.library.collections=collections||state.library.collections;state.library.smartFolders=smartFolders||state.library.smartFolders;state.library.settings={...(state.library.settings||{}),...(settings||{})};invalidateTagCache();renderSidebar(false);renderTagSuggestions();});
 window.pigeon.onLibraryAssets(({ generation, assets, done }) => {
   if (generation !== state.streamGeneration) return;
-  for(const asset of assets){if(asset.locked)continue;rendererAssetIndexes.set(asset.id,state.library.assets.length);state.library.assets.push(asset);}
+  for(const asset of assets){if(asset.locked)continue;rendererAssetIndexes.set(asset.id,state.library.assets.length);state.library.assets.push(asset);}if(assets.length)invalidateTagCache();
   if (!done) return;
-  state.library.assetStreamPending=false;state.library.totalAssets=state.library.assets.length;refreshDuplicateIds();if(state.view==='duplicates'&&state.duplicateSourceId)refreshSimilarityGroups();render();finishStartupSplash();scheduleFolderTreeBuild();if(isInternalViewerOpen())renderInternalViewer();
+  state.library.assetStreamPending=false;state.library.totalAssets=state.library.assets.length;refreshDuplicateIds();if(state.view==='duplicates'&&state.duplicateSourceId)refreshSimilarityGroups();render();finishStartupSplash();scheduleFolderTreeBuild();scheduleTagBrowserPrewarm();if(isInternalViewerOpen())renderInternalViewer();
 });
 function scheduleScanGridRender(){ if(scanRenderHandle!==null)return; const run=()=>{scanRenderHandle=null;if(performance.now()-lastUserInteractionAt<250){scheduleScanGridRender();return;}renderGrid();updateLocationProgressUI();}; scanRenderHandle=window.requestIdleCallback?requestIdleCallback(run,{timeout:1500}):setTimeout(run,750); }
-window.pigeon.onScanAssets(({portfolioId,locationId,assets,done})=>{ if(portfolioId!==state.library.activePortfolioId||state.library.loading||state.library.assetStreamPending)return; const wasEmpty=state.library.assets.length===0; let added=0; for(const asset of assets){const index=rendererAssetIndexes.get(asset.id);if(index===undefined){rendererAssetIndexes.set(asset.id,state.library.assets.length);state.library.assets.push(asset);added+=1;}else state.library.assets[index]=asset;} state.library.totalAssets=state.library.assets.length; const location=state.library.locations.find((item)=>item.id===locationId);if(location)location.assetCount=(location.assetCount||0)+added; updateLocationProgressUI(); if(done){refreshDuplicateIds();scheduleFolderTreeBuild();scheduleScanGridRender();}else if(wasEmpty&&added)scheduleScanGridRender(); });
+window.pigeon.onScanAssets(({portfolioId,locationId,assets,done})=>{ if(portfolioId!==state.library.activePortfolioId||state.library.loading||state.library.assetStreamPending)return; const wasEmpty=state.library.assets.length===0; if(assets.length)invalidateTagCache();let added=0; for(const asset of assets){const index=rendererAssetIndexes.get(asset.id);if(index===undefined){rendererAssetIndexes.set(asset.id,state.library.assets.length);state.library.assets.push(asset);added+=1;}else state.library.assets[index]=asset;} state.library.totalAssets=state.library.assets.length; const location=state.library.locations.find((item)=>item.id===locationId);if(location)location.assetCount=(location.assetCount||0)+added; updateLocationProgressUI(); if(done){refreshDuplicateIds();scheduleFolderTreeBuild();scheduleScanGridRender();scheduleTagBrowserPrewarm();}else if(wasEmpty&&added)scheduleScanGridRender(); });
 function updateLocationProgressUI() { for (const location of state.library.locations) { const row=elements.locationList.querySelector(`[data-location-id="${location.id}"]`); if (!row) continue; row.classList.toggle('offline',!location.online); row.classList.toggle('scanning',Boolean(location.scanning)); const count=row.querySelector('.location-root-button small'); if(count) count.textContent=location.assetCount||0; } const scanning=state.library.locations.find((location)=>location.scanning),progress=scanning?.scanProgress; if(scanning) elements.status.textContent=`Indexing ${scanning.name}… ${progress?.inspected||0}${progress?.discovered?` / ${progress.discovered}`:''}`; }
 window.pigeon.onLocationsChanged(({ locations, loading, totalAssets }) => {
   const structureChanged = locations.length !== state.library.locations.length || locations.some((location,index)=>location.id!==state.library.locations[index]?.id || location.path!==state.library.locations[index]?.path);
