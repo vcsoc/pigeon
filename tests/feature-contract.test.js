@@ -1020,6 +1020,10 @@ test('Preferences exposes applicable searchable feature shortcuts and wires thei
   assert.match(renderer,/const builtInShortcutGroups=/);assert.match(renderer,/Ctrl\+Alt\+R/);assert.match(renderer,/facetShortcuts/);assert.match(renderer,/viewShortcuts/);assert.match(renderer,/Alt\+1':'grid'/);assert.match(renderer,/Ctrl\+Alt\+2/);assert.match(renderer,/renderBuiltInShortcuts/);assert.match(html,/data-preference-page="actions"/);assert.match(html,/data-preference-content="actions"/);assert.match(html,/Featured Shortcuts/);assert.doesNotMatch(html,/Portfolio Shortcuts/);
 });
 
+test('eager thumbnails are not queued for a duplicate lazy image',()=>{
+  assert.match(renderer,/visual&&!eagerThumbnail\?`data-thumbnail-src=/);assert.match(renderer,/preview\.querySelector\(':scope > img\.thumbnail-loaded'\)/);
+});
+
 test('inspector tags sort alphabetically and cached grid nodes survive internal viewing',()=>{
   assert.match(renderer,/asset\.tags \|\| \[\]\)\]\.sort\(\(first,second\)=>first\.localeCompare/);const closeViewer=renderer.slice(renderer.indexOf('function closeInternalViewer'),renderer.indexOf('function toggleViewerFit'));assert.match(closeViewer,/elements\.grid\.classList\.remove\('hidden'\)/);assert.doesNotMatch(closeViewer,/renderGrid\(\)/);
 });
