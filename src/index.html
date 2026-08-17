@@ -154,7 +154,8 @@
             </section>
             <div id="duplicate-controls" class="duplicate-controls hidden"><div><strong id="duplicate-mode-label">Similar image groups</strong><span id="duplicate-summary"></span></div><label>Similarity accuracy <input id="duplicate-similarity" type="range" min="35" max="100" value="78" /><output id="duplicate-similarity-value">78%</output></label><button id="show-all-duplicate-groups" class="secondary-button hidden">Show all groups</button></div>
             <div id="empty-state" class="empty-state">
-              <div class="empty-art" aria-hidden="true"><span class="empty-folder-back"></span><span class="empty-photo"><i></i></span><span class="empty-folder-front"></span><b>＋</b></div>
+              <div id="empty-folder-art" class="empty-art" aria-hidden="true"><span class="empty-folder-back"></span><span class="empty-photo"><i></i></span><span class="empty-folder-front"></span><b>＋</b></div>
+              <img id="opening-location-animation" class="opening-location-animation hidden" src="../pigeon-peck.gif" alt="" aria-hidden="true" />
               <h2 id="empty-title">Your portfolio is ready</h2>
               <p id="empty-description">Start with the Pictures folder on this computer, or choose another source.</p>
               <button id="empty-add-pictures" class="empty-start-action">Click here to add your default Pictures folder to get started</button>
@@ -226,6 +227,7 @@
         </section>
         <footer class="statusbar">
           <span id="status-text">Ready</span>
+          <img id="status-progress-pigeon" class="status-progress-pigeon hidden" src="../pigeon-peck.gif" alt="" aria-hidden="true" />
         </footer>
       </main>
     </div>

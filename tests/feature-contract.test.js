@@ -1132,6 +1132,10 @@ test('global background progress and scoped analytics are wired', () => {
   assert.match(styles, /\.analytics-pie/);
 });
 
+test('animated pecking pigeon replaces opening art and accompanies visible footer progress',async()=>{
+  const peckPath=path.join(root,'pigeon-peck.gif'),metadata=await sharp(peckPath,{animated:true}).metadata();assert.equal(metadata.format,'gif');assert.ok(metadata.pages>1);assert.equal(metadata.loop,0);assert.match(html,/id="opening-location-animation"[^>]*src="\.\.\/pigeon-peck\.gif"/);assert.match(html,/id="status-progress-pigeon"[^>]*src="\.\.\/pigeon-peck\.gif"/);assert.match(renderer,/emptyFolderArt\.classList\.toggle\('hidden',loading\)/);assert.match(renderer,/statusProgressPigeon\.classList\.toggle\('hidden',!tasks\.length\)/);assert.match(styles,/\.opening-location-animation\{[^}]*object-fit:cover/);assert.match(styles,/\.status-progress-pigeon\{[^}]*margin-left:auto/);assert.match(packageJson,/"pigeon-peck\.gif"/);
+});
+
 test('Chrome and Edge Manifest V3 extension is installable and local-only', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, 'browser-extension', 'manifest.json'), 'utf8'));
   assert.equal(manifest.manifest_version, 3);

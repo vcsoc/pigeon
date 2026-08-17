@@ -90,7 +90,7 @@ function applyStaticIcons() {
   const searchIcon = $('.search-box > span:first-child'), cameraIcon = $('.search-camera'); if (searchIcon) searchIcon.innerHTML = iconSvg('search'); if (cameraIcon) cameraIcon.innerHTML = iconSvg('camera');
 }
 const elements = {
-  grid: $('#asset-grid'), empty: $('#empty-state'), tagBrowser: $('#tag-browser'), locationList: $('#location-list'),
+  grid: $('#asset-grid'), empty: $('#empty-state'),emptyFolderArt:$('#empty-folder-art'),openingLocationAnimation:$('#opening-location-animation'),statusProgressPigeon:$('#status-progress-pigeon'), tagBrowser: $('#tag-browser'), locationList: $('#location-list'),
   title: $('#view-title'), count: $('#view-count'), search: $('#search-input'),
   inspector: $('#inspector'), inspectorPlaceholder: $('#inspector-placeholder'), inspectorContent: $('#inspector-content'),
   inspectorImage: $('#inspector-image'), inspectorVideo: $('#inspector-video'), inspectorAudio: $('#inspector-audio'), inspectorFileIcon: $('#inspector-file-icon'), format: $('#inspector-format'), offline: $('#inspector-offline'),
@@ -809,6 +809,7 @@ function renderGrid() {
     saveNavigationState(); return;
   }
   elements.empty.classList.toggle('hidden', !loading && !noLibrary);
+  elements.emptyFolderArt.classList.toggle('hidden',loading);elements.openingLocationAnimation.classList.toggle('hidden',!loading);
   elements.emptyTitle.textContent = loading?'Opening your portfolio':noSources?'Your portfolio is ready':'No files found';
   elements.emptyDescription.textContent = loading
     ? 'Pigeon is ready. Sources and previews are loading safely in the background.'
@@ -2360,7 +2361,7 @@ const backgroundTasks = new Map();
 let backgroundTaskPortfolioId = null;
 function renderBackgroundProgress() {
   const tasks = [...backgroundTasks.values()].filter((task) => !task.portfolioId || task.portfolioId === state.library.activePortfolioId).sort((a,b)=>b.updatedAt-a.updatedAt), panel = elements.backgroundProgress;
-  panel.classList.toggle('hidden', !tasks.length); if (!tasks.length) return;
+  panel.classList.toggle('hidden', !tasks.length);elements.statusProgressPigeon.classList.toggle('hidden',!tasks.length); if (!tasks.length) return;
   const total = tasks.reduce((sum,task)=>sum+task.total,0), completed = tasks.reduce((sum,task)=>sum+Math.min(task.completed,task.total||task.completed),0), indeterminate = tasks.some((task)=>!task.total);
   $('#background-progress-label').textContent = tasks.length > 1 ? `${tasks.length} background operations` : tasks[0].label;
   $('#background-progress-detail').textContent = tasks.length > 1 ? tasks.map((task)=>task.detail||task.label).filter(Boolean).slice(0,2).join(' · ') : tasks[0].detail;
