@@ -47,7 +47,7 @@ test('media resource errors do not become fatal UI errors',()=>{
 });
 
 test('all file types support location, complete EXIF inspection, and native cross-application drag handoff',()=>{
-  assert.match(renderer,/const assetIds=\[\.\.\.new Set\(ids\|\|\[\]\)\]/);assert.match(renderer,/Select one or more files first/);assert.match(renderer,/<button data-context-action="location">/);assert.match(html,/id="exif-metadata"/);assert.match(renderer,/function flattenedMetadata/);assert.match(renderer,/image\?flattenedMetadata\(asset\.exif\)/);assert.match(renderer,/addEventListener\('dragstart',[^\n]*if\(!event\.shiftKey\)\{event\.preventDefault\(\);window\.pigeon\.startAssetDrag\(ids\);return;\}/);assert.match(renderer,/text\/uri-list/);assert.match(renderer,/effectAllowed='copyMove'/);assert.match(preload,/startAssetDrag: \(ids\) => ipcRenderer\.send\('assets:start-drag', ids\)/);assert.match(main,/nativeImage\.createFromPath/);assert.match(main,/startDrag\(\{files,icon\}\)/);
+  assert.match(renderer,/const assetIds=\[\.\.\.new Set\(ids\|\|\[\]\)\]/);assert.match(renderer,/Select one or more files first/);assert.match(renderer,/<button data-context-action="location">/);assert.match(html,/id="exif-metadata"/);assert.match(renderer,/function flattenedMetadata/);assert.match(renderer,/image\?flattenedMetadata\(asset\.exif\)/);assert.match(renderer,/addEventListener\('dragstart',[^\n]*if\(!event\.shiftKey\)\{event\.preventDefault\(\);window\.pigeon\.startAssetDrag\(ids\);return;\}/);assert.match(renderer,/text\/uri-list/);assert.match(renderer,/effectAllowed='copyMove'/);assert.match(preload,/startAssetDrag: \(ids\) => ipcRenderer\.send\('assets:start-drag', ids\)/);assert.match(main,/nativeImage\.createFromPath/);assert.match(main,/toBitmap\(\)/);assert.match(main,/bitmap\[index\]\*\.34/);assert.match(main,/startDrag\(\{files,icon\}\)/);
 });
 
 test('Snagit SNAGX files receive safe archive thumbnails and full image previews',()=>{
@@ -429,6 +429,7 @@ test('portfolio, collection, and smart-folder creation use in-app dialogs', () =
   assert.doesNotMatch(renderer, /\bconfirm\s*\(/);
   assert.match(renderer, /requestText/);
   assert.match(renderer, /requestConfirmation/);
+  assert.match(renderer,/requestAnimationFrame\(\(\) => \$\('#confirm-text-entry'\)\.focus\(\)\)/);
   assert.match(renderer, /openSmartFolderDialog/);
   assert.match(renderer, /smartFolderRules/);
   assert.match(renderer, /matchesSmartRule/);
@@ -1059,6 +1060,7 @@ test('Analytics and All Tags preserve the previous library position for back and
   assert.match(renderer,/captureNavigationSnapshot/);
   assert.match(renderer,/rememberTemporaryViewOrigin/);
   assert.match(renderer,/if\(view==='tags'\)rememberTemporaryViewOrigin\(\)/);
+  assert.match(renderer,/selectedTagNames/);assert.match(renderer,/event\.shiftKey&&tagSelectionAnchor/);assert.match(renderer,/event\.ctrlKey\|\|event\.metaKey/);assert.match(renderer,/confirmAndDeleteTags/);assert.match(renderer,/removeTagBrowserRows/);assert.match(preload,/deleteTags:/);assert.match(main,/deletedTags: \[\.\.\.targets\]/);assert.match(styles,/tag-browser:not\(\.hidden\)[^}]*grid-template-columns/);
   assert.match(renderer,/function openAnalytics[^\n]*rememberTemporaryViewOrigin\(\)/);
   assert.match(renderer,/gridScrollTop:Math\.max\(0,Number\(elements\.gridWrap\.scrollTop\)\|\|0\)/);
   assert.match(renderer,/\['analytics','tags'\]\.includes\(state\.view\)&&navigationReturnState/);

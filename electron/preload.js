@@ -75,6 +75,7 @@ contextBridge.exposeInMainWorld('pigeon', {
   autoTag: (ids) => ipcRenderer.invoke('assets:auto-tag', ids),
   renameTag: (from, to) => ipcRenderer.invoke('tags:rename', { from, to }),
   deleteTag: (tag) => ipcRenderer.invoke('tags:delete', tag),
+  deleteTags: (tags) => ipcRenderer.invoke('tags:delete', tags),
   emptyTrash: (mode = 'permanent', ids = null) => ipcRenderer.invoke('trash:empty', { mode, ids }),
   importUrl: (url) => ipcRenderer.invoke('library:import-url', url),
   importClipboard: () => ipcRenderer.invoke('library:import-clipboard'),

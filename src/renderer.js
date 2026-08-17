@@ -720,6 +720,11 @@ function renderSidebar(rebuildFolderTree = false) {
   });
 }
 
+let selectedTagNames = new Set(), tagSelectionAnchor = null;
+function paintTagBrowserSelection(){for(const row of $$('.tag-manager-item')){const selected=selectedTagNames.has(row.dataset.tag.toLowerCase());row.classList.toggle('selected',selected);row.setAttribute('aria-selected',String(selected));}}
+function updateTagBrowserSummary(){const count=$$('.tag-manager-item').length,assets=state.library.assets.filter((asset)=>!asset.deletedAt).length;elements.count.textContent=`${count} ${count===1?'tag':'tags'}`;elements.status.textContent=`${count} tags across ${assets} references`;$('#tags-count').textContent=String(count);}
+function removeTagBrowserRows(tags){const targets=new Set(tags.map((tag)=>tag.toLowerCase()));for(const row of $$('.tag-manager-item'))if(targets.has(row.dataset.tag.toLowerCase()))row.remove();for(const group of $$('.tag-letter-group')){const count=group.querySelectorAll('.tag-manager-item').length;if(!count)group.remove();else group.querySelector('.tag-letter-heading small').textContent=`(${count})`;}if(!$('.tag-manager-item'))elements.tagBrowser.innerHTML='<div class="facet-empty">No tags yet</div>';updateTagBrowserSummary();}
+async function confirmAndDeleteTags(tags){const unique=[...new Map(tags.map((tag)=>[tag.toLowerCase(),tag])).values()];if(!unique.length)return;const multiple=unique.length>1,confirmed=await requestConfirmation({title:multiple?`Delete ${unique.length} Tags`:'Delete Tag',message:multiple?`Remove ${unique.length} selected tags from every asset?\n\n${unique.join(', ')}`:`Remove “${unique[0]}” from every asset?`,confirmText:'Delete'});if(!confirmed)return;await window.pigeon.deleteTags(unique);const targets=new Set(unique.map((tag)=>tag.toLowerCase()));for(const asset of state.library.assets)asset.tags=(asset.tags||[]).filter((tag)=>!targets.has(tag.toLowerCase()));cachedExistingTags=null;const tagMode=state.view==='tags'&&!state.locationId&&!state.collectionId&&!state.smartFolderId;if(tagMode){removeTagBrowserRows(unique);for(const tag of targets)selectedTagNames.delete(tag);tagSelectionAnchor=null;paintTagBrowserSelection();}else render();showToast(`Deleted ${unique.length} tag${unique.length===1?'':'s'}`);}
 function renderTagBrowser() {
   const byKey = new Map();
   for (const asset of state.library.assets.filter((item) => !item.deletedAt)) for (const tag of asset.tags || []) {
@@ -733,9 +738,10 @@ function renderTagBrowser() {
     if (!groups.has(letter)) groups.set(letter, []);
     groups.get(letter).push(entry);
   }
-  elements.tagBrowser.innerHTML = groups.size ? [...groups].map(([letter, tags]) => `<section class="tag-letter-group"><h2 class="tag-letter-heading">${escapeHtml(letter)} <small>(${tags.length})</small></h2><div class="tag-manager-grid">${tags.map((tag) => `<div class="tag-manager-item" data-tag="${escapeHtml(tag.name)}"><span class="tag-manager-bullet">•</span><button class="tag-manager-name" title="Show assets tagged ${escapeHtml(tag.name)}">${escapeHtml(tag.name)}</button><span class="tag-manager-count">${tag.count}</span><span class="tag-manager-actions"><button class="tag-edit" title="Rename tag">✎</button><button class="tag-delete" title="Delete tag">×</button></span></div>`).join('')}</div></section>`).join('') : '<div class="facet-empty">No tags yet</div>';
+  selectedTagNames=new Set([...selectedTagNames].filter((key)=>byKey.has(key)));elements.tagBrowser.innerHTML = groups.size ? [...groups].map(([letter, tags]) => `<section class="tag-letter-group" data-tag-letter="${escapeHtml(letter)}"><h2 class="tag-letter-heading">${escapeHtml(letter)} <small>(${tags.length})</small></h2><div class="tag-manager-grid">${tags.map((tag) => `<div class="tag-manager-item" data-tag="${escapeHtml(tag.name)}" tabindex="0" role="option" aria-selected="false"><span class="tag-manager-bullet">•</span><button class="tag-manager-name" title="Show assets tagged ${escapeHtml(tag.name)}">${escapeHtml(tag.name)}</button><span class="tag-manager-count">${tag.count}</span><span class="tag-manager-actions"><button class="tag-edit" title="Rename tag">✎</button><button class="tag-delete" title="Delete tag">×</button></span></div>`).join('')}</div></section>`).join('') : '<div class="facet-empty">No tags yet</div>';
   $$('.tag-manager-item').forEach((row) => {
     const tag = row.dataset.tag;
+    row.addEventListener('click',(event)=>{if(event.target.closest('.tag-manager-actions'))return;const rows=$$('.tag-manager-item'),key=tag.toLowerCase();if(event.shiftKey&&tagSelectionAnchor){const from=rows.findIndex((item)=>item.dataset.tag.toLowerCase()===tagSelectionAnchor),to=rows.indexOf(row);if(from>=0)for(const item of rows.slice(Math.min(from,to),Math.max(from,to)+1))selectedTagNames.add(item.dataset.tag.toLowerCase());}else if(event.ctrlKey||event.metaKey){if(selectedTagNames.has(key))selectedTagNames.delete(key);else selectedTagNames.add(key);tagSelectionAnchor=key;}else{selectedTagNames=new Set([key]);tagSelectionAnchor=key;}paintTagBrowserSelection();});
     row.querySelector('.tag-manager-name').addEventListener('dblclick', () => {
       Object.values(state.filters).forEach((values) => values?.clear?.());
       state.filters.tags = new Set([tag]); state.kind = 'all'; state.view = 'all'; state.locationId = null; state.collectionId = null; state.smartFolderId = null; state.gridScrollTop = 0;
@@ -745,9 +751,11 @@ function renderTagBrowser() {
       const name = await requestText({ title: 'Rename Tag', label: 'Tag name', value: tag, confirmText: 'Rename' });
       if (name && name.trim() && name.trim().toLowerCase() !== tag.toLowerCase()) await window.pigeon.renameTag(tag, name.trim());
     });
-    row.querySelector('.tag-delete').addEventListener('click', async () => { if (await requestConfirmation({ title: 'Delete Tag', message: `Remove “${tag}” from every asset?`, confirmText: 'Delete' })) await window.pigeon.deleteTag(tag); });
+    row.querySelector('.tag-delete').addEventListener('click',()=>confirmAndDeleteTags(selectedTagNames.has(tag.toLowerCase())?$$('.tag-manager-item').filter((item)=>selectedTagNames.has(item.dataset.tag.toLowerCase())).map((item)=>item.dataset.tag):[tag]));
   });
+  paintTagBrowserSelection();
 }
+elements.tagBrowser.addEventListener('keydown',(event)=>{if(event.key!=='Delete'||!selectedTagNames.size)return;event.preventDefault();event.stopPropagation();confirmAndDeleteTags($$('.tag-manager-item').filter((row)=>selectedTagNames.has(row.dataset.tag.toLowerCase())).map((row)=>row.dataset.tag));});
 
 function analyticsAssets() {
   const scope = state.analyticsScope || { type: 'portfolio' }, assets = state.library.assets.filter((asset) => !asset.deletedAt && !asset.locked);
@@ -1242,7 +1250,7 @@ function requestText({ title, message = '', label = 'Name', value = '', placehol
 function requestConfirmation({ title, message, confirmText = 'Confirm' }) {
   if (textEntryResolve) textEntryResolve(null); textEntryConfirmation = true; textEntryTagMode = false; $('#text-entry-tag-pills').classList.add('hidden');
   $('#text-entry-title').textContent = title; $('#text-entry-message').textContent = message; $('#text-entry-message').classList.remove('hidden'); $('#text-entry-label').classList.add('hidden'); $('#text-entry-input').classList.add('hidden'); $('#confirm-text-entry').textContent = confirmText;
-  if (!$('#text-entry-dialog').open) $('#text-entry-dialog').showModal(); return new Promise((resolve) => { textEntryResolve = resolve; });
+  if (!$('#text-entry-dialog').open) $('#text-entry-dialog').showModal(); requestAnimationFrame(() => $('#confirm-text-entry').focus()); return new Promise((resolve) => { textEntryResolve = resolve; });
 }
 function finishTextEntry(confirmed) {
   hideTagAutocomplete(); const resolver = textEntryResolve, confirmation = textEntryConfirmation, tagMode = textEntryTagMode; if (confirmed && tagMode) addTextEntryTags($('#text-entry-input').value.split(',')); const tagResult = [...textEntryTagValues.values()]; textEntryResolve = null; textEntryConfirmation = false; textEntryTagMode = false; if ($('#text-entry-dialog').open) $('#text-entry-dialog').close(); resolver?.(confirmed ? (confirmation ? true : tagMode ? tagResult : $('#text-entry-input').value) : null);
@@ -1578,7 +1586,7 @@ async function executeMenuAction(action) {
   if (action === 'sync-now') { const target = await window.pigeon.syncNow(); showToast(`Synced · ${target}`); }
   if (action === 'empty-trash') await clearTrash();
   if (action === 'rename-tag') { const from = await requestText({ title: 'Rename Tag', label: 'Existing tag', confirmText: 'Continue' }); const to = from && await requestText({ title: 'Rename Tag', label: 'New tag name', value: from, confirmText: 'Rename' }); if (from && to) await window.pigeon.renameTag(from, to); }
-  if (action === 'delete-tag') { const tag = await requestText({ title: 'Delete Tag', label: 'Tag to remove', confirmText: 'Continue' }); if (tag && await requestConfirmation({ title: 'Delete Tag', message: `Remove “${tag}” everywhere?`, confirmText: 'Delete' })) await window.pigeon.deleteTag(tag); }
+  if (action === 'delete-tag') { const tag = await requestText({ title: 'Delete Tag', label: 'Tag to remove', confirmText: 'Continue' }); if (tag) await confirmAndDeleteTags([tag]); }
   if (action === 'open-extension') await window.pigeon.openBrowserExtensionFolder();
   if (action === 'open-plugins') await window.pigeon.openPluginsFolder();
   if (action === 'run-plugin') { const plugins = await window.pigeon.listPlugins(); const name = await requestText({ title: 'Run Plugin', message: `Installed: ${plugins.join(', ') || 'none'}`, label: 'Plugin name', confirmText: 'Run' }); if (name) { const result = await window.pigeon.runPlugin(name); showToast(result.error || `Plugin completed · ${(result.operations || []).length} operations`); } }

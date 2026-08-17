@@ -199,6 +199,8 @@ html[data-platform="darwin"] .window-drag { padding-left: 80px; }
 .content-area { grid-row: 3; min-height: 0; overflow: hidden; display: grid; grid-template-columns: minmax(0, 1fr) var(--inspector-width); }
 .content-area.analytics-active { grid-template-columns: minmax(0,1fr); }
 .content-area.analytics-active .inspector { display: none; }
+.content-area:has(.tag-browser:not(.hidden)) { grid-template-columns: minmax(0,1fr); }
+.content-area:has(.tag-browser:not(.hidden)) .inspector { display:none; }
 .grid-wrap { min-width: 0; min-height: 0; height: 100%; position: relative; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding: 6px; background: #191a1c; }
 .grid-wrap.navigation-pending::after { content:""; position:absolute; z-index:8; left:6px; top:10px; width:32px; height:2px; border-radius:2px; background:#7197ff; box-shadow:0 0 10px rgba(113,151,255,.65); animation:navigation-response .45s ease-in-out infinite alternate; pointer-events:none; }
 @keyframes navigation-response { from { opacity:.38; transform:scaleX(.35); transform-origin:left; } to { opacity:1; transform:scaleX(1); transform-origin:left; } }
@@ -455,11 +457,14 @@ textarea { resize: vertical; min-height: 68px; padding: 8px; line-height: 1.5; }
 .tag-manager-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(175px, 1fr)); gap: 3px 14px; }
 .tag-manager-item { min-width: 0; height: 27px; padding: 0 6px; border: 0; border-radius: 4px; display: flex; align-items: center; gap: 6px; background: transparent; color: #d3d5d8; text-align: left; }
 .tag-manager-item:hover { background: #292c30; }
+.tag-manager-item.selected { background:#33435c; box-shadow:inset 0 0 0 1px #587db4; color:#fff; }
+.tag-manager-item:focus-visible { outline:1px solid #6b97d8; outline-offset:-1px; }
+.tag-manager-item.selected .tag-manager-bullet { color:#8fb9f5; }
 .tag-manager-bullet { color: #6d727a; }
 .tag-manager-name { min-width: 0; flex: 1; padding: 0; border: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; background: transparent; color: inherit; text-align: left; }
 .tag-manager-count { margin-left: auto; color: #747982; font-size: 9px; }
 .tag-manager-actions { width: 0; overflow: hidden; opacity: 0; display: flex; gap: 2px; }
-.tag-manager-item:hover .tag-manager-actions { width: 34px; opacity: 1; }
+.tag-manager-item:hover .tag-manager-actions,.tag-manager-item.selected .tag-manager-actions { width: 34px; opacity: 1; }
 .tag-manager-actions button { width: 16px; height: 20px; padding: 0; border: 0; background: transparent; color: #b8bcc3; }
 .tag-manager-actions button:hover { color: white; }
 .settings-dialog { width: min(620px, calc(100vw - 40px)); padding: 0; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--panel); color: var(--text); box-shadow: 0 22px 70px rgba(0,0,0,.6); font-family: inherit; font-size: 11px; line-height: 1.4; }
