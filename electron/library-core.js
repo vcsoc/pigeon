@@ -264,6 +264,13 @@ function renameTag(library, from, to) {
   return replacement;
 }
 
+function deleteTags(library, requestedTags) {
+  const targets = new Set((Array.isArray(requestedTags) ? requestedTags : [requestedTags]).map((tag) => String(tag || '').trim().toLowerCase()).filter(Boolean)), assets = [];
+  for (const asset of library.assets) { const current = asset.tags || [], remaining = current.filter((tag) => !targets.has(tag.toLowerCase())); if (remaining.length !== current.length) { asset.tags = remaining; assets.push(asset); } }
+  for (const rules of [library.settings?.folderAutoTags, library.settings?.collectionAutoTags]) for (const rule of Object.values(rules || {})) rule.tags = (rule.tags || []).filter((tag) => !targets.has(String(tag).toLowerCase()));
+  return { deletedTags: [...targets], updatedAssets: assets.length, assets };
+}
+
 function suggestTags(asset) {
   const words = `${asset.name || ''} ${asset.filename || ''}`.toLowerCase().split(/[^a-z0-9]+/).filter((word) => word.length >= 3 && word.length <= 24);
   const suggestions = new Set(words);
@@ -281,4 +288,4 @@ function serializeLibrary(library) {
   return JSON.stringify(migrateLibrary(library), null, 2);
 }
 
-module.exports = { SCHEMA_VERSION, DEFAULT_LIBRARY, migrateLibrary, createCollection, renameCollection, moveCollection, removeCollection, createSmartFolder, renameSmartFolder, moveSmartFolder, removeSmartFolder, batchUpdateAssets, stackAssets, unstackAssets, exactDuplicateGroups, similarAssets, visualSimilarityScore, similarImageGroups, matchesFilters, evaluateSmartFolder, renameTag, suggestTags, serializeLibrary, colorDistance, hashDistance, idFor };
+module.exports = { SCHEMA_VERSION, DEFAULT_LIBRARY, migrateLibrary, createCollection, renameCollection, moveCollection, removeCollection, createSmartFolder, renameSmartFolder, moveSmartFolder, removeSmartFolder, batchUpdateAssets, stackAssets, unstackAssets, exactDuplicateGroups, similarAssets, visualSimilarityScore, similarImageGroups, matchesFilters, evaluateSmartFolder, renameTag, deleteTags, suggestTags, serializeLibrary, colorDistance, hashDistance, idFor };

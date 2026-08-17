@@ -47,7 +47,7 @@ test('media resource errors do not become fatal UI errors',()=>{
 });
 
 test('all file types support location, complete EXIF inspection, and native cross-application drag handoff',()=>{
-  assert.match(renderer,/const assetIds=\[\.\.\.new Set\(ids\|\|\[\]\)\]/);assert.match(renderer,/Select one or more files first/);assert.match(renderer,/<button data-context-action="location">/);assert.match(html,/id="exif-metadata"/);assert.match(renderer,/function flattenedMetadata/);assert.match(renderer,/image\?flattenedMetadata\(asset\.exif\)/);assert.match(renderer,/addEventListener\('dragstart',[^\n]*if\(!event\.shiftKey\)\{event\.preventDefault\(\);window\.pigeon\.startAssetDrag\(ids\);return;\}/);assert.match(renderer,/text\/uri-list/);assert.match(renderer,/effectAllowed='copyMove'/);assert.match(preload,/startAssetDrag: \(ids\) => ipcRenderer\.send\('assets:start-drag', ids\)/);assert.match(main,/nativeImage\.createFromPath/);assert.match(main,/toBitmap\(\)/);assert.match(main,/bitmap\[index\]\*\.34/);assert.match(main,/startDrag\(\{files,icon\}\)/);
+  assert.match(renderer,/const assetIds=\[\.\.\.new Set\(ids\|\|\[\]\)\]/);assert.match(renderer,/Select one or more files first/);assert.match(renderer,/<button data-context-action="location">/);assert.match(html,/id="exif-metadata"/);assert.match(renderer,/function flattenedMetadata/);assert.match(renderer,/image\?flattenedMetadata\(asset\.exif\)/);assert.match(renderer,/addEventListener\('dragstart',[^\n]*nativeDrag=event\.altKey\|\|\(ids\.length===1&&!event\.shiftKey\)/);assert.match(renderer,/application\/x-pigeon-assets/);assert.match(renderer,/setDragImage\(ghost,36,36\)/);assert.match(renderer,/effectAllowed='copyMove'/);assert.match(styles,/\.asset-drag-ghost[^}]*opacity:\.28/);assert.match(preload,/startAssetDrag: \(ids\) => ipcRenderer\.send\('assets:start-drag', ids\)/);assert.match(main,/nativeImage\.createFromPath/);assert.match(main,/toBitmap\(\)/);assert.match(main,/bitmap\[index\]\*\.34/);assert.match(main,/startDrag\(\{files,icon\}\)/);
 });
 
 test('Snagit SNAGX files receive safe archive thumbnails and full image previews',()=>{
@@ -101,7 +101,7 @@ test('actions support topbar editing, reordered clearing/move/rename steps and l
   for(const step of ['clearCollections','clearTags','clearRating','moveFolder','autoRename'])assert.match(renderer,new RegExp(step));assert.match(renderer,/data-quick-edit/);assert.match(renderer,/wireShortcutStepReordering/);assert.match(renderer,/rename-pattern-suggestions/);assert.match(renderer,/created-date-time/);assert.match(styles,/font-size:13px/);assert.match(main,/assets:auto-rename/);assert.match(main,/assets:move-to-path/);assert.match(core,/operation\.clearCollections/);
 });
 test('SVG, Sketch and Lunacy files plus embedded workflow metadata and drag export are wired',()=>{
-  assert.match(fileTypesSource,/\.svg/);assert.match(fileTypesSource,/\.sketch/);assert.match(fileTypesSource,/\.free/);assert.match(main,/extractZipPreview/);assert.match(thumbnailWorker,/pngTextMetadata/);assert.match(thumbnailWorker,/workflow/);assert.match(html,/showAdditionalMetadata/);assert.match(renderer,/DownloadURL/);assert.match(styles,/\.folder-tree-toggle \{ width: 18px/);assert.match(renderer,/addEventListener\('dragenter',showCollectionDrop\)/);
+  assert.match(fileTypesSource,/\.svg/);assert.match(fileTypesSource,/\.sketch/);assert.match(fileTypesSource,/\.free/);assert.match(main,/extractZipPreview/);assert.match(thumbnailWorker,/pngTextMetadata/);assert.match(thumbnailWorker,/workflow/);assert.match(html,/showAdditionalMetadata/);assert.match(renderer,/nativeDrag=event\.altKey/);assert.match(styles,/\.folder-tree-toggle \{ width: 18px/);assert.match(renderer,/addEventListener\('dragenter',showCollectionDrop\)/);
 });
 
 test('privacy-affected motion previews require the temporary reveal shortcut',()=>{
@@ -663,7 +663,8 @@ test('media protocol implements thumbnails and byte ranges for seekable local pl
 
 test('internal and external native drags both target collections and physical folders',()=>{
   assert.match(renderer,/application\/x-pigeon-origin/);
-  assert.match(renderer,/if\(!event\.shiftKey\)/);
+  assert.match(renderer,/nativeDrag=event\.altKey\|\|\(ids\.length===1&&!event\.shiftKey\)/);
+  assert.match(renderer,/setDragImage\(ghost,36,36\)/);
   assert.match(renderer,/effectAllowed='copyMove'/);
   assert.match(renderer,/function libraryAssetIdsForPaths/);
   assert.match(renderer,/existingIds\.length===paths\.length/);
@@ -1060,7 +1061,7 @@ test('Analytics and All Tags preserve the previous library position for back and
   assert.match(renderer,/captureNavigationSnapshot/);
   assert.match(renderer,/rememberTemporaryViewOrigin/);
   assert.match(renderer,/if\(view==='tags'\)rememberTemporaryViewOrigin\(\)/);
-  assert.match(renderer,/selectedTagNames/);assert.match(renderer,/event\.shiftKey&&tagSelectionAnchor/);assert.match(renderer,/event\.ctrlKey\|\|event\.metaKey/);assert.match(renderer,/confirmAndDeleteTags/);assert.match(renderer,/removeTagBrowserRows/);assert.match(preload,/deleteTags:/);assert.match(main,/deletedTags: \[\.\.\.targets\]/);assert.match(styles,/tag-browser:not\(\.hidden\)[^}]*grid-template-columns/);
+  assert.match(renderer,/selectedTagNames/);assert.match(renderer,/event\.shiftKey&&tagSelectionAnchor/);assert.match(renderer,/event\.ctrlKey\|\|event\.metaKey/);assert.match(renderer,/confirmAndDeleteTags/);assert.match(renderer,/removeTagBrowserRows/);assert.match(preload,/deleteTags:/);assert.match(libraryCore,/function deleteTags/);assert.match(main,/persistAssetBatch\(result\.assets\)/);assert.match(styles,/tag-browser:not\(\.hidden\)[^}]*grid-template-columns/);
   assert.match(renderer,/function openAnalytics[^\n]*rememberTemporaryViewOrigin\(\)/);
   assert.match(renderer,/gridScrollTop:Math\.max\(0,Number\(elements\.gridWrap\.scrollTop\)\|\|0\)/);
   assert.match(renderer,/\['analytics','tags'\]\.includes\(state\.view\)&&navigationReturnState/);

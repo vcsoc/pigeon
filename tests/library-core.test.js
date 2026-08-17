@@ -141,6 +141,19 @@ test('renaming a tag to an existing tag merges memberships case-insensitively', 
   assert.deepEqual(data.assets[1].tags, ['landscape']);
 });
 
+test('tag deletion removes asset tags and automatic-tag regeneration rules', () => {
+  const data = library(); data.assets[1].tags = ['Travel', 'keep'];
+  data.settings.folderAutoTags = { folder: { tags: ['travel', 'folder-only'] } };
+  data.settings.collectionAutoTags = { collection: { tags: ['TRAVEL', 'collection-only'] } };
+  const result = core.deleteTags(data, ['travel']);
+  assert.deepEqual(result.deletedTags, ['travel']);
+  assert.equal(result.updatedAssets, 2);
+  assert.deepEqual(data.assets[0].tags, []);
+  assert.deepEqual(data.assets[1].tags, ['keep']);
+  assert.deepEqual(data.settings.folderAutoTags.folder.tags, ['folder-only']);
+  assert.deepEqual(data.settings.collectionAutoTags.collection.tags, ['collection-only']);
+});
+
 test('local tag suggestions are deterministic and metadata based', () => {
   const suggestions = core.suggestTags(library().assets[0]);
   assert(suggestions.includes('mountain'));
