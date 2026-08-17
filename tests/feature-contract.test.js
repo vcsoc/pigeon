@@ -12,6 +12,7 @@ const main = fs.readFileSync(path.join(root, 'electron', 'main.js'), 'utf8');
 const libraryCore = fs.readFileSync(path.join(root, 'electron', 'library-core.js'), 'utf8');
 const core = libraryCore;
 const thumbnailWorker = fs.readFileSync(path.join(root, 'electron', 'thumbnail-worker.js'), 'utf8');
+const textDocumentPreview = fs.readFileSync(path.join(root,'electron','text-document-preview.js'),'utf8');
 const folderTreeWorker = fs.readFileSync(path.join(root, 'electron', 'folder-tree-worker.js'), 'utf8');
 const database = fs.readFileSync(path.join(root, 'electron', 'database.js'), 'utf8');
 const renderer = fs.readFileSync(path.join(root, 'src', 'renderer.js'), 'utf8');
@@ -71,10 +72,18 @@ test('Affinity documents receive bounded embedded thumbnails and full image prev
   assert.match(affinityPreview,/readBigUInt64LE\(24\)/);
   assert.match(affinityPreview,/MAX_PREVIEW_BYTES/);
   assert.match(affinityPreview,/thumbnailHeader\.subarray\(4, 8\).*'Thmb'/);
-  assert.match(renderer,/IMAGE_PREVIEW_DOCUMENT_EXTENSIONS=new Set\(\['AF','AFDESIGN','AFPHOTO','SNAGX'\]\)/);
-  assert.match(renderer,/fullImagePreview=visual&&\(asset\.kind==='image'\|\|isImagePreviewDocument\(asset\)\)/);
+  assert.match(renderer,/IMAGE_PREVIEW_DOCUMENT_EXTENSIONS=new Set\(\['PDF','AF','AFDESIGN','AFPHOTO','SNAGX'\]\)/);
+  assert.match(renderer,/fullImagePreview=visual&&\(asset\.kind==='image'\|\|hasDocumentThumbnailPreview\(asset\)\)/);
   assert.match(styles,/-webkit-clip-path:polygon\(100% 0,100% 100%,0 100%\)/);
   assert.match(styles,/\.thumbnail-fit-preview \.ui-icon\{[^}]*display:block[^}]*stroke:currentColor/);
+});
+
+test('text and PDF documents generate thumbnails and open in inspector, preview and viewer',()=>{
+  for(const extension of ['TXT','MD','MARKDOWN','JSON','JSONC','YAML','YML'])assert.match(textDocumentPreview,new RegExp(`'${extension}'`));assert.match(fileTypesSource,/\.jsonc/);assert.match(main,/createTextDocumentThumbnail\(asset,target\)/);assert.match(main,/allowed=TEXT_PREVIEW_DOCUMENT_EXTENSIONS/);assert.match(main,/shouldRerun=backgroundRunActive\(run\)/);assert.match(renderer,/function isTextPreviewDocument/);assert.match(renderer,/function hasDocumentThumbnailPreview/);assert.match(renderer,/text=isTextPreviewDocument\(asset\)/);assert.match(renderer,/String\(asset\.extension\)\.toUpperCase\(\)==='PDF' \? asset\.previewUrl/);
+});
+
+test('privacy shortcuts paint before persistence and do not animate behind key input',()=>{
+  assert.match(renderer,/paintThumbnailEffectImmediately\(assets,enabled\);showToast/);assert.ok(renderer.indexOf('paintThumbnailEffectImmediately(assets,enabled);showToast')<renderer.indexOf('await window.pigeon.batchUpdateAssets(ids,{thumbnailEffect:enabled}'));assert.match(renderer,/requestAnimationFrame\(draw\)/);assert.match(styles,/\.privacy-effect-view img\{transition:none\}/);assert.match(styles,/thumbnail-effect-applied \.asset-preview>img[^}]*transition:none/);
 });
 
 test('targeted thumbnail rebuild, virtual full scroll, cover previews, metadata copy and native drag are wired',()=>{
@@ -207,8 +216,8 @@ test('sidebar-only creation, universal worker progress, and immediate inspector 
 });
 
 test('trash progress, PDF first-page refresh, sidebar ordering, reset icon, and larger branding are wired',()=>{
-  assert.match(main,/Clearing Trash/);assert.match(main,/reportBackgroundProgress\(progressId/);assert.match(main,/pdfPreviewVersion!==2/);assert.match(main,/timeout: asset\.extension==='PDF'\?35000:RAW_IMAGE_EXTENSION_SET/);
-  assert.match(fs.readFileSync(path.join(root,'electron','pdf-thumbnail-child.js'),'utf8'),/standardFontDataUrl/);
+  assert.match(main,/Clearing Trash/);assert.match(main,/reportBackgroundProgress\(progressId/);assert.match(main,/PDF_PREVIEW_VERSION=3/);assert.match(main,/pdfPreviewVersion!==PDF_PREVIEW_VERSION/);assert.match(main,/thumbnailFailureVersion!==PDF_PREVIEW_VERSION/);assert.match(main,/timeout: asset\.extension==='PDF'\?35000:RAW_IMAGE_EXTENSION_SET/);
+  const pdfChild=fs.readFileSync(path.join(root,'electron','pdf-thumbnail-child.js'),'utf8');assert.match(pdfChild,/standardFontDataUrl/);assert.match(pdfChild,/GlobalWorkerOptions\.workerSrc/);
   assert.match(preload,/reorderSidebarItems/);assert.match(preload,/setSidebarSort/);assert.match(main,/sidebar:reorder-items/);assert.match(main,/sidebar:set-sort/);assert.match(renderer,/sidebarSortedSiblings/);assert.match(renderer,/data-sidebar-sort/);
   assert.match(html,/id="clear-filters"[^>]*Reset all filters/);assert.match(renderer,/\['#clear-filters','refresh'\]/);assert.match(styles,/width:270px/);assert.match(styles,/font-size:72px/);assert.match(styles,/font-size:29px/);
   assert.match(html,/id="order-by-button"/);assert.match(html,/id="order-by-popover"/);assert.match(preload,/setAssetOrder/);assert.match(main,/assets:set-order/);assert.match(renderer,/function assetOrderScopeKey/);assert.match(renderer,/function currentAssetOrder/);assert.match(styles,/\.order-by-popover/);

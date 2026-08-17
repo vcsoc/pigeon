@@ -6,7 +6,7 @@ const FILE_TYPE_GROUPS = Object.freeze({
   images: Object.freeze(['.jpg','.jpeg','.png','.webp','.gif','.bmp','.ico','.avif','.heic','.heif','.tif','.tiff','.svg','.psd',...RAW_IMAGE_EXTENSIONS]),
   videos: Object.freeze(['.mp4','.mov','.m4v','.webm','.avi','.mkv','.ogv','.mpg','.mpeg','.m2v','.mts','.m2ts','.3gp','.3g2','.wmv','.flv']),
   audio: Object.freeze(['.mp3','.wav','.m4a','.aac','.flac','.ogg','.oga','.opus','.aif','.aiff','.wma']),
-  documents: Object.freeze(['.pdf','.txt','.rtf','.md','.markdown','.doc','.docx','.odt','.pages','.epub','.html','.htm','.json','.yaml','.yml']),
+  documents: Object.freeze(['.pdf','.txt','.rtf','.md','.markdown','.doc','.docx','.odt','.pages','.epub','.html','.htm','.json','.jsonc','.yaml','.yml']),
   presentations: Object.freeze(['.ppt','.pptx','.odp','.key','.keynote']),
   spreadsheets: Object.freeze(['.xls','.xlsx','.ods','.numbers','.csv','.tsv']),
   design: Object.freeze(['.af','.afdesign','.afphoto','.pspimage','.ai','.sketch','.free','.fig','.eps','.snagx','.xd','.indd','.idml']),

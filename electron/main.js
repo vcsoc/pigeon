@@ -14,6 +14,7 @@ const { availableMemoryBytes } = require('./system-resources');
 const { extractAffinityPreview } = require('./affinity-preview');
 const { isMissingUpdateMetadataError } = require('./update-support');
 const { extractSnagxPreview } = require('./snagx-preview');
+const {TEXT_PREVIEW_DOCUMENT_EXTENSIONS,createTextDocumentThumbnail}=require('./text-document-preview');
 const { IMAGE_EXTENSIONS, RAW_IMAGE_EXTENSION_SET, VIDEO_EXTENSIONS, AUDIO_EXTENSIONS, FONT_EXTENSIONS, DOCUMENT_EXTENSIONS, shouldIndexFile, dialogExtensions, indexingPolicySignature } = require('./file-types');
 const { execFile, spawn } = require('node:child_process');
 const { Worker } = require('node:worker_threads');
@@ -27,7 +28,7 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 const AFFINITY_PREVIEW_EXTENSIONS = new Set(['AF', 'AFDESIGN', 'AFPHOTO']);
-const PREVIEWABLE_DOCUMENT_EXTENSIONS = new Set(['PDF', 'AI', 'EPS', 'SKETCH', 'FREE', 'AF', 'AFDESIGN', 'AFPHOTO', 'SNAGX']);
+const PREVIEWABLE_DOCUMENT_EXTENSIONS = new Set(['PDF', 'AI', 'EPS', 'SKETCH', 'FREE', 'AF', 'AFDESIGN', 'AFPHOTO', 'SNAGX',...TEXT_PREVIEW_DOCUMENT_EXTENSIONS]);
 const watchers = new Map();
 const thumbnailWorkers = [];
 const thumbnailQueue = [];
@@ -71,7 +72,7 @@ const MAX_BACKGROUND_THREADS = 4;
 const INDEX_WORKER_COUNT = Math.max(1,Math.min(MAX_BACKGROUND_THREADS,Math.max(1,Math.floor(os.cpus().length/3))));
 const THUMBNAIL_WORKER_COUNT = 2;
 const BACKGROUND_HASH_WORKERS = 2;
-const PDF_WORKER_LIMIT = 1;
+const PDF_WORKER_LIMIT = 1,PDF_PREVIEW_VERSION=3;
 const LARGE_SCAN_WORKER_LIMIT = 2;
 const MIN_FREE_MEMORY_BYTES = 2 * 1024 * 1024 * 1024;
 let activePdfWorkers = 0;
@@ -467,6 +468,7 @@ async function createAudioThumbnail(asset, target) {
 }
 async function extractZipPreview(source,target){const script=`Add-Type -AssemblyName System.IO.Compression.FileSystem;$z=[IO.Compression.ZipFile]::OpenRead($args[0]);try{$e=$z.Entries|Where-Object{$_.FullName -match '(?i)(^|/)(preview|thumbnail)(@2x)?\\.(png|jpe?g|webp)$'}|Sort-Object Length -Descending|Select-Object -First 1;if(!$e){exit 2};$s=$e.Open();$o=[IO.File]::Create($args[1]);try{$s.CopyTo($o)}finally{$o.Dispose();$s.Dispose()}}finally{$z.Dispose()}`;return new Promise((resolve)=>execFile('powershell.exe',['-NoProfile','-NonInteractive','-Command',script,source,target],{windowsHide:true,timeout:8000,maxBuffer:64*1024},(error)=>resolve(!error)));}
 async function createDocumentThumbnail(asset, target) {
+  if(TEXT_PREVIEW_DOCUMENT_EXTENSIONS.has(asset.extension))return createTextDocumentThumbnail(asset,target);
   if (AFFINITY_PREVIEW_EXTENSIONS.has(asset.extension)) {
     if (asset.thumbnailPath && await pathAvailable(asset.thumbnailPath) && asset.proxyPath && await pathAvailable(asset.proxyPath)) return { ok:true,target:asset.thumbnailPath,proxyPath:asset.proxyPath,width:asset.width,height:asset.height };
     const extracted=await extractAffinityPreview(asset.path,path.join(thumbnailDir,`${asset.id}.affinity-preview`));
@@ -478,10 +480,10 @@ async function createDocumentThumbnail(asset, target) {
     const extracted=await extractSnagxPreview(asset.path,path.join(thumbnailDir,`${asset.id}.snagx-preview`));if(!extracted)return null;
     try{const metadata=await sharp(extracted.target).metadata();await sharp(extracted.target).rotate().resize({width:512,height:512,fit:'inside',withoutEnlargement:true}).flatten({background:'#20232d'}).jpeg({quality:76}).toFile(target);asset.proxyPath=extracted.target;asset.proxyVersion=3;return{ok:true,target,proxyPath:extracted.target,width:metadata.width,height:metadata.height,technicalMetadata:{format:'snagx',previewEntry:extracted.entryName,previewFormat:metadata.format,hasAlpha:metadata.hasAlpha}};}catch(error){await fsp.rm(extracted.target,{force:true});throw error;}
   }
-  if (asset.thumbnailPath && await pathAvailable(asset.thumbnailPath) && !(asset.extension==='PDF'&&asset.pdfPreviewVersion!==2)) return { ok: true, target: asset.thumbnailPath };
+  if (asset.thumbnailPath && await pathAvailable(asset.thumbnailPath) && !(asset.extension==='PDF'&&asset.pdfPreviewVersion!==PDF_PREVIEW_VERSION)) return { ok: true, target: asset.thumbnailPath };
   if (asset.extension==='SKETCH'||asset.extension==='FREE'){if(process.platform!=='win32')return null;const extracted=`${target}.embedded`;if(!(await extractZipPreview(asset.path,extracted)))return null;try{const metadata=await sharp(extracted).metadata();await sharp(extracted).resize({width:512,height:512,fit:'inside',withoutEnlargement:true}).flatten({background:'#20232d'}).jpeg({quality:72}).toFile(target);return{ok:true,target,width:metadata.width,height:metadata.height};}finally{await fsp.rm(extracted,{force:true});}}
   if (asset.extension !== 'PDF') { const ready = await runVideoFfmpeg(['-hide_banner', '-loglevel', 'error', '-i', asset.path, '-frames:v', '1', '-vf', 'scale=512:512:force_original_aspect_ratio=decrease', '-q:v', '5', '-y', target], 9000); return ready ? { ok: true, target } : null; }
-  await acquirePdfWorkerSlot(); try { return await new Promise((resolve) => { const child=utilityProcess.fork(path.join(__dirname,'pdf-thumbnail-child.js'),[],{serviceName:'Pigeon PDF preview'}); let settled=false; const finish=(result)=>{if(settled)return;settled=true;clearTimeout(timer);try{child.kill();}catch{} resolve(result?.ok?result:null);}; const timer=setTimeout(()=>{recordDiagnostic('warning','PDF preview timed out',{file:asset.path});finish(null);},30000); child.on('message',finish); child.on('error',(error)=>{recordDiagnostic('error','Isolated PDF preview failed',error);finish(null);}); child.on('exit',(code)=>{if(code!==0)recordDiagnostic('warning','Isolated PDF preview process exited',{code,file:asset.path});finish(null);}); child.postMessage({source:asset.path,target}); }); } finally { releasePdfWorkerSlot(); }
+  await acquirePdfWorkerSlot(); try { return await new Promise((resolve) => { const child=utilityProcess.fork(path.join(__dirname,'pdf-thumbnail-child.js'),[],{serviceName:'Pigeon PDF preview'}); let settled=false; const finish=(result)=>{if(settled)return;settled=true;clearTimeout(timer);try{child.kill();}catch{}if(result&&!result.ok)recordDiagnostic('warning','PDF preview renderer failed',{file:asset.path,error:result.message,stack:result.stack});resolve(result?.ok?result:{ok:false,message:result?.message||'PDF preview unavailable'});}; const timer=setTimeout(()=>{recordDiagnostic('warning','PDF preview timed out',{file:asset.path});finish(null);},30000); child.on('message',finish); child.on('error',(error)=>{recordDiagnostic('error','Isolated PDF preview failed',error);finish(null);}); child.on('exit',(code)=>{if(code!==0)recordDiagnostic('warning','Isolated PDF preview process exited',{code,file:asset.path});finish(null);}); child.postMessage({source:asset.path,target}); }); } finally { releasePdfWorkerSlot(); }
 }
 async function createVideoProxy(asset) {
   if (asset.proxyVersion === 2 && asset.proxyPath && await pathAvailable(asset.proxyPath) && !(await fileContainsAtom(asset.proxyPath, 'moof'))) { asset.proxyVersion = 3; scheduleSave(); return asset.proxyPath; }
@@ -574,6 +576,8 @@ async function inspectFile(filePath, location, existing, { deferHash = false, in
       thumbnailFailedAt: unchanged ? existing?.thumbnailFailedAt || null : null,
       thumbnailFailedModified: unchanged ? existing?.thumbnailFailedModified || null : null,
       thumbnailError: unchanged ? existing?.thumbnailError || null : null,
+      thumbnailFailureVersion:unchanged?existing?.thumbnailFailureVersion||null:null,
+      pdfPreviewVersion:unchanged?existing?.pdfPreviewVersion||null:null,
       width: unchanged ? existing?.width || null : null,
       height: unchanged ? existing?.height || null : null,
       dominantColor: unchanged ? existing?.dominantColor || null : null,
@@ -772,10 +776,10 @@ async function warmCompatibilityVideoCache() {
 }
 
 function thumbnailWorkRequired(asset) {
-  if (asset.thumbnailFailedAt && asset.thumbnailFailedModified === asset.modified && !(asset.extension==='PDF'&&asset.pdfPreviewVersion!==2)) return false;
+  if (asset.thumbnailFailedAt && asset.thumbnailFailedModified === asset.modified && !(asset.extension==='PDF'&&asset.thumbnailFailureVersion!==PDF_PREVIEW_VERSION)) return false;
   if (asset.kind === 'video') return !asset.thumbnailPath || !asset.width || !asset.height || !asset.duration;
   if (asset.kind === 'audio') return !asset.thumbnailPath || !asset.duration;
-  if (asset.kind === 'document') return PREVIEWABLE_DOCUMENT_EXTENSIONS.has(asset.extension) && (!asset.thumbnailPath || (asset.extension==='PDF'&&asset.pdfPreviewVersion!==2));
+  if (asset.kind === 'document') return PREVIEWABLE_DOCUMENT_EXTENSIONS.has(asset.extension) && (!asset.thumbnailPath || (asset.extension==='PDF'&&asset.pdfPreviewVersion!==PDF_PREVIEW_VERSION));
   return asset.kind === 'image' && (!asset.thumbnailPath || RAW_IMAGE_EXTENSION_SET.has(path.extname(asset.path).toLowerCase()) && (!asset.proxyPath || asset.proxyVersion!==3) || !asset.width || !asset.height || !asset.dominantColor || !asset.histogram || !asset.palette || !asset.perceptualHash || !asset.technicalMetadata);
 }
 async function warmThumbnailCache() {
@@ -792,11 +796,11 @@ async function warmThumbnailCache() {
       const thumbnail = await retryBackground(async () => { const value = asset.kind === 'video' ? await prepareVideoFiles(asset) : await createThumbnail(asset); if (!value?.ok) throw new Error(value?.message || 'Preview unavailable'); return value; }, run, { attempts: 3, timeout: asset.extension==='PDF'?35000:RAW_IMAGE_EXTENSION_SET.has(path.extname(asset.path).toLowerCase())?95000:11000, baseDelay: 120, label: `Preview ${asset.filename}` });
       if (!backgroundRunActive(run)) break; completed += 1; if (completed % 5 === 0 || completed === total) reportBackgroundProgress(progressId, { label: 'Building media previews', detail: `${completed.toLocaleString()} of ${total.toLocaleString()}`, completed, total });
       if (!thumbnail?.ok) {
-        failed += 1; asset.thumbnailFailedAt = Date.now(); asset.thumbnailFailedModified = asset.modified; asset.thumbnailError = thumbnail?.message || 'This format could not be previewed';
+        failed += 1; asset.thumbnailFailedAt = Date.now(); asset.thumbnailFailedModified = asset.modified; asset.thumbnailError = thumbnail?.message || 'This format could not be previewed';asset.thumbnailFailureVersion=asset.extension==='PDF'?PDF_PREVIEW_VERSION:null;
         if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('thumbnail:ready', { id: asset.id, failed: true, error: asset.thumbnailError });
         completedSinceSave += 1; changedPreviewAssets.push(asset); continue;
       }
-      asset.thumbnailFailedAt = null; asset.thumbnailFailedModified = null; asset.thumbnailError = null; asset.thumbnailPath = thumbnail.target;if(asset.extension==='PDF')asset.pdfPreviewVersion=2;
+      asset.thumbnailFailedAt = null; asset.thumbnailFailedModified = null; asset.thumbnailError = null;asset.thumbnailFailureVersion=null; asset.thumbnailPath = thumbnail.target;if(asset.extension==='PDF')asset.pdfPreviewVersion=PDF_PREVIEW_VERSION;
       asset.proxyPath = thumbnail.proxyPath || asset.proxyPath || null;
       asset.proxyVersion = thumbnail.proxyVersion || asset.proxyVersion || null;
       asset.width = thumbnail.width || asset.width || null;
@@ -835,7 +839,7 @@ async function warmThumbnailCache() {
   });
   await Promise.allSettled(workers);
   if (backgroundRunActive(run)) { if (changedPreviewAssets.length) await persistAssetBatch(changedPreviewAssets.splice(0)); reportBackgroundProgress(progressId, { label: failed ? 'Media previews completed with issues' : 'Media previews ready', detail: failed ? `${failed} previews unavailable` : `${completed} previews built`, completed, total, done: true, status: failed ? 'warning' : 'completed' }); if (!smokeTest) schedulePortfolioBackground(warmCompatibilityVideoCache, 0); }
-  } finally { finishBackgroundRun(run); }
+  } finally { const shouldRerun=backgroundRunActive(run)&&run.library.assets.some((asset)=>!asset.sourcePending&&!asset.sourceMissing&&thumbnailWorkRequired(asset));finishBackgroundRun(run);if(shouldRerun)schedulePortfolioBackground(warmThumbnailCache,75); }
 }
 
 async function addLocations(paths, type) {
@@ -1952,7 +1956,7 @@ ipcMain.handle('asset:duplicate', (_event, id) => duplicateAsset(id));
 ipcMain.handle('asset:export-annotated', (_event, { id, annotations, edits }) => exportAnnotatedAsset(id, annotations, edits));
 ipcMain.handle('library:export-group', (_event, { type, id }) => exportLibraryGroup(type, id));
 ipcMain.handle('asset:export',async(_event,id)=>{const asset=library.assets.find((item)=>item.id===id&&!item.deletedAt);if(!asset||!(await pathAvailable(asset.path)))return null;const result=await dialog.showSaveDialog(mainWindow,{title:'Export file',defaultPath:asset.filename});if(result.canceled||!result.filePath)return null;await fsp.copyFile(asset.path,result.filePath);return result.filePath;});
-ipcMain.handle('asset:read-text',async(_event,id)=>{const asset=library.assets.find((item)=>item.id===id&&!item.deletedAt),allowed=new Set(['TXT','JSON','YAML','YML']);if(!asset||!allowed.has(String(asset.extension).toUpperCase())||!(await pathAvailable(asset.path)))return null;const stat=await fsp.stat(asset.path);if(stat.size>8*1024*1024)throw new Error('Text reader supports files up to 8 MB');return{content:await fsp.readFile(asset.path,'utf8'),extension:String(asset.extension).toLowerCase(),filename:asset.filename};});
+ipcMain.handle('asset:read-text',async(_event,id)=>{const asset=library.assets.find((item)=>item.id===id&&!item.deletedAt),allowed=TEXT_PREVIEW_DOCUMENT_EXTENSIONS;if(!asset||!allowed.has(String(asset.extension).toUpperCase())||!(await pathAvailable(asset.path)))return null;const stat=await fsp.stat(asset.path);if(stat.size>8*1024*1024)throw new Error('Text reader supports files up to 8 MB');return{content:await fsp.readFile(asset.path,'utf8'),extension:String(asset.extension).toLowerCase(),filename:asset.filename};});
 ipcMain.handle('contact-sheet:export',async(event,payload)=>{const format=typeof payload==='string'?payload:payload?.format,extension=['pdf','jpeg','png','webp'].includes(String(format).toLowerCase())?String(format).toLowerCase():'pdf',result=await dialog.showSaveDialog(mainWindow,{title:'Export contact sheet',defaultPath:`contact-sheet.${extension}`,filters:[{name:extension.toUpperCase(),extensions:[extension]}]});if(result.canceled||!result.filePath)return null;if(extension==='pdf'){const pdf=await event.sender.printToPDF({printBackground:true,pageSize:'A4'});await fsp.writeFile(result.filePath,pdf);}else{const rect=payload?.rect&&Number.isFinite(payload.rect.width)?payload.rect:undefined,image=await event.sender.capturePage(rect),png=image.toPNG();if(extension==='png')await fsp.writeFile(result.filePath,png);else await sharp(png)[extension==='jpeg'?'jpeg':'webp']({quality:92}).toFile(result.filePath);}return result.filePath;});
 ipcMain.handle('extension:open-folder', () => shell.openPath(app.isPackaged ? path.join(process.resourcesPath, 'browser-extension') : path.join(process.cwd(), 'browser-extension')));
 ipcMain.handle('plugins:list', async () => {
