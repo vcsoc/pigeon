@@ -82,7 +82,7 @@ test('targeted thumbnail rebuild, virtual full scroll, cover previews, metadata 
 });
 
 test('trash and auto-tag mutations reconcile cards without full thumbnail reloads',()=>{
-  assert.match(renderer,/handleDeleteSelection[\s\S]*silent:true,returnAssets:true/);assert.match(renderer,/handleDeleteSelection[\s\S]*reconcileThumbnailCards\(ids\)/);assert.match(renderer,/selectAndRevealSuccessor\(successorId\)/);assert.match(renderer,/currentSmartFolderDependsOnTags/);assert.match(renderer,/patchTagMetadataCards/);assert.match(renderer,/applyTagsToMatchingAssetsAsync/);assert.match(main,/applyTagsInBackground/);assert.match(main,/collection:set-auto-tags[\s\S]*broadcastSidebar/);assert.match(main,/folder:set-auto-tags[\s\S]*broadcastSidebar/);
+  assert.match(renderer,/setAssetTrashWithoutGridRefresh[\s\S]*silent:true,returnAssets:true/);assert.match(renderer,/setAssetTrashWithoutGridRefresh[\s\S]*reconcileThumbnailCards\(unique\)/);assert.match(renderer,/action === 'trash'[^\n]*setAssetTrashWithoutGridRefresh/);assert.match(renderer,/#batch-trash[\s\S]*setAssetTrashWithoutGridRefresh/);assert.match(renderer,/selectAndRevealSuccessor\(successorId\)/);assert.match(renderer,/currentSmartFolderDependsOnTags/);assert.match(renderer,/patchTagMetadataCards/);assert.match(renderer,/applyTagsToMatchingAssetsAsync/);assert.match(main,/applyTagsInBackground/);assert.match(main,/collection:set-auto-tags[\s\S]*broadcastSidebar/);assert.match(main,/folder:set-auto-tags[\s\S]*broadcastSidebar/);
 });
 
 test('Smart Folders filter privacy effects, hotkey is editable, and level sorting targets siblings',()=>{
@@ -90,7 +90,7 @@ test('Smart Folders filter privacy effects, hotkey is editable, and level sortin
 });
 
 test('privacy ranges extend into previews/viewer, modifier wheel scrolls, submenu and parent trunks work',()=>{
-  assert.match(renderer,/minimum=mode==='pixelate'\?30:8/);assert.match(renderer,/maximum=mode==='pixelate'\?500:40/);assert.match(html,/id="sidebar-order-submenu"/);assert.match(renderer,/privacy-effect-view/);assert.match(styles,/\.thumbnail-effect-reveal \.privacy-effect-view img/);assert.match(renderer,/event\.ctrlKey\|\|event\.shiftKey/);assert.match(renderer,/sidebar-order-submenu/);assert.match(styles,/location-subfolder-list::before/);assert.match(folderTreeWorker,/updatedAt/);
+  assert.match(renderer,/minimum=mode==='pixelate'\?6:8/);assert.match(renderer,/maximum=mode==='pixelate'\?60:40/);assert.match(html,/id="sidebar-order-submenu"/);assert.match(renderer,/privacy-effect-view/);assert.match(styles,/\.thumbnail-effect-reveal \.privacy-effect-view img/);assert.match(renderer,/event\.ctrlKey\|\|event\.shiftKey/);assert.match(renderer,/sidebar-order-submenu/);assert.match(styles,/location-subfolder-list::before/);assert.match(folderTreeWorker,/updatedAt/);
 });
 
 test('unfocused hover audio, complete menus, tree trunks, preference spacing and branch ordering are wired',()=>{
@@ -1020,6 +1020,10 @@ test('Preferences exposes applicable searchable feature shortcuts and wires thei
   assert.match(renderer,/const builtInShortcutGroups=/);assert.match(renderer,/Ctrl\+Alt\+R/);assert.match(renderer,/facetShortcuts/);assert.match(renderer,/viewShortcuts/);assert.match(renderer,/Alt\+1':'grid'/);assert.match(renderer,/Ctrl\+Alt\+2/);assert.match(renderer,/renderBuiltInShortcuts/);assert.match(html,/data-preference-page="actions"/);assert.match(html,/data-preference-content="actions"/);assert.match(html,/Featured Shortcuts/);assert.doesNotMatch(html,/Portfolio Shortcuts/);
 });
 
+test('privacy supports true pixel mosaics and fully hidden thumbnails with reveal overrides',()=>{
+  assert.match(html,/<option value="hidden">Hidden<\/option>/);assert.match(renderer,/\['blur','pixelate','hidden'\]\.includes/);assert.match(renderer,/function renderPixelatedCard/);assert.match(renderer,/canvas\.width=Math\.max\(2,Math\.ceil\(bounds\.width\/block\)\)/);assert.match(renderer,/context\.imageSmoothingEnabled=false/);assert.match(styles,/\.privacy-pixel-canvas/);assert.match(styles,/data-thumbnail-effect-mode="hidden"/);assert.match(styles,/opacity:0/);assert.match(styles,/privacy-effects-disabled[\s\S]*opacity:1!important/);
+});
+
 test('inspector privacy, Quick Check, aligned shortcuts, and developer telemetry overlay are wired',()=>{
   for(const id of ['meta-extension','developer-overlay','developer-overlay-metrics','developer-overlay-opacity','favorite-shortcut','location-shortcut'])assert.match(html,new RegExp(`id="${id}"`));
   assert.match(styles,/#meta-folder,#meta-file\{white-space:normal/);assert.match(styles,/\.asset-card\.quick-checked::before/);assert.match(styles,/\.preview-card\.privacy-effect-view|\.privacy-effect-view img/);assert.match(styles,/body\.privacy-effects-disabled \.privacy-effect-view img/);assert.match(styles,/\.shortcut-key-input\{width:150px/);assert.match(styles,/\.developer-overlay\{[^}]*right:calc\(var\(--inspector-width\) \+ 7px\)/);assert.match(styles,/\.developer-metric i\{[^}]*right:0/);assert.match(styles,/\.developer-opacity-control/);
@@ -1060,7 +1064,7 @@ test('Trash context menu deletes source files permanently or through the operati
 test('Delete moves selections to Trash and deletes selected Trash source files',()=>{
   assert.match(renderer,/async function handleDeleteSelection/);
   assert.match(renderer,/if\(state\.view==='trash'\)\{await deleteTrashItems\(ids\);return;\}/);
-  assert.match(renderer,/batchUpdateAssets\(ids,\{trash:true\},\{silent:true,returnAssets:true\}\)/);
+  assert.match(renderer,/batchUpdateAssets\(unique,trash\?\{trash:true\}:\{restore:true\},\{silent:true,returnAssets:true\}\)/);
   assert.match(renderer,/emptyTrash\(preferences\.trashDeletionMode,ids\)/);
   assert.match(renderer,/result\.deletedIds/);
   assert.match(main,/selectedIds=Array\.isArray\(request\.ids\)\?new Set\(request\.ids\):null/);
