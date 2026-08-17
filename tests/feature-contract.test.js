@@ -207,7 +207,7 @@ test('sidebar-only creation, universal worker progress, and immediate inspector 
 });
 
 test('trash progress, PDF first-page refresh, sidebar ordering, reset icon, and larger branding are wired',()=>{
-  assert.match(main,/Clearing Trash/);assert.match(main,/reportBackgroundProgress\(progressId/);assert.match(main,/pdfPreviewVersion!==2/);assert.match(main,/timeout: asset\.extension==='PDF'\?35000:11000/);
+  assert.match(main,/Clearing Trash/);assert.match(main,/reportBackgroundProgress\(progressId/);assert.match(main,/pdfPreviewVersion!==2/);assert.match(main,/timeout: asset\.extension==='PDF'\?35000:RAW_IMAGE_EXTENSION_SET/);
   assert.match(fs.readFileSync(path.join(root,'electron','pdf-thumbnail-child.js'),'utf8'),/standardFontDataUrl/);
   assert.match(preload,/reorderSidebarItems/);assert.match(preload,/setSidebarSort/);assert.match(main,/sidebar:reorder-items/);assert.match(main,/sidebar:set-sort/);assert.match(renderer,/sidebarSortedSiblings/);assert.match(renderer,/data-sidebar-sort/);
   assert.match(html,/id="clear-filters"[^>]*Reset all filters/);assert.match(renderer,/\['#clear-filters','refresh'\]/);assert.match(styles,/width:270px/);assert.match(styles,/font-size:72px/);assert.match(styles,/font-size:29px/);
@@ -1140,6 +1140,11 @@ test('Help Tutorials provides a comic guided tour with complete navigation and p
   assert.match(renderer,/Password-protect a collection/);assert.match(renderer,/Password protect folder/);assert.match(renderer,/Apply—and remove—privacy effects/);assert.match(renderer,/Blur or Pixelate/);assert.match(renderer,/Press B again to remove it/);
   assert.match(renderer,/Hover to preview motion/);assert.match(renderer,/GIF, or animated WebP/);assert.match(renderer,/Hold Ctrl or Alt while hovering for temporary sound/);assert.match(renderer,/Alt is also the default reveal key/);assert.match(renderer,/temporaryShortcutPressed/);
   assert.match(styles,/\.tutorial-dimmer/);assert.match(styles,/\.tutorial-highlight/);assert.match(styles,/\.tutorial-bubble/);assert.match(styles,/box-shadow:8px 9px 0/);
+});
+
+test('camera RAW thumbnails and full viewer proxies decode outside the UI thread',()=>{
+  for(const extension of ['.cr2','.cr3','.nef','.arw','.dng','.raf','.rw2','.orf','.pef','.srw','.x3f'])assert.match(fileTypesSource,new RegExp(`'\\${extension}'`));
+  assert.match(thumbnailWorker,/decodeRawCamera/);assert.match(thumbnailWorker,/import\('libraw-wasm'\)/);assert.match(thumbnailWorker,/raw\.imageData\(\)/);assert.match(thumbnailWorker,/raw\.thumbnailData\(\)/);assert.match(thumbnailWorker,/proxyVersion:rawCamera\?3/);assert.match(main,/RAW_IMAGE_EXTENSION_SET/);assert.match(main,/rawProxyTarget/);assert.match(main,/asset\.proxyVersion = thumbnail\.proxyVersion/);assert.match(main,/wantsProxy && asset\.proxyPath/);
 });
 
 test('focused file indexing and delayed hover playback are configurable',()=>{

@@ -1,7 +1,9 @@
 const path = require('node:path');
 
+const RAW_IMAGE_EXTENSIONS = Object.freeze(['.3fr','.ari','.arw','.bay','.cap','.cr2','.cr3','.crw','.dcr','.dcs','.dng','.drf','.eip','.erf','.fff','.gpr','.iiq','.k25','.kdc','.mdc','.mef','.mos','.mrw','.nef','.nrw','.orf','.pef','.ptx','.pxn','.raf','.raw','.rw2','.rwl','.rwz','.sr2','.srf','.srw','.x3f']);
+const RAW_IMAGE_EXTENSION_SET = new Set(RAW_IMAGE_EXTENSIONS);
 const FILE_TYPE_GROUPS = Object.freeze({
-  images: Object.freeze(['.jpg','.jpeg','.png','.webp','.gif','.bmp','.ico','.avif','.heic','.heif','.tif','.tiff','.svg','.psd','.dng','.cr2','.cr3','.nef','.arw','.raf','.rw2','.orf']),
+  images: Object.freeze(['.jpg','.jpeg','.png','.webp','.gif','.bmp','.ico','.avif','.heic','.heif','.tif','.tiff','.svg','.psd',...RAW_IMAGE_EXTENSIONS]),
   videos: Object.freeze(['.mp4','.mov','.m4v','.webm','.avi','.mkv','.ogv','.mpg','.mpeg','.m2v','.mts','.m2ts','.3gp','.3g2','.wmv','.flv']),
   audio: Object.freeze(['.mp3','.wav','.m4a','.aac','.flac','.ogg','.oga','.opus','.aif','.aiff','.wma']),
   documents: Object.freeze(['.pdf','.txt','.rtf','.md','.markdown','.doc','.docx','.odt','.pages','.epub','.html','.htm','.json','.yaml','.yml']),
@@ -48,4 +50,4 @@ function indexingPolicySignature(preferences = {}) {
   return JSON.stringify({ all: preferences.indexAllFiles === true, categories: normalizedIndexCategories(preferences.indexFileCategories).sort(), custom: normalizedCustomExtensions(preferences.indexCustomExtensions).sort() });
 }
 
-module.exports = { FILE_TYPE_GROUPS, DEFAULT_INDEX_CATEGORIES, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS, AUDIO_EXTENSIONS, FONT_EXTENSIONS, DOCUMENT_EXTENSIONS, normalizedCustomExtensions, normalizedIndexCategories, configuredIndexExtensions, shouldIndexFile, dialogExtensions, indexingPolicySignature };
+module.exports = { FILE_TYPE_GROUPS, DEFAULT_INDEX_CATEGORIES, IMAGE_EXTENSIONS, RAW_IMAGE_EXTENSIONS, RAW_IMAGE_EXTENSION_SET, VIDEO_EXTENSIONS, AUDIO_EXTENSIONS, FONT_EXTENSIONS, DOCUMENT_EXTENSIONS, normalizedCustomExtensions, normalizedIndexCategories, configuredIndexExtensions, shouldIndexFile, dialogExtensions, indexingPolicySignature };
