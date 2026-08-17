@@ -1138,6 +1138,17 @@ function reconcileThumbnailCards(changedIds=[],{sidebar=true}={}){
   for(const id of changedIds)if(!desiredSet.has(id)){state.selectedIds.delete(id);if(state.selectedId===id)state.selectedId=null;}
   elements.count.textContent=`${desired.length} ${desired.length===1?'item':'items'}`;renderBatchBar();renderInspector();if(sidebar)renderSidebar(false);scheduleMasonry();saveNavigationState();
 }
+function stageDuplicatedAssetCard(sourceId,duplicate){
+  if(!duplicate||state.library.assets.some((asset)=>asset.id===duplicate.id))return false;
+  rendererAssetIndexes.set(duplicate.id,state.library.assets.length);state.library.assets.push(duplicate);state.library.totalAssets=state.library.assets.length;invalidateTagCache();
+  const sourceCard=elements.grid.querySelector(`[data-asset-id="${CSS.escape(sourceId)}"]`);if(!sourceCard)return false;
+  const card=sourceCard.cloneNode(true);card.dataset.assetId=duplicate.id;card.classList.remove('selected','multi-selected','asset-card-removing','source-missing','quick-checked','thumbnail-effect-applied');card.querySelectorAll('.thumbnail-hover-media,.stack-badge,.source-missing-overlay,.card-offline,.card-favorite').forEach((node)=>node.remove());
+  const preview=card.querySelector('.asset-preview');preview?.classList.remove('animated-hovering','media-hovering');if(preview){preview.dataset.thumbnailSrc=protectedUrl(duplicate.previewUrl);preview.querySelector('.thumbnail-fit-preview')?.setAttribute('aria-label',`Preview ${duplicate.name}`);}
+  const image=preview?.querySelector(':scope > img');if(image){image.alt=duplicate.name;image.src=protectedUrl(duplicate.previewUrl);}
+  for(const line of card.querySelectorAll('[data-title-field]')){const value=thumbnailTitle(duplicate,line.dataset.titleField);line.textContent=value;line.title=value;}
+  elements.grid.appendChild(card);thumbnailVisibilityObserver.observe(card);return true;
+}
+async function duplicateAssetsWithoutGridRefresh(ids,{toast=true}={}){const unique=[...new Set(ids)],duplicates=await Promise.all(unique.map((id)=>window.pigeon.duplicateAsset(id))),added=[];for(let index=0;index<duplicates.length;index+=1){const duplicate=duplicates[index];if(!duplicate)continue;stageDuplicatedAssetCard(unique[index],duplicate);added.push(duplicate.id);}reconcileThumbnailCards(added,{sidebar:false});if(toast)showToast(`${added.length} item${added.length===1?'':'s'} duplicated`);return duplicates;}
 async function addAssetsToCollectionWithoutGridRefresh(ids,collection,sourceCollectionId=null){
   const unique=[...new Set(ids)],changed=[],leavesCurrent=Boolean(sourceCollectionId&&sourceCollectionId===state.collectionId&&sourceCollectionId!==collection.id),successorId=leavesCurrent?successorAfterRemoving(unique):null,operation={collectionId:collection.id,...(sourceCollectionId&&sourceCollectionId!==collection.id?{removeCollectionId:sourceCollectionId}:{})},result=await window.pigeon.batchUpdateAssets(unique,operation,{silent:true,returnAssets:true}),updates=new Map((result.assets||[]).map((asset)=>[asset.id,asset]));
   for(const asset of state.library.assets)if(updates.has(asset.id)){Object.assign(asset,updates.get(asset.id));changed.push(asset.id);}
@@ -1788,7 +1799,7 @@ function showAssetContextMenu(event, id) {
     if(action==='collection')$('#batch-collection').click();
     if (action === 'auto-tag') runAutoTagOptimistically(selectedIds);
     if (action === 'rotate-left' || action === 'rotate-right') await rotateThumbnailsWithoutGridRefresh(selectedImageIds,action === 'rotate-left' ? -90 : 90);
-    if (action === 'duplicate') await Promise.all(selectedIds.map((assetId) => window.pigeon.duplicateAsset(assetId)));
+    if (action === 'duplicate') await duplicateAssetsWithoutGridRefresh(selectedIds);
     if(action==='contact-sheet')openContactSheet(selectedIds,'Selected images');
     if (action === 'stack') await window.pigeon.stackAssets([...state.selectedIds]);
     if (action === 'unstack') await window.pigeon.unstackAssets([id]);
@@ -2020,7 +2031,7 @@ async function rotateViewerAsset(direction) {
   await updateSelected({ rotation: ((asset.rotation || 0) + direction + 360) % 360 });
   renderGrid(); renderInternalViewer();
 }
-async function duplicateViewerAsset(){const duplicate=await window.pigeon.duplicateAsset(state.viewerAssetId);if(duplicate)showToast(`Duplicated as ${duplicate.filename}`);}
+async function duplicateViewerAsset(){const [duplicate]=await duplicateAssetsWithoutGridRefresh([state.viewerAssetId],{toast:false});if(duplicate)showToast(`Duplicated as ${duplicate.filename}`);}
 async function resetViewerEdits(){cancelViewerCrop();const updated=await window.pigeon.resetInlineEdits(state.viewerAssetId),asset=state.library.assets.find((item)=>item.id===state.viewerAssetId);if(asset)Object.assign(asset,updated);elements.viewerImage.src=protectedUrl(updated.mediaUrl);renderInspector();renderInternalViewer();showToast('Original image restored');}
 async function favoriteViewerAsset(){state.selectedId=state.viewerAssetId;await toggleSelectedFavourite();renderInternalViewer();}
 function showViewerContextMenu(event){event.preventDefault();event.stopPropagation();const asset=state.library.assets.find((item)=>item.id===state.viewerAssetId),image=asset?.kind==='image';closeFloatingMenus();elements.contextMenu.innerHTML=`${image?'<button data-viewer-action="rotate-left"><span>Rotate left</span></button><button data-viewer-action="rotate-right"><span>Rotate right</span></button><button data-viewer-action="crop"><span>Crop…</span></button><button data-viewer-action="duplicate"><span>Duplicate</span></button><button data-viewer-action="reset" '+(asset.editedPath?'':'disabled')+'><span>Restore original</span></button><hr>':''}<button data-viewer-action="favorite"><span>${asset?.favorite?'Remove from favourites':'Add to favourites'}</span></button><button data-viewer-action="fit"><span>${state.viewerFit?'Zoom to actual size':'Fit to window'}</span></button><button data-viewer-action="open"><span>Open with default app</span></button>`;elements.contextMenu.querySelectorAll('[data-viewer-action]').forEach((button)=>button.addEventListener('click',async()=>{const action=button.dataset.viewerAction;elements.contextMenu.classList.add('hidden');if(action==='rotate-left')await rotateViewerAsset(-90);if(action==='rotate-right')await rotateViewerAsset(90);if(action==='crop')beginViewerCrop();if(action==='duplicate')await duplicateViewerAsset();if(action==='reset')await resetViewerEdits();if(action==='favorite')await favoriteViewerAsset();if(action==='fit')toggleViewerFit();if(action==='open')await window.pigeon.openAsset(state.viewerAssetId);}));elements.contextMenu.classList.remove('hidden');positionMenu(elements.contextMenu,event.clientX,event.clientY);}
@@ -2321,7 +2332,7 @@ document.addEventListener('keydown', (event) => {
   if (!editing && commandKey && event.key.toLowerCase() === 'd') {
     event.preventDefault();
     const ids = isInternalViewerOpen() ? [state.viewerAssetId] : [...state.selectedIds];
-    Promise.all(ids.filter((id) => state.library.assets.find((asset) => asset.id === id)?.kind === 'image').map((id) => window.pigeon.duplicateAsset(id))).catch((error) => showToast(error.message));
+    duplicateAssetsWithoutGridRefresh(ids.filter((id)=>state.library.assets.find((asset)=>asset.id===id)?.kind==='image')).catch((error)=>showToast(error.message));
     return;
   }
   if (commandKey && event.shiftKey && event.key.toLowerCase() === 'j') { event.preventDefault(); openDiagnosticsConsole(); return; }

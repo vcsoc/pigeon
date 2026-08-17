@@ -663,6 +663,11 @@ test('media protocol implements thumbnails and byte ranges for seekable local pl
   assert.match(main, /accept-ranges/);
 });
 
+test('asset duplication copies its preview and incrementally inserts and resorts one card',()=>{
+  const duplicateSource=main.slice(main.indexOf('async function duplicateAsset'),main.indexOf('async function applyInlineCrop'));
+  assert.match(main,/async function copyDuplicatePreview/);assert.match(main,/fsp\.copyFile\(source\.thumbnailPath,thumbnailTarget\)/);assert.match(duplicateSource,/watcherIgnoreUntil\.set/);assert.match(duplicateSource,/broadcastLocations\(\)/);assert.doesNotMatch(duplicateSource,/\bbroadcast\(\)/);assert.match(renderer,/function stageDuplicatedAssetCard/);assert.match(renderer,/cloneNode\(true\)/);assert.match(renderer,/async function duplicateAssetsWithoutGridRefresh/);assert.match(renderer,/reconcileThumbnailCards\(added,\{sidebar:false\}\)/);assert.match(renderer,/duplicateAssetsWithoutGridRefresh\(selectedIds\)/);
+});
+
 test('internal and external native drags both target collections and physical folders',()=>{
   assert.match(renderer,/application\/x-pigeon-origin/);
   assert.match(renderer,/nativeDrag=event\.altKey\|\|\(ids\.length===1&&!event\.shiftKey\)/);

@@ -1025,23 +1025,30 @@ async function captureScreenshot() {
   const asset = library.assets.find((item) => item.path === path.resolve(target)); if (asset && preferences.screenshotTag) asset.tags = [...new Set([...(asset.tags || []), 'Screenshot'])]; scheduleSave(); return asset;
 }
 
+async function copyDuplicatePreview(source,duplicate){
+  if(!source.thumbnailPath||!(await pathAvailable(source.thumbnailPath)))return false;
+  const thumbnailTarget=path.join(thumbnailDir,`${duplicate.id}${path.extname(source.thumbnailPath)||'.jpg'}`);
+  try{await fsp.copyFile(source.thumbnailPath,thumbnailTarget);duplicate.thumbnailPath=thumbnailTarget;}catch{return false;}
+  for(const key of ['width','height','dominantColor','histogram','palette','perceptualHash','exif','embeddedMetadata','technicalMetadata'])if(source[key]!=null)duplicate[key]=structuredClone(source[key]);
+  if(source.proxyPath&&source.proxyVersion===3&&await pathAvailable(source.proxyPath)){const proxyTarget=path.join(thumbnailDir,`${duplicate.id}.raw-preview.jpg`);try{await fsp.copyFile(source.proxyPath,proxyTarget);duplicate.proxyPath=proxyTarget;duplicate.proxyVersion=3;}catch{}}
+  return true;
+}
 async function duplicateAsset(id) {
-  const source = library.assets.find((item) => item.id === id);
-  const location = source && library.locations.find((item) => item.id === source.locationId);
-  if (!source || !(await pathAvailable(source.path))) throw new Error('An online asset is required');
-  const parsed = path.parse(source.path);
-  let number = 1, target;
-  do { target = path.join(parsed.dir, `${parsed.name} copy${number === 1 ? '' : ` ${number}`}${parsed.ext}`); number += 1; } while (await pathAvailable(target));
-  await fsp.copyFile(source.path, target);
-  if (location?.type === 'folder') {
-    const duplicate = await inspectFile(target, location, null);
-    if (!duplicate) throw new Error('The duplicate could not be indexed');
-    duplicate.collectionIds = [...(source.collectionIds || [])]; duplicate.tags = [...(source.tags || [])]; duplicate.rating = source.rating || 0; duplicate.rotation = source.rotation || 0; applyConfiguredCollectionTags(duplicate);
-    library.assets.push(duplicate); location.assetCount = (location.assetCount || 0) + 1;
-    scheduleSave(); broadcast(); schedulePortfolioBackground(warmThumbnailCache, 0); return duplicate;
+  const source = library.assets.find((item) => item.id === id),sourceLocation=source&&library.locations.find((item)=>item.id===source.locationId);
+  if (!source || !sourceLocation || !(await pathAvailable(source.path))) throw new Error('An online asset is required');
+  const parsed = path.parse(source.path);let number=1,target;
+  do{target=path.join(parsed.dir,`${parsed.name} copy${number===1?'':` ${number}`}${parsed.ext}`);number+=1;}while(await pathAvailable(target)||library.assets.some((asset)=>path.resolve(asset.path).toLowerCase()===path.resolve(target).toLowerCase()));
+  watcherIgnoreUntil.set(sourceLocation.id,Date.now()+2500);await fsp.copyFile(source.path,target);
+  let location=sourceLocation;
+  if(sourceLocation.type!=='folder'){
+    location={id:makeId(`location:${path.resolve(target).toLowerCase()}`),name:path.basename(target),path:path.resolve(target),type:'file',removable:await isRemovable(target),online:true,scanning:false,assetCount:0,addedAt:Date.now(),lastScanned:Date.now()};
+    library.locations.push(location);watchLocation(location);
   }
-  await addLocations([target], 'file');
-  return library.assets.find((item) => item.path === path.resolve(target));
+  const duplicate=await inspectFile(target,location,null);if(!duplicate)throw new Error('The duplicate could not be indexed');
+  duplicate.collectionIds=[...(source.collectionIds||[])];duplicate.tags=[...(source.tags||[])];duplicate.rating=source.rating||0;duplicate.rotation=source.rotation||0;applyConfiguredCollectionTags(duplicate);
+  const previewCopied=await copyDuplicatePreview(source,duplicate);library.assets.push(duplicate);location.assetCount=(location.assetCount||0)+1;
+  scheduleSave();broadcastLocations();if(!previewCopied)schedulePortfolioBackground(warmThumbnailCache,0);
+  return publicAssetForRenderer(duplicate,location);
 }
 
 async function applyInlineCrop(id, crop = {}) {
