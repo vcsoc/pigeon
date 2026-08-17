@@ -35,7 +35,7 @@ test('large grids delegate card interactions and batch visibility registration',
 });
 
 test('every Smart Folder asset receives a placeholder and thumbnails load safely after scroll settles',()=>{
-  assert.match(renderer,/state\.view === 'duplicates'\|\|state\.smartFolderId/);assert.match(renderer,/const assets = allAssets,stackCounts/);assert.match(renderer,/MAX_THUMBNAIL_LOADS=4/);assert.match(renderer,/thumbnailScrollUntil=Date\.now\(\)\+320/);assert.match(renderer,/const image=new Image\(\)/);assert.match(renderer,/await image\.decode\(\)/);assert.match(renderer,/preview\.appendChild\(image\)/);assert.match(renderer,/image\.alt=''/);assert.match(renderer,/THUMBNAIL_READ_AHEAD_PX=1100/);assert.match(renderer,/rootMargin:`\$\{THUMBNAIL_READ_AHEAD_PX\}px 0px`/);assert.match(main,/placeholders\.cards!==placeholders\.total/);assert.match(main,/placeholders\.pending<placeholders\.total-8/);
+  assert.match(renderer,/state\.view === 'duplicates'\|\|state\.smartFolderId/);assert.match(renderer,/const assets = allAssets,stackCounts/);assert.match(renderer,/MAX_THUMBNAIL_LOADS=16/);assert.match(renderer,/thumbnailScrollUntil=Date\.now\(\)\+320/);assert.match(renderer,/const image=new Image\(\)/);assert.match(renderer,/queueMicrotask\(drainThumbnailLoads\)/);assert.match(renderer,/preview\.appendChild\(image\)/);assert.match(renderer,/image\.alt=''/);assert.match(renderer,/THUMBNAIL_READ_AHEAD_PX=1800/);assert.match(renderer,/rootMargin:`\$\{THUMBNAIL_READ_AHEAD_PX\}px 0px`/);assert.match(renderer,/assetIndex<64/);assert.match(renderer,/fetchpriority="high"/);assert.match(main,/placeholders\.cards!==placeholders\.total/);assert.match(main,/placeholders\.pending<placeholders\.total-8/);
 });
 
 test('inspector folder paths, bidirectional read-ahead and compact thumbnail spacing are wired',()=>{
@@ -1018,6 +1018,18 @@ test('availability refresh and inline About Pigeon view are wired', () => {
 test('Preferences exposes applicable searchable feature shortcuts and wires their commands',()=>{
   for(const id of ['feature-shortcut-search','built-in-shortcut-groups','thumbnail-effect-reveal-shortcut','hover-audio-shortcut','privacy-effects-toggle-shortcut','quick-check-shortcut','show-checked-shortcut'])assert.match(html,new RegExp(`id="${id}"`));
   assert.match(renderer,/const builtInShortcutGroups=/);assert.match(renderer,/Ctrl\+Alt\+R/);assert.match(renderer,/facetShortcuts/);assert.match(renderer,/viewShortcuts/);assert.match(renderer,/Alt\+1':'grid'/);assert.match(renderer,/Ctrl\+Alt\+2/);assert.match(renderer,/renderBuiltInShortcuts/);assert.match(html,/data-preference-page="actions"/);assert.match(html,/data-preference-content="actions"/);assert.match(html,/Featured Shortcuts/);assert.doesNotMatch(html,/Portfolio Shortcuts/);
+});
+
+test('inspector tags sort alphabetically and cached grid nodes survive internal viewing',()=>{
+  assert.match(renderer,/asset\.tags \|\| \[\]\)\]\.sort\(\(first,second\)=>first\.localeCompare/);const closeViewer=renderer.slice(renderer.indexOf('function closeInternalViewer'),renderer.indexOf('function toggleViewerFit'));assert.match(closeViewer,/elements\.grid\.classList\.remove\('hidden'\)/);assert.doesNotMatch(closeViewer,/renderGrid\(\)/);
+});
+
+test('large privacy surfaces use scaled blur and pixel mosaics',()=>{
+  assert.match(renderer,/function renderPixelatedSurface/);assert.match(renderer,/bounds\.width\/320/);assert.match(renderer,/renderPixelatedSurface\(\$\('\.viewer-stage'\)/);assert.match(renderer,/renderPixelatedSurface\(\$\('#inspector-preview-section \.preview-card'\)/);assert.match(renderer,/if\(!collapsed\)renderInspector\(\)/);assert.match(styles,/thumbnail-effect-strength\) \* 1\.5px/);assert.match(styles,/\.privacy-surface-pixel-canvas/);
+});
+
+test('preferences constrain both columns and keep navigation and actions reachable',()=>{
+  assert.match(styles,/\.preferences-dialog \{ box-sizing:border-box/);assert.match(styles,/\.preferences-nav \{ min-height:0; overflow:hidden/);assert.match(styles,/\.preferences-nav nav \{ min-height:0; overflow-y:auto/);assert.match(styles,/\.preferences-main \{ min-width:0; min-height:0; height:100%; overflow:hidden/);
 });
 
 test('privacy supports true pixel mosaics and fully hidden thumbnails with reveal overrides',()=>{
