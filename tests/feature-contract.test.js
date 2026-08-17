@@ -101,7 +101,7 @@ test('actions support topbar editing, reordered clearing/move/rename steps and l
   for(const step of ['clearCollections','clearTags','clearRating','moveFolder','autoRename'])assert.match(renderer,new RegExp(step));assert.match(renderer,/data-quick-edit/);assert.match(renderer,/wireShortcutStepReordering/);assert.match(renderer,/rename-pattern-suggestions/);assert.match(renderer,/created-date-time/);assert.match(styles,/font-size:13px/);assert.match(main,/assets:auto-rename/);assert.match(main,/assets:move-to-path/);assert.match(core,/operation\.clearCollections/);
 });
 test('SVG, Sketch and Lunacy files plus embedded workflow metadata and drag export are wired',()=>{
-  assert.match(fileTypesSource,/\.svg/);assert.match(fileTypesSource,/\.sketch/);assert.match(fileTypesSource,/\.free/);assert.match(main,/extractZipPreview/);assert.match(thumbnailWorker,/pngTextMetadata/);assert.match(thumbnailWorker,/workflow/);assert.match(html,/showAdditionalMetadata/);assert.match(renderer,/DownloadURL/);assert.match(styles,/\.folder-tree-toggle \{ width: 18px/);assert.match(renderer,/setTimeout\(\(\)=>\{if\(!button\.matches\(':hover'\)\)/);
+  assert.match(fileTypesSource,/\.svg/);assert.match(fileTypesSource,/\.sketch/);assert.match(fileTypesSource,/\.free/);assert.match(main,/extractZipPreview/);assert.match(thumbnailWorker,/pngTextMetadata/);assert.match(thumbnailWorker,/workflow/);assert.match(html,/showAdditionalMetadata/);assert.match(renderer,/DownloadURL/);assert.match(styles,/\.folder-tree-toggle \{ width: 18px/);assert.match(renderer,/addEventListener\('dragenter',showCollectionDrop\)/);
 });
 
 test('privacy-affected motion previews require the temporary reveal shortcut',()=>{
@@ -138,7 +138,7 @@ test('appearance tree colors, hierarchical action destinations, custom F2 and fa
 test('animated image hover, viewport magnifier, reorder markers and sidebar-only mutation broadcasts are wired',()=>{
   assert.match(renderer,/animatedImage=asset\.kind==='image'/);assert.match(renderer,/thumbnail-hover-media animated-image/);assert.match(styles,/\.thumbnail-hover-media\.animated-image/);assert.match(renderer,/asset\.mediaUrl\|\|asset\.previewUrl/);assert.match(renderer,/function stopAllHoverPreviews/);assert.match(renderer,/elements\.gridWrap\.addEventListener\('scroll',stopAllHoverPreviews/);assert.match(renderer,/pointerIsOverPreview/);assert.match(renderer,/document\.elementFromPoint\(pointerX,pointerY\)/);assert.match(renderer,/if\(media!==activeMedia\|\|!pointerIsOverPreview\(\)\)return/);
   assert.match(styles,/\.hover-fit-preview \{ position:fixed/);assert.match(styles,/background:transparent/);assert.match(renderer,/elements\.gridWrap\.getBoundingClientRect/);assert.match(renderer,/delayDone/);
-  assert.match(renderer,/function sidebarDropZone/);assert.match(renderer,/drop-before/);assert.match(renderer,/drop-after/);assert.match(renderer,/dropZone/);assert.match(styles,/\.collection-item\.drop-before::after/);assert.match(styles,/background:#66a6ff/);
+  assert.match(renderer,/function sidebarDropZone/);assert.match(renderer,/drop-before/);assert.match(renderer,/drop-after/);assert.match(renderer,/dropZone/);assert.match(styles,/\.collection-item\.drop-before::after/);assert.match(styles,/background:rgba\(102,166,255,\.48\)/);
   assert.match(main,/collection:rename[\s\S]{0,180}broadcastSidebar\(\)/);assert.match(main,/collection:move[\s\S]{0,400}broadcastSidebar\(\)/);assert.match(main,/smart-folder:move[\s\S]{0,180}broadcastSidebar\(\)/);assert.match(main,/sidebar:reorder-items[\s\S]{0,1000}broadcastSidebar\(\)/);
 });
 
@@ -1010,8 +1010,8 @@ test('Preferences exposes applicable searchable feature shortcuts and wires thei
 
 test('inspector privacy, Quick Check, aligned shortcuts, and developer telemetry overlay are wired',()=>{
   for(const id of ['meta-extension','developer-overlay','developer-overlay-metrics','favorite-shortcut','location-shortcut'])assert.match(html,new RegExp(`id="${id}"`));
-  assert.match(styles,/#meta-folder,#meta-file\{white-space:normal/);assert.match(styles,/\.asset-card\.quick-checked::before/);assert.match(styles,/\.preview-card\.privacy-effect-view|\.privacy-effect-view img/);assert.match(styles,/\.privacy-effects-disabled/);assert.match(styles,/\.shortcut-key-input\{width:150px/);assert.match(styles,/\.developer-overlay\{/);
-  assert.match(renderer,/state\.showCheckedOnly/);assert.match(renderer,/asset\.quickChecked/);assert.match(renderer,/toggleQuickCheck/);assert.match(renderer,/toggleCheckedOnly/);assert.match(renderer,/toggleAllPrivacyEffects/);assert.match(renderer,/Ctrl\+Alt\+D/);assert.match(renderer,/toggleDeveloperOverlay/);assert.match(renderer,/queuedItems/);
+  assert.match(styles,/#meta-folder,#meta-file\{white-space:normal/);assert.match(styles,/\.asset-card\.quick-checked::before/);assert.match(styles,/\.preview-card\.privacy-effect-view|\.privacy-effect-view img/);assert.match(styles,/\.privacy-effects-disabled/);assert.match(styles,/\.shortcut-key-input\{width:150px/);assert.match(styles,/\.developer-overlay\{[^}]*right:7px/);assert.match(styles,/\.developer-metric i\{[^}]*right:0/);
+  assert.match(renderer,/state\.showCheckedOnly/);assert.match(renderer,/asset\.quickChecked/);assert.match(renderer,/toggleQuickCheck/);assert.match(renderer,/toggleCheckedOnly/);assert.match(renderer,/toggleAllPrivacyEffects/);assert.match(renderer,/Ctrl\+Alt\+D/);assert.match(renderer,/toggleDeveloperOverlay/);assert.match(renderer,/queuedItems/);assert.match(renderer,/appearance:'palette'/);assert.match(renderer,/addEventListener\('dragenter',showCollectionDrop\)/);
   assert.match(libraryCore,/quickChecked: Boolean\(asset\.quickChecked\)/);assert.match(main,/'quickChecked'/);assert.match(main,/queuedItems/);
 });
 
