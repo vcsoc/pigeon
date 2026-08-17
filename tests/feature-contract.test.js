@@ -82,7 +82,7 @@ test('targeted thumbnail rebuild, virtual full scroll, cover previews, metadata 
 });
 
 test('trash and auto-tag mutations reconcile cards without full thumbnail reloads',()=>{
-  assert.match(renderer,/handleDeleteSelection[\s\S]*silent:true,returnAssets:true/);assert.match(renderer,/handleDeleteSelection[\s\S]*reconcileThumbnailCards\(ids\)/);assert.match(renderer,/selectAndRevealSuccessor\(successorId\)/);assert.match(renderer,/currentSmartFolderDependsOnTags/);assert.match(renderer,/patchTagMetadataCards/);assert.match(renderer,/reconcileThumbnailCards\(changed,\{sidebar:false\}\)/);assert.match(main,/collection:set-auto-tags[\s\S]*broadcastSidebar/);assert.match(main,/folder:set-auto-tags[\s\S]*broadcastSidebar/);
+  assert.match(renderer,/handleDeleteSelection[\s\S]*silent:true,returnAssets:true/);assert.match(renderer,/handleDeleteSelection[\s\S]*reconcileThumbnailCards\(ids\)/);assert.match(renderer,/selectAndRevealSuccessor\(successorId\)/);assert.match(renderer,/currentSmartFolderDependsOnTags/);assert.match(renderer,/patchTagMetadataCards/);assert.match(renderer,/applyTagsToMatchingAssetsAsync/);assert.match(main,/applyTagsInBackground/);assert.match(main,/collection:set-auto-tags[\s\S]*broadcastSidebar/);assert.match(main,/folder:set-auto-tags[\s\S]*broadcastSidebar/);
 });
 
 test('Smart Folders filter privacy effects, hotkey is editable, and level sorting targets siblings',()=>{
@@ -109,7 +109,7 @@ test('privacy-affected motion previews require the temporary reveal shortcut',()
 });
 
 test('hovered video uses hold-Control or Alt sound and tree screenshots have terminal branches',()=>{
-  assert.match(renderer,/const soundModifier=\(event\)=>event\.key==='Control'\|\|event\.key==='Alt'/);assert.match(renderer,/media\.muted=!controlHeld/);assert.match(renderer,/window\.addEventListener\('keyup',keyUp,true\)/);assert.match(renderer,/window\.removeEventListener\('keydown',keyDown,true\)/);assert.match(renderer,/controlHeld=Boolean\(event\?\.ctrlKey\|\|event\?\.altKey\)/);
+  assert.match(renderer,/temporaryShortcutPressed\(event,preferences\.hoverAudioShortcut\)/);assert.match(renderer,/media\.muted=!controlHeld/);assert.match(renderer,/window\.addEventListener\('keyup',keyUp,true\)/);assert.match(renderer,/window\.removeEventListener\('keydown',keyDown,true\)/);assert.match(renderer,/hoverAudioShortcut:'Ctrl'/);assert.match(html,/id="hover-audio-shortcut"/);
   assert.match(renderer,/tree-last/);assert.match(styles,/\.collection-item\.tree-last::after/);assert.match(main,/PIGEON_SMOKE_CAPTURE_TREE/);assert.match(main,/pigeon-tree-smoke\.png/);
 });
 
@@ -241,7 +241,7 @@ test('common interactions paint immediately and defer expensive renderer work',(
   assert.match(renderer,/requestAnimationFrame\(\(\)=>requestAnimationFrame/);
   assert.match(renderer,/const heights=cards\.map/);
   assert.match(renderer,/Object\.assign\(asset,patch\);if\(Object\.hasOwn\(patch,'tags'\)\)invalidateTagCache\(\);patchCardMetadata\(asset,patch\);renderInspector\(\)/);
-  assert.match(renderer,/searchRenderFrame=requestAnimationFrame/);
+  assert.match(renderer,/searchRenderTimer=setTimeout/);assert.match(renderer,/requestIdleCallback\(run,\{timeout:220\}\)/);
   assert.match(styles,/grid-wrap\.navigation-pending::after/);
 });
 
@@ -521,7 +521,7 @@ test('rotated justified thumbnails, centered metadata, untagged view, and durabl
   assert.match(main, /applyConfiguredCollectionTags\(duplicate\)/);
   assert.match(main, /target\.collectionId[\s\S]*applyConfiguredCollectionTags\(asset\)/);
   assert.match(main, /Object\.prototype\.hasOwnProperty\.call\(patch, 'collectionIds'\)/);
-  assert.match(renderer, /appliedTags = result\.tags \|\| tags/);
+  assert.match(renderer, /setCollectionAutoTags\(collection\.id,tags\)\.catch/);
 });
 
 test('duplicates view groups similar images and supports source-based accuracy', () => {
@@ -1011,8 +1011,8 @@ test('availability refresh and inline About Pigeon view are wired', () => {
 });
 
 test('Preferences exposes applicable searchable feature shortcuts and wires their commands',()=>{
-  for(const id of ['feature-shortcut-search','built-in-shortcut-groups','thumbnail-effect-reveal-shortcut','privacy-effects-toggle-shortcut','quick-check-shortcut','show-checked-shortcut'])assert.match(html,new RegExp(`id="${id}"`));
-  assert.match(renderer,/const builtInShortcutGroups=/);assert.match(renderer,/Ctrl\+Alt\+R/);assert.match(renderer,/facetShortcuts/);assert.match(renderer,/viewShortcuts/);assert.match(renderer,/Alt\+1':'grid'/);assert.match(renderer,/Ctrl\+Alt\+2/);assert.match(renderer,/renderBuiltInShortcuts/);
+  for(const id of ['feature-shortcut-search','built-in-shortcut-groups','thumbnail-effect-reveal-shortcut','hover-audio-shortcut','privacy-effects-toggle-shortcut','quick-check-shortcut','show-checked-shortcut'])assert.match(html,new RegExp(`id="${id}"`));
+  assert.match(renderer,/const builtInShortcutGroups=/);assert.match(renderer,/Ctrl\+Alt\+R/);assert.match(renderer,/facetShortcuts/);assert.match(renderer,/viewShortcuts/);assert.match(renderer,/Alt\+1':'grid'/);assert.match(renderer,/Ctrl\+Alt\+2/);assert.match(renderer,/renderBuiltInShortcuts/);assert.match(html,/data-preference-page="actions"/);assert.match(html,/data-preference-content="actions"/);assert.match(html,/Featured Shortcuts/);assert.doesNotMatch(html,/Portfolio Shortcuts/);
 });
 
 test('inspector privacy, Quick Check, aligned shortcuts, and developer telemetry overlay are wired',()=>{
@@ -1020,6 +1020,10 @@ test('inspector privacy, Quick Check, aligned shortcuts, and developer telemetry
   assert.match(styles,/#meta-folder,#meta-file\{white-space:normal/);assert.match(styles,/\.asset-card\.quick-checked::before/);assert.match(styles,/\.preview-card\.privacy-effect-view|\.privacy-effect-view img/);assert.match(styles,/body\.privacy-effects-disabled \.privacy-effect-view img/);assert.match(styles,/\.shortcut-key-input\{width:150px/);assert.match(styles,/\.developer-overlay\{[^}]*right:calc\(var\(--inspector-width\) \+ 7px\)/);assert.match(styles,/\.developer-metric i\{[^}]*right:0/);assert.match(styles,/\.developer-opacity-control/);
   assert.match(renderer,/state\.showCheckedOnly/);assert.match(renderer,/asset\.quickChecked/);assert.match(renderer,/toggleQuickCheck/);assert.match(renderer,/toggleCheckedOnly/);assert.match(renderer,/toggleAllPrivacyEffects/);assert.match(renderer,/Ctrl\+Alt\+D/);assert.match(renderer,/toggleDeveloperOverlay/);assert.match(renderer,/setDeveloperOverlayOpacity/);assert.match(renderer,/pigeon\.developerOverlayOpacity/);assert.match(renderer,/queuedItems/);assert.match(renderer,/appearance:'palette'/);assert.match(renderer,/addEventListener\('dragenter',showCollectionDrop\)/);
   assert.match(libraryCore,/quickChecked: Boolean\(asset\.quickChecked\)/);assert.match(main,/'quickChecked'/);assert.match(main,/queuedItems/);
+});
+
+test('responsive tagging, search, multi-selection inspector, and right-aligned zoom controls are wired',()=>{
+  assert.match(main,/function applyTagsInBackground/);assert.match(main,/options\.async&&operation\.addTags/);assert.match(renderer,/applyTagsToMatchingAssetsAsync/);assert.match(renderer,/searchRenderTimer=setTimeout/);assert.match(renderer,/searchRenderGeneration/);assert.match(styles,/\.batch-bar \{ display:none!important/);assert.match(html,/id="inspector-selection-count"/);assert.match(renderer,/data-context-action="tag"/);assert.match(renderer,/data-context-action="collection"/);assert.match(renderer,/state\.gridScrollTop=scrollTop;elements\.gridWrap\.scrollTop=scrollTop/);assert.match(html,/toolbar-zoom-group[\s\S]{0,1000}refresh-button/);assert.match(styles,/\.toolbar-zoom-group/);
 });
 
 test('custom shortcut actions combine configurable steps for the current selection',()=>{
@@ -1134,7 +1138,7 @@ test('Help Tutorials provides a comic guided tour with complete navigation and p
   for(const id of ['tutorial-overlay','tutorial-highlight','tutorial-bubble','tutorial-back','tutorial-next','tutorial-end'])assert.match(html,new RegExp(`id="${id}"`));
   assert.match(renderer,/help: \[\['Tutorials', 'tutorials'/);assert.match(renderer,/function startTutorial\(/);assert.match(renderer,/function showTutorialStep\(/);assert.match(renderer,/Help → Tutorials/);
   assert.match(renderer,/Password-protect a collection/);assert.match(renderer,/Password protect folder/);assert.match(renderer,/Apply—and remove—privacy effects/);assert.match(renderer,/Blur or Pixelate/);assert.match(renderer,/Press B again to remove it/);
-  assert.match(renderer,/Hover to preview motion/);assert.match(renderer,/GIF, or animated WebP/);assert.match(renderer,/Hold Ctrl or Alt while hovering for temporary sound/);assert.match(renderer,/Alt is also the default reveal key/);assert.match(renderer,/event\.key==='Control'\|\|event\.key==='Alt'/);
+  assert.match(renderer,/Hover to preview motion/);assert.match(renderer,/GIF, or animated WebP/);assert.match(renderer,/Hold Ctrl or Alt while hovering for temporary sound/);assert.match(renderer,/Alt is also the default reveal key/);assert.match(renderer,/temporaryShortcutPressed/);
   assert.match(styles,/\.tutorial-dimmer/);assert.match(styles,/\.tutorial-highlight/);assert.match(styles,/\.tutorial-bubble/);assert.match(styles,/box-shadow:8px 9px 0/);
 });
 

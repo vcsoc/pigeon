@@ -1796,13 +1796,12 @@ ipcMain.handle('item:set-icon', (_event, { type, id, icon }) => {
   else return false;
   scheduleSave(); broadcast(); return true;
 });
+function applyTagsInBackground(predicate,tagFactory,label){let index=0,updated=0;const run=async()=>{const changed=[];for(let count=0;index<library.assets.length&&count<300;index++,count++){const asset=library.assets[index];if(!predicate(asset))continue;const tags=tagFactory(asset),existing=new Set((asset.tags||[]).map((tag)=>tag.toLowerCase()));let dirty=false;for(const tag of tags)if(!existing.has(String(tag).toLowerCase())){asset.tags=[...(asset.tags||[]),tag];existing.add(String(tag).toLowerCase());dirty=true;}if(dirty){changed.push(asset);updated+=1;}}if(changed.length)await persistAssetBatch(changed);if(index<library.assets.length)setImmediate(run);else reportBackgroundProgress(`${activePortfolioId}:tags:${Date.now()}`,{label,detail:`${updated} items updated`,completed:updated,total:updated,done:true});};setImmediate(run);}
 ipcMain.handle('collection:set-auto-tags', (_event, { collectionId, tags = [] }) => {
   const collection = library.collections.find((item) => item.id === collectionId); if (!collection) throw new Error('Collection does not exist');
   library.settings = library.settings || {}; library.settings.collectionAutoTags = library.settings.collectionAutoTags || {};
   const normalizedTags = canonicalTags(tags); if (normalizedTags.length) library.settings.collectionAutoTags[collectionId] = { collectionId, tags: normalizedTags, updatedAt: Date.now() }; else delete library.settings.collectionAutoTags[collectionId];
-  const descendants = collectionDescendants(collectionId); let updated = 0;
-  if (normalizedTags.length) for (const asset of library.assets) if ((asset.collectionIds || []).some((id) => descendants.has(id))) { asset.tags = [...new Set([...(asset.tags || []), ...normalizedTags])]; updated += 1; }
-  const assets=normalizedTags.length?library.assets.filter((asset)=>(asset.collectionIds||[]).some((id)=>descendants.has(id))).map(({encryptedMediaPaths,encryptedThumbnailPaths,...asset})=>asset):[];scheduleSave();broadcastSidebar(); return { collectionId, tags: normalizedTags, updated, assets };
+  const descendants=collectionDescendants(collectionId);if(normalizedTags.length)applyTagsInBackground((asset)=>(asset.collectionIds||[]).some((id)=>descendants.has(id)),()=>normalizedTags,'Applying collection Auto-Tag');scheduleSave();broadcastSidebar();return{collectionId,tags:normalizedTags,pending:Boolean(normalizedTags.length)};
 });
 ipcMain.handle('folder:set-auto-tags', (_event, { locationId, subfolder = '', tags = [] }) => {
   const location = library.locations.find((item) => item.id === locationId); if (!location || location.type !== 'folder') throw new Error('Indexed folder does not exist');
@@ -1811,11 +1810,10 @@ ipcMain.handle('folder:set-auto-tags', (_event, { locationId, subfolder = '', ta
   const key = folderRuleKey(locationId, folder), normalizedTags = canonicalTags(tags);
   if (normalizedTags.length) library.settings.folderAutoTags[key] = { locationId, subfolder: folder, tags: normalizedTags, updatedAt: Date.now() };
   else delete library.settings.folderAutoTags[key];
-  let updated = 0;
-  if (normalizedTags.length) for (const asset of library.assets) if (assetMatchesFolder(asset, location, folder)) { asset.tags = [...new Set([...(asset.tags || []), ...normalizedTags])]; updated += 1; }
-  const assets=normalizedTags.length?library.assets.filter((asset)=>assetMatchesFolder(asset,location,folder)).map(({encryptedMediaPaths,encryptedThumbnailPaths,...asset})=>asset):[];scheduleSave();broadcastSidebar(); return { locationId, subfolder: folder, tags: normalizedTags, updated, assets };
+  if(normalizedTags.length)applyTagsInBackground((asset)=>assetMatchesFolder(asset,location,folder),()=>normalizedTags,'Applying folder Auto-Tag');scheduleSave();broadcastSidebar();return{locationId,subfolder:folder,tags:normalizedTags,pending:Boolean(normalizedTags.length)};
 });
 ipcMain.handle('assets:batch-update', (_event, { ids, operation, options = {} }) => {
+  if(options.async&&operation.addTags){const selected=new Set(ids);applyTagsInBackground((asset)=>selected.has(asset.id),()=>operation.addTags,'Applying tags');return selected.size;}
   const count = libraryCore.batchUpdateAssets(library, ids, operation);
   if (operation.collectionId) for (const asset of library.assets) if (ids.includes(asset.id)) applyConfiguredCollectionTags(asset);
   scheduleSave(); if (!options.silent) broadcast(); if(options.returnAssets)return{count,assets:library.assets.filter((asset)=>ids.includes(asset.id)).map(({encryptedMediaPaths,encryptedThumbnailPaths,...asset})=>asset)}; return count;
@@ -1839,11 +1837,7 @@ ipcMain.handle('assets:similar-groups', (_event, { accuracy = 78, sourceId = nul
   const finish=(groups=[])=>{if(settled)return;settled=true;telemetry.filesCompleted=images.length;telemetry.status='completed';if(activeSimilarityJob?.worker===worker)activeSimilarityJob=null;resolve(groups);worker.terminate().catch(()=>{});};activeSimilarityJob={worker,resolve:finish};worker.once('message',(message)=>finish(message.groups||[]));worker.once('error',(error)=>{recordDiagnostic('error','Similarity worker failed',error);finish([]);});worker.once('exit',()=>finish([]));
 }));
 ipcMain.handle('assets:set-order',(_event,{scope,order})=>{if(!/^(collection|smart|location|view):/.test(String(scope))||!['modified','indexedAt','name','size','rating'].includes(order?.field)||!['asc','desc'].includes(order?.direction))throw new Error('Invalid item order');library.settings.assetOrders={...(library.settings.assetOrders||{}),[scope]:{field:order.field,direction:order.direction}};scheduleSave();return library.settings.assetOrders[scope];});
-ipcMain.handle('assets:auto-tag', (_event, ids) => {
-  let count = 0;
-  for (const asset of library.assets) if (ids.includes(asset.id)) { asset.tags = [...new Set([...(asset.tags || []), ...libraryCore.suggestTags(asset)])]; count += 1; }
-  scheduleSave(); broadcast(); return count;
-});
+ipcMain.handle('assets:auto-tag',(_event,ids)=>{const selected=new Set(ids);applyTagsInBackground((asset)=>selected.has(asset.id),(asset)=>libraryCore.suggestTags(asset),'Generating local tags');return{pending:true,count:selected.size};});
 ipcMain.handle('tags:rename', (_event, { from, to }) => {
   const replacement = libraryCore.renameTag(library, from, to);
   scheduleSave(); broadcast(); return replacement;
