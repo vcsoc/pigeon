@@ -1004,11 +1004,13 @@ elements.inspectorVideo.addEventListener('error', () => { if (elements.inspector
 elements.inspectorVideo.addEventListener('stalled', () => { if (elements.inspectorVideo.dataset.userRequested === 'true' && elements.inspectorVideo.readyState < 2) recoverInspectorVideo(); });
 let activeTagAutocompleteInput = null;
 const tagAutocompleteInputs = new WeakSet();
-function allExistingTags() {
-  const configured = [...Object.values(state.library.settings?.folderAutoTags || {}), ...Object.values(state.library.settings?.collectionAutoTags || {})].flatMap((rule) => rule.tags || []);
-  const canonical = new Map();
-  for (const tag of [...state.library.assets.filter((asset)=>!asset.deletedAt).flatMap((asset) => asset.tags || []), ...configured]) { const value = String(tag).trim(); if (value && !canonical.has(value.toLowerCase())) canonical.set(value.toLowerCase(), value); }
-  return [...canonical.values()].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+let cachedExistingTags = null;
+function allExistingTags(refresh = false) {
+  if (!refresh && cachedExistingTags) return cachedExistingTags;
+  const configured = [...Object.values(state.library.settings?.folderAutoTags || {}), ...Object.values(state.library.settings?.collectionAutoTags || {})].flatMap((rule) => rule.tags || []), canonical = new Map();
+  for (const asset of state.library.assets) if (!asset.deletedAt) for (const tag of asset.tags || []) { const value = String(tag).trim(); if (value && !canonical.has(value.toLowerCase())) canonical.set(value.toLowerCase(), value); }
+  for (const tag of configured) { const value = String(tag).trim(); if (value && !canonical.has(value.toLowerCase())) canonical.set(value.toLowerCase(), value); }
+  cachedExistingTags = [...canonical.values()].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })); return cachedExistingTags;
 }
 function hideTagAutocomplete() { const popup = $('#tag-autocomplete'); if (popup.matches(':popover-open')) popup.hidePopover(); popup.classList.add('hidden'); activeTagAutocompleteInput?.setAttribute('aria-expanded', 'false'); activeTagAutocompleteInput = null; }
 function mountTagAutocomplete(input, popup) { const host = input.closest('dialog[open]') || document.body; if (popup.parentElement === host) return; if (popup.matches(':popover-open')) popup.hidePopover(); host.appendChild(popup); }
@@ -1020,17 +1022,19 @@ function currentTagToken(input) {
 function renderTagAutocomplete(input) {
   if (!input || input.disabled || input.type === 'password') return hideTagAutocomplete();
   const token = currentTagToken(input); if (!token.query && input.dataset.tagSuggestOnEmpty === 'false') return hideTagAutocomplete();
-  const used = new Set(input.dataset.tagMultiple === 'true' ? input.value.split(',').map((tag) => tag.trim().toLowerCase()).filter(Boolean) : []);
-  const matches = allExistingTags().filter((tag) => !used.has(tag.toLowerCase()) && (!token.query || tag.toLowerCase().includes(token.query.toLowerCase()))).slice(0, 40), popup = $('#tag-autocomplete');
-  if (!matches.length) return hideTagAutocomplete();
-  activeTagAutocompleteInput = input; input.setAttribute('aria-expanded', 'true'); mountTagAutocomplete(input, popup); popup.innerHTML = matches.map((tag, index) => `<button type="button" role="option" class="${index === 0 ? 'active' : ''}" data-tag-suggestion="${escapeHtml(tag)}">${escapeHtml(tag)}</button>`).join(''); popup.classList.remove('hidden'); if (!popup.matches(':popover-open')) popup.showPopover();
+  const used = new Set(input.dataset.tagMultiple === 'true' ? input.value.split(',').map((tag) => tag.trim().toLowerCase()).filter(Boolean) : []), queryKey = token.query.toLowerCase();
+  const matches = allExistingTags().filter((tag) => !used.has(tag.toLowerCase()) && (!token.query || tag.toLowerCase().includes(queryKey))).slice(0, 40), exactIndex = matches.findIndex((tag) => tag.toLowerCase() === queryKey), exact = exactIndex >= 0 ? matches.splice(exactIndex, 1)[0] : null, create = Boolean(token.query && !exact), popup = $('#tag-autocomplete');
+  if (!matches.length && !exact && !create) return hideTagAutocomplete();
+  const options = [...(create ? [{ tag: token.query, create: true }] : exact ? [{ tag: exact, create: false }] : []), ...matches.map((tag) => ({ tag, create: false }))];
+  activeTagAutocompleteInput = input; input.setAttribute('aria-expanded', 'true'); mountTagAutocomplete(input, popup); popup.innerHTML = options.map(({tag,create},index) => `<button type="button" role="option" class="${index === 0 ? 'active ' : ''}${create ? 'tag-create' : ''}" data-tag-suggestion="${escapeHtml(tag)}" ${create ? 'data-tag-create="true"' : ''}>${create ? `Create &quot;${escapeHtml(tag)}&quot;` : escapeHtml(tag)}</button>`).join(''); popup.classList.remove('hidden'); if (!popup.matches(':popover-open')) popup.showPopover();
   const rect = input.getBoundingClientRect(); popup.style.minWidth = `${Math.max(190, rect.width)}px`; popup.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - popup.offsetWidth - 8))}px`; popup.style.top = `${Math.max(8, Math.min(rect.bottom + 3, window.innerHeight - popup.offsetHeight - 8))}px`;
 }
-function applyTagSuggestion(input, tag) {
+function applyTagSuggestion(input, tag, create = false) {
   if(input===elements.tags){const targets=expandedTagTargetIds();input.value='';hideTagAutocomplete();addTagsToAssets(targets,[tag]);input.focus();return;}
   if (input.dataset.tagPillEditor === 'true') { addTextEntryTags([tag]); input.value = ''; hideTagAutocomplete(); input.focus(); return; }
   const token = currentTagToken(input), prefix = input.dataset.tagMultiple === 'true' && token.start ? `${input.value.slice(0, token.start).trimEnd()} ` : input.value.slice(0, token.start), suffix = input.value.slice(token.end);
   input.value = `${prefix}${tag}${suffix}`; const cursor = prefix.length + tag.length; input.setSelectionRange(cursor, cursor); input.dispatchEvent(new Event('input', { bubbles: true })); hideTagAutocomplete(); input.focus();
+  if (create && input === $('#batch-tag-input')) $('#apply-tag-assignment').click();
 }
 function enableTagAutocomplete(input, { multiple = false } = {}) {
   if (!input) return; input.dataset.tagAutocomplete = 'true'; input.dataset.tagMultiple = String(multiple); input.setAttribute('aria-autocomplete', 'list'); input.setAttribute('aria-controls', 'tag-autocomplete');
@@ -1038,16 +1042,16 @@ function enableTagAutocomplete(input, { multiple = false } = {}) {
   const refresh = () => { if (input.dataset.tagAutocomplete === 'true') renderTagAutocomplete(input); }; input.addEventListener('focus', refresh); input.addEventListener('input', refresh); input.addEventListener('click', refresh);
 }
 function renderTagSuggestions() {
-  const tags = allExistingTags(); $('#tag-suggestions').innerHTML = tags.map((tag) => `<option value="${escapeHtml(tag)}"></option>`).join('');
+  const tags = allExistingTags(true); $('#tag-suggestions').innerHTML = tags.map((tag) => `<option value="${escapeHtml(tag)}"></option>`).join('');
   enableTagAutocomplete(elements.tags, { multiple: true }); enableTagAutocomplete($('#batch-tag-input'), { multiple: true });
   if (activeTagAutocompleteInput) renderTagAutocomplete(activeTagAutocompleteInput);
 }
-$('#tag-autocomplete').addEventListener('mousedown', (event) => { const button = event.target.closest('[data-tag-suggestion]'); if (!button || !activeTagAutocompleteInput) return; event.preventDefault(); applyTagSuggestion(activeTagAutocompleteInput, button.dataset.tagSuggestion); });
+$('#tag-autocomplete').addEventListener('mousedown', (event) => { const button = event.target.closest('[data-tag-suggestion]'); if (!button || !activeTagAutocompleteInput) return; event.preventDefault(); applyTagSuggestion(activeTagAutocompleteInput, button.dataset.tagSuggestion, button.dataset.tagCreate === 'true'); });
 document.addEventListener('keydown', (event) => {
   const popup = $('#tag-autocomplete'); if (!activeTagAutocompleteInput || popup.classList.contains('hidden')) return;
   const options = [...popup.querySelectorAll('[data-tag-suggestion]')], active = Math.max(0, options.findIndex((button) => button.classList.contains('active')));
   if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); event.stopImmediatePropagation(); const next = (active + (event.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length; options.forEach((button, index) => button.classList.toggle('active', index === next)); options[next].scrollIntoView({ block: 'nearest' }); }
-  if ((event.key === 'Enter' || event.key === 'Tab') && options[active]) { event.preventDefault(); event.stopImmediatePropagation(); applyTagSuggestion(activeTagAutocompleteInput, options[active].dataset.tagSuggestion); }
+  if ((event.key === 'Enter' || event.key === 'Tab') && options[active]) { event.preventDefault(); event.stopImmediatePropagation(); applyTagSuggestion(activeTagAutocompleteInput, options[active].dataset.tagSuggestion, options[active].dataset.tagCreate === 'true'); }
   if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); hideTagAutocomplete(); }
 }, true);
 document.addEventListener('mousedown', (event) => { if (!event.target.closest('#tag-autocomplete, [data-tag-autocomplete="true"]')) hideTagAutocomplete(); }, true);
@@ -1214,7 +1218,7 @@ async function addTagsToAssets(ids, tags) {
   const targets = [...new Set(ids)], additions = [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))]; if (!targets.length || !additions.length) return 0;
   const count = await window.pigeon.batchUpdateAssets(targets, { addTags: additions }, { silent: true });
   for (const asset of state.library.assets) if (targets.includes(asset.id)) { const existing = new Map((asset.tags || []).map((tag) => [tag.toLowerCase(), tag])); for (const tag of additions) if (!existing.has(tag.toLowerCase())) existing.set(tag.toLowerCase(), tag); asset.tags = [...existing.values()]; }
-  renderInspector(); showToast(`Added ${additions.length} tag${additions.length === 1 ? '' : 's'} to ${count} asset${count === 1 ? '' : 's'}`); return count;
+  cachedExistingTags = null; renderInspector(); showToast(`Added ${additions.length} tag${additions.length === 1 ? '' : 's'} to ${count} asset${count === 1 ? '' : 's'}`); return count;
 }
 function renderIconPicker(query = '') {
   const names = Object.keys(window.PIGEON_ICONS).filter((name) => !query || name.includes(query.toLowerCase())); $('#icon-picker-grid').innerHTML = names.map((name) => `<button data-icon-name="${name}" class="${iconPickerTarget?.current === name ? 'selected' : ''}" title="${name.replace(/-/g,' ')}">${iconSvg(name)}</button>`).join('');
@@ -2368,6 +2372,9 @@ function renderDiagnosticsConsole() {
 function formatTelemetryBytes(value) { const bytes = Number(value) || 0; if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`; if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`; return `${(bytes / 1024 ** 3).toFixed(2)} GB`; }
 function renderTelemetry(snapshot) { const collective = snapshot.collective || {}; $('#diagnostics-summary').textContent = `${collective.activeThreads || 0} worker threads · ${(collective.cpu || 0).toFixed(1)}% CPU · ${formatTelemetryBytes(collective.memoryBytes)} memory`; $('#telemetry-summary').innerHTML = [['Threads',collective.activeThreads || 0],['Queued',collective.queuedItems||0],['Files',`${collective.filesCompleted || 0} / ${collective.filesTotal || 0}`],['CPU',`${(collective.cpu || 0).toFixed(1)}% / ${collective.cpuLimit || 30}%`],['GPU',`${(collective.gpuCpu || 0).toFixed(1)}%`],['Memory',formatTelemetryBytes(collective.memoryBytes)],['GPU memory',formatTelemetryBytes(collective.gpuMemoryBytes)]].map(([label,value]) => `<div class="telemetry-metric"><small>${label}</small><strong>${value}</strong></div>`).join(''); const rows = [...(snapshot.threads || []).map((thread) => ({ ...thread, label: `${thread.type} · Thread ${thread.threadId}`, detail: thread.currentFile || thread.portfolioId, gpu: 0 })), ...(snapshot.processes || []).map((process) => ({ ...process, label: `${process.type} · PID ${process.pid}`, detail: 'Electron process', filesCompleted: 0, filesTotal: 0, gpu: String(process.type).toLowerCase().includes('gpu') ? process.cpu : 0, startedAt: snapshot.timestamp }))]; $('#telemetry-list').innerHTML = rows.length ? rows.map((row) => `<div class="telemetry-row"><span class="telemetry-thread"><strong>${escapeHtml(row.label)}</strong><small title="${escapeHtml(row.detail || '')}">${escapeHtml(row.detail || row.status || '')}</small></span><span>${row.filesCompleted || 0} / ${row.filesTotal || 0}</span><span>${(row.cpu || 0).toFixed(1)}%</span><span>${(row.gpu || 0).toFixed(1)}%</span><span>${formatTelemetryBytes(row.memoryBytes)}</span><span>${Math.max(0,Math.round((snapshot.timestamp-(row.startedAt || snapshot.timestamp))/1000))}s</span></div>`).join('') : '<div class="telemetry-empty">No background threads are active.</div>'; }
 let developerOverlayTimer=null;
+function setDeveloperOverlayOpacity(value, persist = true){const opacity=Math.max(20,Math.min(95,Number(value)||68)),input=$('#developer-overlay-opacity');input.value=String(opacity);input.title=`Overlay opacity: ${opacity}%`;$('#developer-overlay').style.setProperty('--developer-overlay-opacity',String(opacity/100));if(persist)localStorage.setItem('pigeon.developerOverlayOpacity',String(opacity));}
+setDeveloperOverlayOpacity(localStorage.getItem('pigeon.developerOverlayOpacity')||68,false);
+$('#developer-overlay-opacity').addEventListener('input',(event)=>setDeveloperOverlayOpacity(event.currentTarget.value));
 function renderDeveloperOverlay(snapshot){const collective=snapshot.collective||{},rendererQueued=pendingThumbnailCards.size+thumbnailLoadsActive+[...backgroundTasks.values()].reduce((sum,task)=>sum+Math.max(0,(Number(task.total)||0)-(Number(task.completed)||0)),0),queued=(collective.queuedItems||0)+rendererQueued,percent=(value,maximum)=>Math.max(0,Math.min(100,maximum?Number(value)/maximum*100:0)),metrics=[['CPU',`${(collective.cpu||0).toFixed(1)}%`,percent(collective.cpu,100)],['GPU',`${(collective.gpuCpu||0).toFixed(1)}%`,percent(collective.gpuCpu,100)],['Memory',formatTelemetryBytes(collective.memoryBytes),percent(collective.memoryBytes,collective.totalMemoryBytes)],['GPU memory',formatTelemetryBytes(collective.gpuMemoryBytes),percent(collective.gpuMemoryBytes,collective.totalMemoryBytes)],['Queued',queued.toLocaleString(),percent(queued,100)],['Workers',collective.activeThreads||0,percent(collective.activeThreads,collective.maxBackgroundThreads||4)]];$('#developer-overlay-metrics').innerHTML=metrics.map(([label,value,fill])=>`<div class="developer-metric" style="--metric-fill:${fill.toFixed(1)}%"><i></i><small>${label}</small><strong>${value}</strong></div>`).join('');$('#developer-overlay-time').textContent=new Date(snapshot.timestamp||Date.now()).toLocaleTimeString();$('#developer-overlay-detail').textContent=`${collective.activeRuns||0} operations · ${collective.diagnosticErrors||0} errors · ${collective.logicalCpus||0} CPUs · ${formatMediaTime(collective.uptimeSeconds||0)} uptime`;}
 async function refreshDeveloperOverlay(){if($('#developer-overlay').classList.contains('hidden'))return;try{renderDeveloperOverlay(await window.pigeon.getTelemetry());}catch(error){$('#developer-overlay-detail').textContent=`Telemetry unavailable · ${error.message}`;}}
 function toggleDeveloperOverlay(){const overlay=$('#developer-overlay'),opening=overlay.classList.contains('hidden');overlay.classList.toggle('hidden',!opening);clearInterval(developerOverlayTimer);developerOverlayTimer=null;if(opening){refreshDeveloperOverlay();developerOverlayTimer=setInterval(refreshDeveloperOverlay,1000);}showToast(opening?'Developer telemetry shown':'Developer telemetry hidden');}
