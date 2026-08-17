@@ -109,7 +109,7 @@ test('privacy-affected motion previews require the temporary reveal shortcut',()
 });
 
 test('hovered video uses hold-Control or Alt sound and tree screenshots have terminal branches',()=>{
-  assert.match(renderer,/temporaryShortcutPressed\(event,preferences\.hoverAudioShortcut\)/);assert.match(renderer,/media\.muted=!controlHeld/);assert.match(renderer,/window\.addEventListener\('keyup',keyUp,true\)/);assert.match(renderer,/window\.removeEventListener\('keydown',keyDown,true\)/);assert.match(renderer,/hoverAudioShortcut:'Ctrl'/);assert.match(html,/id="hover-audio-shortcut"/);
+  assert.match(renderer,/temporaryShortcutPressed\(event,preferences\.hoverAudioShortcut\)/);assert.match(renderer,/media\.muted=!controlHeld/);assert.match(renderer,/window\.addEventListener\('keyup',keyUp,true\)/);assert.match(renderer,/window\.removeEventListener\('keydown',keyDown,true\)/);assert.match(renderer,/hoverAudioShortcut:'Ctrl'/);assert.match(html,/id="hover-audio-shortcut"/);assert.match(renderer,/String\(event\.key\|\|''\)/);assert.match(renderer,/rawKey\|\|activeModifier&&key/);
   assert.match(renderer,/tree-last/);assert.match(styles,/\.collection-item\.tree-last::after/);assert.match(main,/PIGEON_SMOKE_CAPTURE_TREE/);assert.match(main,/pigeon-tree-smoke\.png/);
 });
 
