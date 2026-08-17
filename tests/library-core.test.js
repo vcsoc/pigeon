@@ -16,6 +16,8 @@ test('migrates legacy libraries without losing assets', () => {
   assert.equal(result.assets.length, 1);
   assert.equal(result.assets[0].rating, 5);
   assert.deepEqual(result.assets[0].collectionIds, []);
+  assert.equal(result.assets[0].quickChecked, false);
+  assert.equal(core.migrateLibrary({assets:[{id:'checked',quickChecked:true}]}).assets[0].quickChecked, true);
   assert.deepEqual(result.settings.pluginPermissions, {});
 });
 

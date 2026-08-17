@@ -38,6 +38,7 @@ function migrateLibrary(input = {}) {
     deletedAt: asset.deletedAt || null,
     stackId: asset.stackId || null,
     favorite: Boolean(asset.favorite),
+    quickChecked: Boolean(asset.quickChecked),
     rating: Math.max(0, Math.min(5, Number(asset.rating) || 0))
   }));
   return library;

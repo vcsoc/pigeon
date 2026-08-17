@@ -86,7 +86,7 @@ test('trash and auto-tag mutations reconcile cards without full thumbnail reload
 });
 
 test('Smart Folders filter privacy effects, hotkey is editable, and level sorting targets siblings',()=>{
-  assert.match(renderer,/\['privacyEffect','Blur \/ Pixelate'\]/);assert.match(renderer,/Effect applied/);assert.match(libraryCore,/rule\.field === 'privacyEffect'/);assert.match(renderer,/thumbnail-effect-shortcut'\)\.addEventListener\('keydown'/);assert.match(html,/Click and press a shortcut/);assert.match(renderer,/branch:collection\.parentId/);assert.match(renderer,/branch:folder\.parentId/);assert.match(renderer,/appendFolderLevel/);assert.match(renderer,/sidebarBranchSort/);
+  assert.match(renderer,/\['privacyEffect','Blur \/ Pixelate'\]/);assert.match(renderer,/Effect applied/);assert.match(libraryCore,/rule\.field === 'privacyEffect'/);assert.match(renderer,/wireShortcutInput\('#thumbnail-effect-shortcut'/);assert.match(html,/Click an input, then press the shortcut/);assert.match(renderer,/branch:collection\.parentId/);assert.match(renderer,/branch:folder\.parentId/);assert.match(renderer,/appendFolderLevel/);assert.match(renderer,/sidebarBranchSort/);
 });
 
 test('privacy ranges extend into previews/viewer, modifier wheel scrolls, submenu and parent trunks work',()=>{
@@ -105,7 +105,7 @@ test('SVG, Sketch and Lunacy files plus embedded workflow metadata and drag expo
 });
 
 test('privacy-affected motion previews require the temporary reveal shortcut',()=>{
-  assert.match(renderer,/protectedMotion=Boolean\(asset\.thumbnailEffect/);assert.match(renderer,/protectedMotion&&!state\.thumbnailEffectRevealPressed/);assert.match(renderer,/revealShortcutPressed\(event\)\)\{clearTimeout\(startTimer\);startTimer=null;start\(event,true\);\}/);assert.match(renderer,/revealShortcutPressed\(event\)\)stop\(\)/);assert.match(renderer,/thumbnailEffectRevealKey:'Alt'/);assert.match(html,/Reset to Alt/);
+  assert.match(renderer,/protectedMotion=Boolean\(asset\.thumbnailEffect/);assert.match(renderer,/protectedMotion&&!state\.thumbnailEffectRevealPressed/);assert.match(renderer,/revealShortcutPressed\(event\)\)\{clearTimeout\(startTimer\);startTimer=null;start\(event,true\);\}/);assert.match(renderer,/revealShortcutPressed\(event\)\)stop\(\)/);assert.match(renderer,/thumbnailEffectRevealKey:'Alt'/);assert.match(renderer,/wireShortcutInput\('#thumbnail-effect-reveal-shortcut'/);
 });
 
 test('hovered video uses hold-Control or Alt sound and tree screenshots have terminal branches',()=>{
@@ -1004,8 +1004,15 @@ test('availability refresh and inline About Pigeon view are wired', () => {
 });
 
 test('Preferences exposes applicable searchable feature shortcuts and wires their commands',()=>{
-  for(const id of ['feature-shortcut-search','built-in-shortcut-groups','thumbnail-effect-reveal-shortcut','clear-thumbnail-effect-reveal-shortcut'])assert.match(html,new RegExp(`id="${id}"`));
+  for(const id of ['feature-shortcut-search','built-in-shortcut-groups','thumbnail-effect-reveal-shortcut','privacy-effects-toggle-shortcut','quick-check-shortcut','show-checked-shortcut'])assert.match(html,new RegExp(`id="${id}"`));
   assert.match(renderer,/const builtInShortcutGroups=/);assert.match(renderer,/Ctrl\+Alt\+R/);assert.match(renderer,/facetShortcuts/);assert.match(renderer,/viewShortcuts/);assert.match(renderer,/Alt\+1':'grid'/);assert.match(renderer,/Ctrl\+Alt\+2/);assert.match(renderer,/renderBuiltInShortcuts/);
+});
+
+test('inspector privacy, Quick Check, aligned shortcuts, and developer telemetry overlay are wired',()=>{
+  for(const id of ['meta-extension','developer-overlay','developer-overlay-metrics','favorite-shortcut','location-shortcut'])assert.match(html,new RegExp(`id="${id}"`));
+  assert.match(styles,/#meta-folder,#meta-file\{white-space:normal/);assert.match(styles,/\.asset-card\.quick-checked::before/);assert.match(styles,/\.preview-card\.privacy-effect-view|\.privacy-effect-view img/);assert.match(styles,/\.privacy-effects-disabled/);assert.match(styles,/\.shortcut-key-input\{width:150px/);assert.match(styles,/\.developer-overlay\{/);
+  assert.match(renderer,/state\.showCheckedOnly/);assert.match(renderer,/asset\.quickChecked/);assert.match(renderer,/toggleQuickCheck/);assert.match(renderer,/toggleCheckedOnly/);assert.match(renderer,/toggleAllPrivacyEffects/);assert.match(renderer,/Ctrl\+Alt\+D/);assert.match(renderer,/toggleDeveloperOverlay/);assert.match(renderer,/queuedItems/);
+  assert.match(libraryCore,/quickChecked: Boolean\(asset\.quickChecked\)/);assert.match(main,/'quickChecked'/);assert.match(main,/queuedItems/);
 });
 
 test('custom shortcut actions combine configurable steps for the current selection',()=>{
