@@ -497,9 +497,9 @@ async function createVideoProxy(asset) {
 
 async function createThumbnail(asset) {
   const target = path.join(thumbnailDir, `${asset.id}.jpg`);
+  if (PREVIEWABLE_DOCUMENT_EXTENSIONS.has(asset.extension)) return createDocumentThumbnail(asset, target);
   if (asset.kind === 'video') return createVideoThumbnail(asset, target);
   if (asset.kind === 'audio') return createAudioThumbnail(asset, target);
-  if (asset.kind === 'document' && PREVIEWABLE_DOCUMENT_EXTENSIONS.has(asset.extension)) return createDocumentThumbnail(asset, target);
   if (asset.kind !== 'image') return null;
   const key = `${asset.id}:${asset.modified || 0}`; if (thumbnailPreparationJobs.has(key)) return thumbnailPreparationJobs.get(key);
   const job = new Promise((resolve) => { thumbnailQueue.push({ source: asset.path, target, resolve }); dispatchThumbnailJobs(); }).finally(() => thumbnailPreparationJobs.delete(key));
@@ -779,7 +779,7 @@ function thumbnailWorkRequired(asset) {
   if (asset.thumbnailFailedAt && asset.thumbnailFailedModified === asset.modified && !(asset.extension==='PDF'&&asset.thumbnailFailureVersion!==PDF_PREVIEW_VERSION)) return false;
   if (asset.kind === 'video') return !asset.thumbnailPath || !asset.width || !asset.height || !asset.duration;
   if (asset.kind === 'audio') return !asset.thumbnailPath || !asset.duration;
-  if (asset.kind === 'document') return PREVIEWABLE_DOCUMENT_EXTENSIONS.has(asset.extension) && (!asset.thumbnailPath || (asset.extension==='PDF'&&asset.pdfPreviewVersion!==PDF_PREVIEW_VERSION));
+  if (PREVIEWABLE_DOCUMENT_EXTENSIONS.has(asset.extension)) return !asset.thumbnailPath || (asset.extension==='PDF'&&asset.pdfPreviewVersion!==PDF_PREVIEW_VERSION);
   return asset.kind === 'image' && (!asset.thumbnailPath || RAW_IMAGE_EXTENSION_SET.has(path.extname(asset.path).toLowerCase()) && (!asset.proxyPath || asset.proxyVersion!==3) || !asset.width || !asset.height || !asset.dominantColor || !asset.histogram || !asset.palette || !asset.perceptualHash || !asset.technicalMetadata);
 }
 async function warmThumbnailCache() {
@@ -2097,6 +2097,7 @@ app.whenReady().then(async () => {
       setTimeout(async () => {
         await loadLibraryInWorker();
         broadcast();
+        schedulePortfolioBackground(warmThumbnailCache,1000);
         refreshSourcesInBackground().then(() => { schedulePortfolioBackground(warmThumbnailCache, 5000); schedulePortfolioBackground(warmContentHashes, 1500); }).catch((error) => recordDiagnostic('error', 'Startup background processing failed', error));
       }, 0);
     });

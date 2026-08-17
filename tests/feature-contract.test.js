@@ -559,13 +559,21 @@ test('tag assignment snapshots multi-selection and expands complete stacks', () 
 test('collection drag updates smart-folder thumbnails without a full grid refresh',()=>{
   assert.match(renderer,/addAssetsToCollectionWithoutGridRefresh/);
   assert.match(renderer,/batchUpdateAssets\(unique,operation,\{silent:true,returnAssets:true\}\)/);
-  assert.match(renderer,/reconcileThumbnailCards\(changed\)/);
+  assert.match(renderer,/reconcileThumbnailCards\(changed,\{viewport\}\)/);
   assert.match(renderer,/card\.remove\(\)/);
   assert.match(renderer,/elements\.grid\.appendChild\(card\)/);
   assert.match(renderer,/renderSidebar\(false\)/);
   const helper=renderer.match(/async function addAssetsToCollectionWithoutGridRefresh[\s\S]*?\n\}/)?.[0]||'';
   assert.doesNotMatch(helper,/renderGrid\(/);
   assert.match(main,/if \(!options\.silent\) broadcast\(\)/);
+});
+
+test('collection and folder drops preserve scroll while incrementally re-sorting cards',()=>{
+  assert.match(renderer,/function captureGridViewport/);assert.match(renderer,/function restoreGridViewport/);assert.match(renderer,/view\.viewportRestore=viewport/);assert.match(renderer,/selectSuccessorWithoutScrolling/);assert.match(renderer,/reconcileThumbnailCards\(ids,\{viewport\}\)/);assert.doesNotMatch(renderer.match(/async function addAssetsToCollectionWithoutGridRefresh[\s\S]*?\n\}/)?.[0]||'',/selectAndRevealSuccessor/);
+});
+
+test('previewable text extensions work for legacy file-kind assets',()=>{
+  assert.match(main,/PREVIEWABLE_DOCUMENT_EXTENSIONS\.has\(asset\.extension\).*return !asset\.thumbnailPath/);assert.match(main,/if \(PREVIEWABLE_DOCUMENT_EXTENSIONS\.has\(asset\.extension\)\) return createDocumentThumbnail/);assert.match(main,/schedulePortfolioBackground\(warmThumbnailCache,1000\)/);assert.match(renderer,/function isTextPreviewDocument\(asset\)\{return TEXT_PREVIEW_DOCUMENT_EXTENSIONS\.has/);assert.match(renderer,/hasDocumentThumbnailPreview\(asset\)\) && Boolean\(asset\.thumbnailPath\)/);assert.match(renderer,/if\(state\.kind==='visual'\)state\.kind='all'/);assert.match(renderer,/documentFallback=hasDocumentThumbnailPreview\(asset\)/);
 });
 
 test('thumbnail rotation patches affected cards without rebuilding the grid',()=>{
