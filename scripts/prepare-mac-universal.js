@@ -33,6 +33,42 @@ async function download(url, destination) {
   await fsp.chmod(destination, 0o755);
 }
 
+function findMachOBinary(packagePath, pattern) {
+  const directory = path.join(root, packagePath);
+  const matches = fs.readdirSync(directory, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile() && pattern.test(entry.name))
+    .map((entry) => path.join(entry.parentPath || entry.path, entry.name));
+  if (matches.length !== 1) throw new Error(`Expected one native binary in ${packagePath}, found ${matches.length}`);
+  return matches[0];
+}
+
+async function universalizePair(arm64Path, x64Path, temporaryDirectory) {
+  const output = path.join(temporaryDirectory, `universal-${path.basename(arm64Path)}`);
+  execFileSync('lipo', ['-create', arm64Path, x64Path, '-output', output]);
+  const architectures = execFileSync('lipo', ['-archs', output], { encoding: 'utf8' }).trim().split(/\s+/).sort();
+  if (architectures.join(' ') !== 'arm64 x86_64') throw new Error(`Unexpected native dependency architectures: ${architectures.join(', ')}`);
+  await Promise.all([fsp.copyFile(output, arm64Path), fsp.copyFile(output, x64Path)]);
+  await Promise.all([fsp.chmod(arm64Path, 0o755), fsp.chmod(x64Path, 0o755)]);
+}
+
+async function prepareNativeLibraries(temporaryDirectory) {
+  const pairs = [
+    [
+      findMachOBinary('node_modules/@img/sharp-darwin-arm64', /^sharp-darwin-arm64-.*\.node$/),
+      findMachOBinary('node_modules/@img/sharp-darwin-x64', /^sharp-darwin-x64-.*\.node$/)
+    ],
+    [
+      findMachOBinary('node_modules/@img/sharp-libvips-darwin-arm64', /^libvips-cpp.*\.dylib$/),
+      findMachOBinary('node_modules/@img/sharp-libvips-darwin-x64', /^libvips-cpp.*\.dylib$/)
+    ],
+    [
+      findMachOBinary('node_modules/pdfjs-dist/node_modules/@napi-rs/canvas-darwin-arm64', /^skia\.darwin-arm64\.node$/),
+      findMachOBinary('node_modules/pdfjs-dist/node_modules/@napi-rs/canvas-darwin-x64', /^skia\.darwin-x64\.node$/)
+    ]
+  ];
+  for (const [arm64Path, x64Path] of pairs) await universalizePair(arm64Path, x64Path, temporaryDirectory);
+}
+
 async function prepareFfmpeg(temporaryDirectory) {
   const ffmpegPackage = require(path.join(root, 'node_modules', 'ffmpeg-static', 'package.json'));
   const release = ffmpegPackage['ffmpeg-static']['binary-release-tag'];
@@ -63,8 +99,9 @@ async function main() {
       ['@napi-rs/canvas-darwin-x64', 'node_modules/pdfjs-dist/node_modules/@napi-rs/canvas-darwin-x64']
     ];
     for (const [name, packagePath] of packages) await installPackage(name, lockedVersion(packagePath), path.join(root, packagePath), temporaryDirectory);
+    await prepareNativeLibraries(temporaryDirectory);
     await prepareFfmpeg(temporaryDirectory);
-    console.log('Prepared universal macOS native dependencies for arm64 and x86_64');
+    console.log('Prepared fully universal macOS native dependencies for arm64 and x86_64');
   } finally {
     await fsp.rm(temporaryDirectory, { recursive: true, force: true });
   }
