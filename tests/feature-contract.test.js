@@ -43,7 +43,7 @@ test('every Smart Folder asset receives a placeholder and thumbnails load safely
 });
 
 test('huge portfolio views cooperatively sort and keep a fixed virtual DOM window',()=>{
-  assert.match(html,/cooperative-view\.js[\s\S]*renderer\.js/);assert.match(renderer,/COOPERATIVE_VIEW_THRESHOLD=1000,VIRTUAL_ASSET_WINDOW=120/);assert.match(renderer,/function currentAssetViewSnapshot/);assert.match(renderer,/scheduleAssetViewTask/);assert.match(renderer,/performance\.now\(\)-assetViewSliceStarted>=6/);assert.match(renderer,/30000000\/rows/);assert.match(renderer,/state\.virtualStart=next/);assert.match(renderer,/renderGrid\(\{preserveCards:true\}\)/);assert.match(renderer,/preservedCards\.get\(freshCard\.dataset\.assetId\)/);assert.match(renderer,/freshCard\.replaceWith\(existing\)/);assert.match(renderer,/bufferRows=Math\.max\(8,Math\.floor\(VIRTUAL_ASSET_WINDOW\/metrics\.columns\/3\)\)/);assert.match(renderer,/gridScrollRestore\.commit\(\{ready:assetView\.ready\}\)/);assert.match(renderer,/class="virtual-card-window"/);assert.match(renderer,/state\.virtualExtentPx=Math\.max/);assert.match(renderer,/selectAllVisibleAssetsCooperatively/);assert.match(styles,/\.virtual-card-window/);assert.match(styles,/overflow-anchor:none/);assert.match(cooperativeView,/filterChunk=512,runSize=2048,mergeChunk=1024/);
+  assert.match(html,/cooperative-view\.js[\s\S]*renderer\.js/);assert.match(renderer,/COOPERATIVE_VIEW_THRESHOLD=1000,VIRTUAL_ASSET_WINDOW=120/);assert.match(renderer,/function currentAssetViewSnapshot/);assert.match(renderer,/scheduleAssetViewTask/);assert.match(renderer,/performance\.now\(\)-assetViewSliceStarted>=6/);assert.match(renderer,/30000000\/rows/);assert.match(renderer,/state\.virtualStart=next/);assert.match(renderer,/renderGrid\(\{preserveCards:true\}\)/);assert.match(renderer,/preservedCards\.get\(freshCard\.dataset\.assetId\)/);assert.match(renderer,/freshCard\.replaceWith\(existing\)/);assert.match(renderer,/windowForScroll/);assert.match(renderer,/gridScrollRestore\.commit\(\{ready:assetView\.ready\}\)/);assert.match(renderer,/class="virtual-card-window"/);assert.match(renderer,/state\.virtualExtentPx=virtualLayout\.extentPx/);assert.match(renderer,/selectAllVisibleAssetsCooperatively/);assert.match(styles,/\.virtual-card-window/);assert.match(styles,/overflow-anchor:none/);assert.match(cooperativeView,/filterChunk=512,runSize=2048,mergeChunk=1024/);
 });
 
 test('inspector folder paths, bidirectional read-ahead and compact thumbnail spacing are wired',()=>{
@@ -260,7 +260,7 @@ test('common interactions paint immediately and defer expensive renderer work',(
   assert.match(renderer,/function renderNavigationDestination/);
   assert.match(renderer,/requestAnimationFrame\(\(\)=>requestAnimationFrame/);
   assert.match(renderer,/const heights=cards\.map/);
-  assert.match(renderer,/Object\.assign\(asset,patch\);if\(\['tags','favorite','deletedAt','collectionIds','stackId','sourceMissing'\]/);assert.match(renderer,/invalidateTagCache\(\);patchCardMetadata\(asset,patch\);renderInspector\(\)/);
+  assert.match(renderer,/Object\.assign\(asset,patch\);patchCardMetadata\(asset,patch\);applyMetadataViewDelta/);assert.match(renderer,/invalidateMetadataAggregateCaches\(change\.patch\)/);
   assert.match(renderer,/searchRenderTimer=setTimeout/);assert.match(renderer,/elements\.gridWrap\.classList\.add\('navigation-pending'\)/);assert.match(renderer,/\},25\);/);
   assert.match(styles,/grid-wrap\.navigation-pending::after/);
 });
@@ -1225,4 +1225,21 @@ test('focused file indexing and delayed hover playback are configurable',()=>{
   assert.match(html,/data-preference-page="indexing"/);assert.match(html,/data-pref="indexAllFiles"/);assert.match(html,/data-index-category="images"/);assert.match(html,/data-index-category="documents"/);assert.match(html,/Documents and Markdown/);assert.match(html,/Presentations and PowerPoint/);assert.match(html,/data-pref="hoverPreviewDelay"/);
   assert.match(renderer,/hoverPreviewDelay:250/);assert.match(renderer,/const scheduleStart=/);assert.match(renderer,/setTimeout\(\(\)=>\{startTimer=null;if\(pointerIsOverPreview\(\)\)start\(modifiers\);\},delay\)/);assert.match(renderer,/clearTimeout\(startTimer\);startTimer=null/);
   assert.match(main,/shouldIndexFile\(filePath,indexingPreferences\)/);assert.match(main,/preferences\.indexAllFiles===true/);assert.match(main,/previousPolicy!==nextPolicy/);assert.match(fileTypesSource,/DEFAULT_INDEX_CATEGORIES/);assert.match(fileTypesSource,/\.pptx/);assert.match(fileTypesSource,/\.markdown/);
+});
+
+test('Smart Folder metadata patches reconcile changed IDs without rebuilding the active view',()=>{
+  assert.match(renderer,/function applyMetadataViewDelta\(changes\)/);assert.match(renderer,/PigeonMetadataViewDelta\.reconcileIndices/);assert.match(renderer,/PigeonMetadataViewDelta\.keyedCardPlan/);assert.match(renderer,/PigeonMetadataViewDelta\.updateCounts/);assert.match(renderer,/deltaHandled=viewChanged&&applyMetadataViewDelta\(changes\)/);assert.match(renderer,/if\(viewChanged&&!deltaHandled\)\{invalidateTagCache\(\);invalidateAssetViewCache\(\);scheduleStreamGridRender\(\);\}/);
+  const deltaBody=renderer.slice(renderer.indexOf('function reconcileActiveSmartFolderMetadataDelta'),renderer.indexOf('function applyMetadataViewDelta'));assert.doesNotMatch(deltaBody,/invalidateAssetViewCache|startCooperativeAssetView|renderGrid\(/);assert.match(deltaBody,/host\.appendChild\(card\)/);assert.match(deltaBody,/for\(const id of plan\.remove\)existingById\.get\(id\)\?\.remove\(\)/);
+});
+
+test('multi-selection ratings share the changed-ID delta path',()=>{
+  assert.match(renderer,/ids\.length>1\?updateAssetsWithoutGridRefresh\(ids,\{rating\}\):updateSelected\(\{rating\}\)/);assert.match(renderer,/changes\.push\(\{index,before,after:asset,patch\}\)/);assert.match(renderer,/selectionAfterRemoval/);
+});
+
+test('virtual geometry is result-scoped, exact, and independent of late thumbnail ratios',()=>{
+  assert.match(renderer,/identity:gridViewIdentity\(\).*resultCount:total/);assert.match(renderer,/state\.virtualExtentPx=virtualLayout\.extentPx/);assert.doesNotMatch(renderer,/state\.virtualExtentPx=Math\.max\(state\.virtualExtentPx,virtualLayout\.extentPx\)/);assert.doesNotMatch(renderer,/requiredExtent=virtualLayout\.topPx/);assert.match(renderer,/metrics\.identity!==identity\|\|metrics\.resultCount!==resultCount/);assert.match(renderer,/window\.PigeonVirtualWindow\.geometry/);assert.match(renderer,/window\.PigeonVirtualWindow\.windowForScroll/);assert.match(styles,/virtualized-grid\.placeholder-grid \.asset-preview\{aspect-ratio:1\.32!important/);assert.match(styles,/layout-justified \.asset-grid\.virtualized-grid \.asset-card\{flex:0 0 var\(--card-width\)/);assert.match(renderer,/asset\?\.width\s*&&\s*asset\?\.height\s*&&\s*!elements\.grid\.classList\.contains\('virtualized-grid'\)/);
+});
+
+test('virtual scroll diagnostics attribute result bounds, extent, restoration and decode state',()=>{
+  for(const field of ['windowStart','windowEnd','resultCount','estimatedExtentPx','fullVirtualExtentPx','actualScrollHeight','scrollTop','userScrollEpoch','pendingRestore','domCards','decodedCards','layout'])assert.match(renderer,new RegExp(`${field}:`));assert.match(renderer,/recordVirtualScrollState\('thumbnail-ready'\)/);assert.match(renderer,/gridScrollRestore\.cancel\(\);suppressGridScroll=false;if\(virtualScrollFrame!==null\)\{cancelAnimationFrame\(virtualScrollFrame\)/);
 });

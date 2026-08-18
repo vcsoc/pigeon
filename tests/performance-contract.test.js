@@ -61,9 +61,9 @@ test('large-folder preview and final render retain order, keyed cards, selection
   assert.match(renderer,/preserveCards:view\.previewPainted\|\|Boolean\(view\.preserveCards\)/);assert.match(renderer,/freshCard\.replaceWith\(existing\)/);assert.match(renderer,/gridScrollRestore\.commit/);assert.match(renderer,/noteDirectGridScrollInput/);assert.match(renderer,/state\.selectedIds\.has\(asset\.id\)/);assert.match(renderer,/layout-list/);assert.match(renderer,/layout-justified/);assert.match(renderer,/scheduleMasonry\(\)/);
 });
 
-test('virtual scrolling keeps a stable full extent and makes restoration user-cancellable',()=>{
+test('virtual scrolling keeps a result-scoped exact extent and makes restoration user-cancellable',()=>{
   const virtualWindow=fs.readFileSync(path.join(root,'src','virtual-window.js'),'utf8'),styles=fs.readFileSync(path.join(root,'src','styles.css'),'utf8');
-  assert.match(virtualWindow,/function layout/);assert.match(virtualWindow,/extentPx:totalRows\*rowHeight/);assert.match(virtualWindow,/function createScrollRestorer/);assert.match(virtualWindow,/pending\.interaction!==getInteraction\(\)/);assert.match(renderer,/state\.virtualExtentPx=Math\.max/);assert.match(renderer,/viewport\.interaction!==gridScrollInteractionVersion/);assert.match(renderer,/interaction!==gridScrollInteractionVersion/);assert.match(styles,/\.asset-grid\.virtualized-grid/);assert.match(styles,/\.virtual-card-window/);
+  assert.match(virtualWindow,/function layout/);assert.match(virtualWindow,/extentPx:totalRows\*rowHeight/);assert.match(virtualWindow,/function createScrollRestorer/);assert.match(virtualWindow,/pending\.interaction!==getInteraction\(\)/);assert.match(renderer,/state\.virtualExtentPx=virtualLayout\.extentPx/);assert.doesNotMatch(renderer,/state\.virtualExtentPx=Math\.max/);assert.doesNotMatch(renderer,/requiredExtent=/);assert.match(renderer,/viewport\.interaction!==gridScrollInteractionVersion/);assert.match(renderer,/interaction!==gridScrollInteractionVersion/);assert.match(styles,/\.asset-grid\.virtualized-grid/);assert.match(styles,/\.virtual-card-window/);
 });
 
 test('Smart Folder inheritance drives direct filtering, cooperative filtering, counts and read-only editor rules',()=>{

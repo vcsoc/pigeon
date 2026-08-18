@@ -9,6 +9,15 @@
     const totalRows=Math.ceil(total/columns),startRow=Math.floor(start/columns),endRow=Math.min(totalRows,Math.ceil((start+count)/columns));
     return{topPx:startRow*rowHeight,bottomPx:Math.max(0,(totalRows-endRow)*rowHeight),extentPx:totalRows*rowHeight,windowRows:Math.max(0,endRow-startRow)};
   }
+  function geometry({identity='',total,start=0,size=480,columns=1,rowHeight=1,scrollTop=0,viewportHeight=0}={}){
+    const range=bounded({total,start,size,columns}),logical=layout({total,start:range.start,count:range.count,columns,rowHeight}),maxScrollTop=Math.max(0,logical.extentPx-Math.max(0,Number(viewportHeight)||0));
+    return{identity,total:Math.max(0,Number(total)||0),...range,...logical,maxScrollTop,scrollTop:Math.max(0,Math.min(maxScrollTop,Number(scrollTop)||0))};
+  }
+  function windowForScroll({total,currentStart=0,size=480,columns=1,rowHeight=1,scrollTop=0,bufferRows,thresholdRows}={}){
+    columns=Math.max(1,Number(columns)||1);rowHeight=Math.max(1,Number(rowHeight)||1);bufferRows=Math.max(1,Number(bufferRows)||Math.max(8,Math.floor(size/columns/3)));thresholdRows=Math.max(1,Number(thresholdRows)||Math.max(4,Math.floor(bufferRows/2)));
+    const firstRow=Math.max(0,Math.floor(Math.max(0,Number(scrollTop)||0)/rowHeight)),target=Math.max(0,firstRow-bufferRows)*columns,next=bounded({total,start:target,size,columns}).start,current=bounded({total,start:currentStart,size,columns}).start;
+    return{start:Math.abs(next-current)<columns*thresholdRows?current:next,firstRow,bufferRows,thresholdRows};
+  }
   function createScrollRestorer({getIdentity=()=>'',getInteraction=()=>0,write=()=>{}}={}){
     let pending=null,sequence=0;
     const schedule=(scrollTop,{waitUntilReady=false,interaction=getInteraction()}={})=>(pending={sequence:++sequence,identity:getIdentity(),interaction,scrollTop:Math.max(0,Number(scrollTop)||0),waitUntilReady},pending.sequence);
@@ -21,5 +30,5 @@
     };
     return{schedule,cancel,commit,pending:()=>pending&&{...pending}};
   }
-  return{bounded,layout,createScrollRestorer};
+  return{bounded,layout,geometry,windowForScroll,createScrollRestorer};
 });

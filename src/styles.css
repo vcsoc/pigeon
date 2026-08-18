@@ -291,8 +291,11 @@ html[data-platform="darwin"] .window-drag { padding-left: 80px; }
 .asset-grid.virtualized-grid,.layout-list .asset-grid.virtualized-grid,.layout-justified .asset-grid.virtualized-grid{display:block;position:relative;min-height:0;}
 .virtual-card-window{position:absolute;left:0;right:0;top:0;display:grid;grid-template-columns:repeat(auto-fill,var(--card-width));grid-auto-rows:4px;column-gap:4px;row-gap:3px;align-items:start;justify-content:start;will-change:transform;}
 .placeholder-grid .virtual-card-window{grid-auto-rows:auto;row-gap:4px;}
+.asset-grid.virtualized-grid.placeholder-grid .asset-preview{aspect-ratio:1.32!important;}
+.asset-grid.virtualized-grid.placeholder-grid .asset-card{--asset-ratio:1.32!important;}
 .layout-list .virtual-card-window{display:flex;flex-direction:column;gap:3px;}
 .layout-justified .virtual-card-window{display:flex;flex-wrap:wrap;gap:4px;align-items:flex-start;}
+.layout-justified .asset-grid.virtualized-grid .asset-card{flex:0 0 var(--card-width);}
 .layout-justified .virtual-card-window::after{content:'';flex:999 1 180px;}
 .layout-list .asset-file { aspect-ratio: auto; height: 49px; }
 .layout-list .asset-file .file-glyph { font-size: 18px; }
