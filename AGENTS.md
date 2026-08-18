@@ -41,3 +41,11 @@ This project is indexed by GitNexus as **pigeon** (1280 symbols, 2651 relationsh
 | Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
 
 <!-- gitnexus:end -->
+
+# Execution Time Limits
+
+- **No individual remote, GitHub CLI, CI polling, build, test, or local foreground process may run longer than 40 seconds.** Target 30 seconds where practical.
+- Use an explicit timeout of 40 seconds or less for every foreground command.
+- If work inherently takes longer, do not wait on one long-running command. Split it into bounded batches, start it as a background task and inspect it with short checks, or find a faster local workflow.
+- Prefer building and validating locally, then push the completed result. Do not synchronously poll GitHub Actions or releases for longer than 40 seconds.
+- For externally running jobs, return control after each short status check and continue with another bounded check only when needed.
