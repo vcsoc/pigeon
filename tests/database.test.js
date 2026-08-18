@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { DatabaseSync } = require('node:sqlite');
 const { createLibraryStore, importLegacyJson } = require('../electron/database');
 const core = require('../electron/library-core');
 
@@ -16,6 +17,8 @@ test('SQLite store round-trips and incrementally deletes library records', () =>
   library.assets = []; library.collections = []; store.save(library); loaded = store.load();
   assert.equal(loaded.assets.length, 0); assert.equal(loaded.collections.length, 0); store.close();
 });
+
+test('startup repair removes persisted embedded workflow payloads before database caching',()=>{const file=temporary('bloated.db'),store=createLibraryStore(file);store.save(core.migrateLibrary({assets:[{id:'png',path:'/workflow.png',extension:'PNG',embeddedMetadata:{workflow:'x'.repeat(100000)},embeddedMetadataVersion:1,tags:['keep']}]}));store.close();const raw=new DatabaseSync(file);raw.prepare("UPDATE library_metadata SET value='1' WHERE key='embedded-metadata-storage-version'").run();raw.close();const repaired=createLibraryStore(file),asset=repaired.load().assets[0];assert.equal(asset.embeddedMetadata,undefined);assert.equal(asset.embeddedMetadataVersion,undefined);assert.deepEqual(asset.tags,['keep']);repaired.close();});
 
 test('SQLite backups avoid materializing full-library JSON', () => { const file=temporary('source.db'),target=temporary('backup.db'),store=createLibraryStore(file); store.save(core.migrateLibrary({assets:Array.from({length:1000},(_,i)=>({id:`a${i}`,path:`/root/${i}.jpg`}))})); store.backup(target); const restored=createLibraryStore(target); assert.equal(restored.load().assets.length,1000); restored.close(); store.close(); });
 

@@ -37,8 +37,11 @@ function rowValues(table, item, payload) {
 
 function sqliteString(value){return `'${String(value).replace(/'/g,"''")}'`;}
 
+function removePersistedEmbeddedMetadata(database){const key='embedded-metadata-storage-version',current=database.prepare('SELECT value FROM library_metadata WHERE key=?').get(key)?.value;if(current==='2')return 0;let changed=0;database.exec('BEGIN IMMEDIATE');try{const result=database.prepare(`UPDATE assets SET payload=json_remove(payload,'$.embeddedMetadata','$.embeddedMetadataVersion') WHERE instr(payload,'"embeddedMetadata"')>0`).run();changed=Number(result.changes)||0;database.prepare('INSERT INTO library_metadata(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(key,'2');database.exec('COMMIT');}catch(error){try{database.exec('ROLLBACK');}catch{}throw error;}database.exec('PRAGMA wal_checkpoint(TRUNCATE)');return changed;}
+
 function createLibraryStore(databaseFile) {
   const database = openLibraryDatabase(databaseFile);
+  removePersistedEmbeddedMetadata(database);
   const caches = Object.fromEntries(TABLES.map((table) => [table, new Map(database.prepare(`SELECT id, payload FROM ${table}`).all().map((row) => [row.id, row.payload]))]));
   const statements = {
     metadata: database.prepare('INSERT INTO library_metadata(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value'),
@@ -90,4 +93,4 @@ function importLegacyJson(store, legacyJsonFile) {
   return library;
 }
 
-module.exports = { openLibraryDatabase, createLibraryStore, importLegacyJson };
+module.exports = { openLibraryDatabase, createLibraryStore, importLegacyJson, removePersistedEmbeddedMetadata };
