@@ -38,7 +38,7 @@ test('large grids delegate card interactions and batch visibility registration',
 });
 
 test('every Smart Folder asset receives a placeholder and thumbnails load safely after scroll settles',()=>{
-  assert.match(renderer,/criteria\.smartFolderId\|\|criteria\.view==='duplicates'/);assert.match(renderer,/assets=assetView\.assets/);assert.match(renderer,/MAX_THUMBNAIL_LOADS=16/);assert.match(renderer,/thumbnailScrollUntil=Date\.now\(\)\+320/);assert.match(renderer,/const image=new Image\(\)/);assert.match(renderer,/queueMicrotask\(drainThumbnailLoads\)/);assert.match(renderer,/preview\.appendChild\(image\)/);assert.match(renderer,/image\.alt=''/);assert.match(renderer,/THUMBNAIL_READ_AHEAD_PX=3600/);assert.match(renderer,/THUMBNAIL_READ_BEHIND_PX=900/);assert.match(renderer,/queueThumbnailCardsForViewport/);assert.match(renderer,/priority=distance===0\?0:ahead\?1:2/);assert.match(renderer,/thumbnailLoadsActive=Math\.max\(0,thumbnailLoadsActive-1\)/);assert.match(renderer,/attempts<3/);assert.match(renderer,/rootMargin:`\$\{THUMBNAIL_READ_AHEAD_PX\}px 0px`/);assert.match(renderer,/THUMBNAIL_LOAD_TIMEOUT_MS=8000/);assert.match(renderer,/activeThumbnailLoads=new Map/);assert.match(renderer,/scheduleThumbnailViewportSweep/);assert.match(renderer,/armThumbnailWatchdog/);assert.match(renderer,/showThumbnailLoadFailure/);assert.match(renderer,/Preview unavailable/);assert.doesNotMatch(renderer,/thumbnail-eager/);assert.match(main,/placeholders\.cards!==placeholders\.total/);assert.match(main,/placeholders\.pending<placeholders\.total-8/);
+  assert.match(renderer,/criteria\.smartFolderId\|\|criteria\.view==='duplicates'/);assert.match(renderer,/assets=assetView\.assets/);assert.match(renderer,/MAX_THUMBNAIL_LOADS=16/);assert.match(renderer,/thumbnailScrollUntil=Date\.now\(\)\+320/);assert.match(renderer,/const image=new Image\(\)/);assert.match(renderer,/queueMicrotask\(drainThumbnailLoads\)/);assert.match(renderer,/preview\.appendChild\(image\)/);assert.match(renderer,/image\.alt=''/);assert.match(renderer,/THUMBNAIL_READ_AHEAD_PX=3600/);assert.match(renderer,/THUMBNAIL_READ_BEHIND_PX=900/);assert.match(renderer,/queueThumbnailCardsForViewport/);assert.match(renderer,/priority=distance===0\?0:ahead\?1:2/);assert.match(renderer,/thumbnailLoadsActive=Math\.max\(0,thumbnailLoadsActive-1\)/);assert.match(renderer,/attempts<3/);assert.match(renderer,/rootMargin:`\$\{THUMBNAIL_READ_AHEAD_PX\}px 0px`/);assert.match(renderer,/THUMBNAIL_LOAD_TIMEOUT_MS=8000/);assert.match(renderer,/activeThumbnailLoads=new Map/);assert.match(renderer,/scheduleThumbnailViewportSweep/);assert.match(renderer,/armThumbnailWatchdog/);assert.match(renderer,/showThumbnailLoadFailure/);assert.match(renderer,/Preview unavailable/);assert.doesNotMatch(renderer,/thumbnail-eager/);assert.match(main,/placeholders\.cards!==480/);assert.match(main,/placeholders\.afterLoaded<8/);assert.match(main,/const afterCards=\[\.\.\.document\.querySelectorAll\('\.asset-card'\)\]/);
 });
 
 test('huge portfolio views cooperatively sort and keep a fixed virtual DOM window',()=>{
@@ -162,7 +162,7 @@ test('animated image hover, viewport magnifier, reorder markers and sidebar-only
 });
 
 test('trash isolation, analytics actions, text reader, contact export, window restore and Smart Folder editing are wired',()=>{
-  assert.match(renderer,/state\.view === 'trash'&&!state\.locationId&&!state\.collectionId&&!state\.smartFolderId/);assert.match(renderer,/state\.view='all';state\.smartFolderId/);assert.match(renderer,/visibleAssets\.length/);assert.match(renderer,/filter\(\(asset\)=>!asset\.deletedAt\)\.flatMap/);
+  assert.match(renderer,/state\.view === 'trash'&&!state\.locationId&&!state\.collectionId&&!state\.smartFolderId/);assert.match(renderer,/state\.view='all';state\.smartFolderId/);assert.match(renderer,/metrics\.visibleCount/);assert.match(renderer,/metrics\?\.tagCatalog\.length/);assert.match(renderer,/metrics\?\.visibleCount/);
   assert.match(renderer,/data-analytics-asset/);assert.match(renderer,/View in folder/);assert.match(renderer,/Export to computer/);assert.match(renderer,/Copy path to file/);assert.match(preload,/exportAsset/);
   assert.match(html,/id="viewer-text-reader"/);assert.match(html,/id="viewer-line-numbers"/);assert.match(preload,/readTextAsset/);assert.match(main,/asset:read-text/);assert.match(renderer,/function escapeSyntax/);assert.match(styles,/syntax-key/);
   assert.match(html,/id="contact-sheet-export"/);assert.match(html,/WEBP/);assert.match(main,/contact-sheet:export/);assert.match(styles,/contact-sheet-page[^}]*background:var\(--panel\)/);assert.match(styles,/@media print[\s\S]*background:white/);
@@ -210,7 +210,7 @@ test('large-file scans defer fingerprints, use size-aware background deadlines, 
 
 test('thumbnail marquee selection auto-scrolls while background scans remain consolidated and responsive',()=>{
   assert.match(html,/id="selection-marquee"/);assert.match(styles,/\.selection-marquee/);assert.match(renderer,/function updateMarqueeSelection/);assert.match(renderer,/function runMarqueeAutoScroll/);assert.match(renderer,/setPointerCapture/);assert.match(renderer,/scrollSpeed/);assert.match(renderer,/paintChangedSelectionCards\(changed\)/);
-  assert.match(main,/\['database','thumbnail','index-scan','fingerprint'\]/);assert.match(main,/offset\+=100/);assert.match(main,/const scanBroadcastQueues=new Map/);assert.match(main,/setTimeout\(drain,16\)/);assert.match(renderer,/collectionCounts=new Map/);
+  assert.match(main,/\['database','thumbnail','index-scan','fingerprint'\]/);assert.match(main,/offset\+=100/);assert.match(main,/const scanBroadcastQueues=new Map/);assert.match(main,/setTimeout\(drain,16\)/);assert.match(renderer,/function scheduleLibraryAggregateBuild/);assert.match(renderer,/performance\.now\(\)-started<5/);
 });
 
 test('destructive sidebar confirmations identify the exact collection, Smart Folder, or indexed folder',()=>{
@@ -259,9 +259,17 @@ test('common interactions paint immediately and defer expensive renderer work',(
   assert.match(renderer,/function renderNavigationDestination/);
   assert.match(renderer,/requestAnimationFrame\(\(\)=>requestAnimationFrame/);
   assert.match(renderer,/const heights=cards\.map/);
-  assert.match(renderer,/Object\.assign\(asset,patch\);if\(Object\.hasOwn\(patch,'tags'\)\)invalidateTagCache\(\);patchCardMetadata\(asset,patch\);renderInspector\(\)/);
-  assert.match(renderer,/searchRenderTimer=setTimeout/);assert.match(renderer,/requestIdleCallback\(run,\{timeout:220\}\)/);
+  assert.match(renderer,/Object\.assign\(asset,patch\);if\(\['tags','favorite','deletedAt','collectionIds','stackId','sourceMissing'\]/);assert.match(renderer,/invalidateTagCache\(\);patchCardMetadata\(asset,patch\);renderInspector\(\)/);
+  assert.match(renderer,/searchRenderTimer=setTimeout/);assert.match(renderer,/elements\.gridWrap\.classList\.add\('navigation-pending'\)/);assert.match(renderer,/\},25\);/);
   assert.match(styles,/grid-wrap\.navigation-pending::after/);
+});
+
+test('portfolio-wide counts, analytics, smart-folder previews, and interactive jobs are cooperatively scheduled',()=>{
+  assert.match(renderer,/function scheduleLibraryAggregateBuild/);assert.match(renderer,/performance\.now\(\)-started<5/);assert.match(renderer,/schedule:\(task\)=>scheduleAssetViewTask\(task,true\)/);assert.match(renderer,/try\{task\?\.\(\);\}catch\(error\)/);assert.match(renderer,/finally\{assetViewTaskRunning=false;\}/);assert.match(renderer,/function renderAnalytics\(\)/);assert.match(renderer,/Calculating analytics/);assert.match(renderer,/analyticsSnapshotCache/);assert.match(renderer,/function updateSmartFolderFound/);assert.match(renderer,/Calculating…/);assert.doesNotMatch(renderer,/const count = assets\.filter\(\(asset\) => !asset\.deletedAt && !asset\.locked && matchesSavedFilters/);
+});
+
+test('high-frequency viewer and selection paths use indexed asset access',()=>{
+  assert.match(renderer,/function viewerSourceSize\(\)\{const asset=assetById/);assert.match(renderer,/const assets=ids\.map\(assetById\)\.filter\(Boolean\)/);assert.match(renderer,/function expandedTagTargetIds[\s\S]{0,500}map\(assetById\)/);assert.match(renderer,/stackMembers:new Map/);assert.doesNotMatch(renderer,/state\.library\.assets\.find\(/);
 });
 
 test('empty portfolios offer one-click indexing of the default Pictures folder',()=>{
@@ -730,7 +738,7 @@ test('refresh, robust facets, folder drops, media hover scrubbing, and expanded 
   assert.match(main, /library:refresh-sources/);
   assert.match(main, /staleAssets/);
   assert.match(renderer, /sourceStatusChanged/);
-  assert.match(renderer,/if\(sourceStatusChanged\)\{renderSidebar\(false\);for\(const card/);assert.doesNotMatch(renderer,/if\(sourceStatusChanged\)\{[^\n]*renderGrid/);
+  assert.match(renderer,/if\(sourceStatusChanged\)\{invalidateLibraryAggregates\(\);renderSidebar\(false\);for\(const card/);assert.doesNotMatch(renderer,/if\(sourceStatusChanged\)\{[^\n]*renderGrid/);
   assert.match(renderer, /rating: 'ratings', shape: 'shapes', color: 'colors'/);
   assert.match(renderer, /attachHoverMediaPreview/);
   assert.match(renderer, /media\.currentTime = desiredTime/);

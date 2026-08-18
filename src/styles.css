@@ -292,6 +292,7 @@ html[data-platform="darwin"] .window-drag { padding-left: 80px; }
 .layout-list .asset-file .file-glyph { font-size: 18px; }
 .layout-list .card-meta { padding-left: 10px; }
 .analytics-view { min-height: 100%; padding: 8px 10px 36px; color: #e5e8ef; }
+.analytics-loading{min-height:220px;display:grid;place-content:center;gap:7px;text-align:center;color:#838b9b}.analytics-loading strong{color:#e5e8ef;font-size:14px}.analytics-loading span{font-size:10px}
 .analytics-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 8px 3px 18px; }
 .analytics-header h2 { margin: 3px 0 5px; font-size: 22px; font-weight: 650; }
 .analytics-header p { margin: 0; color: var(--muted); font-size: 11px; }
