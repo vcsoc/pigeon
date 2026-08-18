@@ -85,7 +85,7 @@ test('Affinity documents receive bounded embedded thumbnails and full image prev
 });
 
 test('Lightroom catalog folders index catalogs, templates and embedded previews',()=>{
-  for(const extension of ['.lrcat','.lrcat-data','.lrprev','.lrtemplate'])assert.match(fileTypesSource,new RegExp(`design:[^\\n]*'\\${extension}'`));assert.match(main,/PREVIEWABLE_DOCUMENT_EXTENSIONS[^\n]*'LRPREV'/);assert.match(main,/extractLightroomPreview/);assert.match(main,/format:'lightroom-preview'/);assert.match(renderer,/IMAGE_PREVIEW_DOCUMENT_EXTENSIONS[^\n]*'LRPREV'/);assert.match(lightroomPreview,/MAX_LIGHTROOM_PREVIEW_BYTES/);assert.match(lightroomPreview,/embeddedJpegCandidates/);assert.match(main,/INDEXING_POLICY_VERSION=2/);assert.match(main,/refreshChangedIndexingPolicy\(\)/);assert.match(main,/proxyPath:asset\.proxyPath/);assert.match(renderer,/asset\.proxyPath=proxyPath\|\|asset\.proxyPath/);
+  for(const extension of ['.lrcat','.lrcat-data','.lrprev','.lrtemplate'])assert.match(fileTypesSource,new RegExp(`design:[^\\n]*'\\${extension}'`));assert.match(main,/PREVIEWABLE_DOCUMENT_EXTENSIONS[^\n]*'LRPREV'/);assert.match(main,/extractLightroomPreview/);assert.match(main,/format:'lightroom-preview'/);assert.match(renderer,/IMAGE_PREVIEW_DOCUMENT_EXTENSIONS[^\n]*'LRPREV'/);assert.match(lightroomPreview,/MAX_LIGHTROOM_PREVIEW_BYTES/);assert.match(lightroomPreview,/embeddedJpegCandidates/);assert.match(main,/INDEXING_POLICY_VERSION=2/);assert.match(main,/refreshChangedIndexingPolicy\(\)/);assert.match(main,/await persistScanBatch\(location,checkpointAssets\)/);assert.match(main,/proxyPath:asset\.proxyPath/);assert.match(renderer,/asset\.proxyPath=proxyPath\|\|asset\.proxyPath/);
 });
 
 test('text and PDF documents generate thumbnails and open in inspector, preview and viewer',()=>{
@@ -171,7 +171,7 @@ test('trash isolation, analytics actions, text reader, contact export, window re
 });
 
 test('preloaded magnifier, true viewer scale, scoped thumbnail sizes and matching folder counts are wired',()=>{
-  assert.match(renderer,/image\.onload=/);assert.match(renderer,/asset\.previewUrl\|\|asset\.mediaUrl/);assert.match(renderer,/function viewerFitScale/);assert.match(renderer,/sourceX=\(cursorX-viewerPan\.x\)\/oldScale/);assert.match(renderer,/viewerPan\.x=cursorX-sourceX\*next/);assert.match(renderer,/Math\.min\(VIEWER_MAX_ZOOM,oldScale\*factor\)/);assert.doesNotMatch(styles,/min-width: max-content/);
+  assert.match(renderer,/image\.onload=/);assert.match(renderer,/asset\.previewUrl\|\|asset\.mediaUrl/);assert.match(renderer,/function viewerFitScale/);assert.match(renderer,/sourceX=\(cursorX-viewerPan\.x\)\/oldScale/);assert.match(renderer,/viewerPan\.x=cursorX-sourceX\*next/);assert.match(renderer,/Math\.min\(VIEWER_MAX_ZOOM,oldScale\*factor\)/);const wheelHandler=renderer.match(/\$\('\.viewer-stage'\)\.addEventListener\('wheel',[^\n]+/)?.[0]||'';assert.doesNotMatch(wheelHandler,/clampViewerPan/);assert.doesNotMatch(styles,/min-width: max-content/);
   assert.match(renderer,/function thumbnailSizeScopeKey/);assert.match(renderer,/function thumbnailSizeStorage/);assert.match(renderer,/restoreScopedThumbnailSize/);assert.match(html,/id="zoom-set-default"/);assert.match(renderer,/Portfolio thumbnail default updated/);assert.match(styles,/aspect-ratio:var\(--preview-ratio\)/);assert.match(styles,/object-fit:contain/);
   assert.match(fs.readFileSync(path.join(root,'electron','folder-tree-worker.js'),'utf8'),/directCount/);assert.match(renderer,/state\.includeSubfolderContent\?folder\.count:folder\.directCount/);assert.match(html,/data-pref="coloredTreeLevels"/);assert.match(renderer,/colored-tree-levels/);assert.match(styles,/--tree-level-0/);assert.match(styles,/var\(--tree-color\)/);
 });
@@ -637,7 +637,7 @@ test('internal viewer is chrome-free with context actions, keyboard close, compa
   assert.match(renderer,/event\.code === 'Space'/);
   assert.match(renderer,/viewerZoom/);
   assert.match(renderer,/\.viewer-stage'\)\.addEventListener\('wheel'/);
-  assert.match(html,/id="viewer-image-surface"/);assert.match(renderer,/Math\.abs\(next-oldScale\)<1e-9\)return/);assert.match(renderer,/viewerPanStart=\{x:event\.clientX,y:event\.clientY,panX:viewerPan\.x/);assert.match(renderer,/function clampViewerPan/);assert.match(styles,/\.viewer-image-surface\{/);
+  assert.match(html,/id="viewer-image-surface"/);assert.match(renderer,/renderPixelatedSurface\(\$\('#viewer-image-surface'\),elements\.viewerImage/);assert.match(renderer,/host\.id==='viewer-image-surface'\?\{left:'0',top:'0',width:'100%',height:'100%'\}/);assert.match(renderer,/Math\.abs\(next-oldScale\)<1e-9\)return/);assert.match(renderer,/viewerPanStart=\{x:event\.clientX,y:event\.clientY,panX:viewerPan\.x/);assert.match(renderer,/function clampViewerPan/);assert.match(styles,/\.viewer-image-surface\{/);
   assert.match(styles,/\.media-viewer footer \{ height:28px/);
   assert.match(styles,/\.viewer-stage \{ height:calc\(100% - 28px\)/);
 });
@@ -1057,7 +1057,7 @@ test('inspector tags sort alphabetically and cached grid nodes survive internal 
 });
 
 test('large privacy surfaces use scaled blur and pixel mosaics',()=>{
-  assert.match(renderer,/function renderPixelatedSurface/);assert.match(renderer,/bounds\.width\/320/);assert.match(renderer,/renderPixelatedSurface\(\$\('\.viewer-stage'\)/);assert.match(renderer,/renderPixelatedSurface\(\$\('#inspector-preview-section \.preview-card'\)/);assert.match(renderer,/if\(!collapsed\)renderInspector\(\)/);assert.match(styles,/thumbnail-effect-strength\) \* 1\.5px/);assert.match(styles,/\.privacy-surface-pixel-canvas/);
+  assert.match(renderer,/function renderPixelatedSurface/);assert.match(renderer,/bounds\.width\/320/);assert.match(renderer,/renderPixelatedSurface\(\$\('#viewer-image-surface'\)/);assert.match(renderer,/renderPixelatedSurface\(\$\('#inspector-preview-section \.preview-card'\)/);assert.match(renderer,/if\(!collapsed\)renderInspector\(\)/);assert.match(styles,/thumbnail-effect-strength\) \* 1\.5px/);assert.match(styles,/\.privacy-surface-pixel-canvas/);
 });
 
 test('preferences constrain both columns and keep navigation and actions reachable',()=>{
