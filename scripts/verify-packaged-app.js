@@ -14,7 +14,9 @@ const criticalFiles = [
   'src/cooperative-view.js',
   'src/renderer.js',
   'electron/main.js',
-  'electron/preload.js'
+  'electron/preload.js',
+  'electron/embedded-metadata.js',
+  'electron/thumbnail-worker.js'
 ];
 
 function digest(value) { return crypto.createHash('sha256').update(value).digest('hex'); }
