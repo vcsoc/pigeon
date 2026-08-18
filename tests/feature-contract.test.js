@@ -24,6 +24,7 @@ const packageJson = fs.readFileSync(path.join(root, 'package.json'), 'utf8');
 const systemResources = fs.readFileSync(path.join(root, 'electron', 'system-resources.js'), 'utf8');
 const affinityPreview = fs.readFileSync(path.join(root, 'electron', 'affinity-preview.js'), 'utf8');
 const snagxPreview = fs.readFileSync(path.join(root, 'electron', 'snagx-preview.js'), 'utf8');
+const lightroomPreview=fs.readFileSync(path.join(root,'electron','lightroom-preview.js'),'utf8');
 const fileTypesSource = fs.readFileSync(path.join(root, 'electron', 'file-types.js'), 'utf8');
 
 test('UI exposes collection, smart-folder, batch, trash, media, metadata and editing surfaces', () => {
@@ -77,10 +78,14 @@ test('Affinity documents receive bounded embedded thumbnails and full image prev
   assert.match(affinityPreview,/readBigUInt64LE\(24\)/);
   assert.match(affinityPreview,/MAX_PREVIEW_BYTES/);
   assert.match(affinityPreview,/thumbnailHeader\.subarray\(4, 8\).*'Thmb'/);
-  assert.match(renderer,/IMAGE_PREVIEW_DOCUMENT_EXTENSIONS=new Set\(\['PDF','AF','AFDESIGN','AFPHOTO','SNAGX'\]\)/);
+  assert.match(renderer,/IMAGE_PREVIEW_DOCUMENT_EXTENSIONS=new Set\(\['PDF','AF','AFDESIGN','AFPHOTO','SNAGX','LRPREV'\]\)/);
   assert.match(renderer,/fullImagePreview=visual&&\(asset\.kind==='image'\|\|hasDocumentThumbnailPreview\(asset\)\)/);
   assert.match(styles,/-webkit-clip-path:polygon\(100% 0,100% 100%,0 100%\)/);
   assert.match(styles,/\.thumbnail-fit-preview \.ui-icon\{[^}]*display:block[^}]*stroke:currentColor/);
+});
+
+test('Lightroom catalog folders index catalogs, templates and embedded previews',()=>{
+  for(const extension of ['.lrcat','.lrcat-data','.lrprev','.lrtemplate'])assert.match(fileTypesSource,new RegExp(`design:[^\\n]*'\\${extension}'`));assert.match(main,/PREVIEWABLE_DOCUMENT_EXTENSIONS[^\n]*'LRPREV'/);assert.match(main,/extractLightroomPreview/);assert.match(main,/format:'lightroom-preview'/);assert.match(renderer,/IMAGE_PREVIEW_DOCUMENT_EXTENSIONS[^\n]*'LRPREV'/);assert.match(lightroomPreview,/MAX_LIGHTROOM_PREVIEW_BYTES/);assert.match(lightroomPreview,/embeddedJpegCandidates/);assert.match(main,/INDEXING_POLICY_VERSION=2/);assert.match(main,/refreshChangedIndexingPolicy\(\)/);assert.match(main,/proxyPath:asset\.proxyPath/);assert.match(renderer,/asset\.proxyPath=proxyPath\|\|asset\.proxyPath/);
 });
 
 test('text and PDF documents generate thumbnails and open in inspector, preview and viewer',()=>{

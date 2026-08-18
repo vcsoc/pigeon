@@ -14,6 +14,7 @@ const { availableMemoryBytes } = require('./system-resources');
 const { extractAffinityPreview } = require('./affinity-preview');
 const { isMissingUpdateMetadataError } = require('./update-support');
 const { extractSnagxPreview } = require('./snagx-preview');
+const { extractLightroomPreview } = require('./lightroom-preview');
 const {TEXT_PREVIEW_DOCUMENT_EXTENSIONS,createTextDocumentThumbnail}=require('./text-document-preview');
 const { IMAGE_EXTENSIONS, RAW_IMAGE_EXTENSION_SET, VIDEO_EXTENSIONS, AUDIO_EXTENSIONS, FONT_EXTENSIONS, DOCUMENT_EXTENSIONS, shouldIndexFile, dialogExtensions, indexingPolicySignature } = require('./file-types');
 const { execFile, spawn } = require('node:child_process');
@@ -28,7 +29,7 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 const AFFINITY_PREVIEW_EXTENSIONS = new Set(['AF', 'AFDESIGN', 'AFPHOTO']);
-const PREVIEWABLE_DOCUMENT_EXTENSIONS = new Set(['PDF', 'AI', 'EPS', 'SKETCH', 'FREE', 'AF', 'AFDESIGN', 'AFPHOTO', 'SNAGX',...TEXT_PREVIEW_DOCUMENT_EXTENSIONS]);
+const PREVIEWABLE_DOCUMENT_EXTENSIONS = new Set(['PDF', 'AI', 'EPS', 'SKETCH', 'FREE', 'AF', 'AFDESIGN', 'AFPHOTO', 'SNAGX','LRPREV',...TEXT_PREVIEW_DOCUMENT_EXTENSIONS]);
 const watchers = new Map();
 const thumbnailWorkers = [];
 const thumbnailQueue = [];
@@ -469,6 +470,10 @@ async function createAudioThumbnail(asset, target) {
 async function extractZipPreview(source,target){const script=`Add-Type -AssemblyName System.IO.Compression.FileSystem;$z=[IO.Compression.ZipFile]::OpenRead($args[0]);try{$e=$z.Entries|Where-Object{$_.FullName -match '(?i)(^|/)(preview|thumbnail)(@2x)?\\.(png|jpe?g|webp)$'}|Sort-Object Length -Descending|Select-Object -First 1;if(!$e){exit 2};$s=$e.Open();$o=[IO.File]::Create($args[1]);try{$s.CopyTo($o)}finally{$o.Dispose();$s.Dispose()}}finally{$z.Dispose()}`;return new Promise((resolve)=>execFile('powershell.exe',['-NoProfile','-NonInteractive','-Command',script,source,target],{windowsHide:true,timeout:8000,maxBuffer:64*1024},(error)=>resolve(!error)));}
 async function createDocumentThumbnail(asset, target) {
   if(TEXT_PREVIEW_DOCUMENT_EXTENSIONS.has(asset.extension))return createTextDocumentThumbnail(asset,target);
+  if(asset.extension==='LRPREV'){
+    const extracted=await extractLightroomPreview(asset.path,path.join(thumbnailDir,`${asset.id}.lightroom-preview`));if(!extracted){asset.proxyPath=null;asset.proxyVersion=null;return null;}
+    try{await sharp(extracted.target,{limitInputPixels:100*1024*1024}).resize({width:512,height:512,fit:'inside',withoutEnlargement:true}).flatten({background:'#20232d'}).jpeg({quality:78}).toFile(target);asset.proxyPath=extracted.target;asset.proxyVersion=3;return{ok:true,target,proxyPath:extracted.target,proxyVersion:3,width:extracted.width,height:extracted.height,technicalMetadata:{format:'lightroom-preview',embeddedPreviews:extracted.previewCount,previewBytes:extracted.previewBytes,sourceBytes:extracted.sourceBytes}};}catch(error){await fsp.rm(extracted.target,{force:true});throw error;}
+  }
   if (AFFINITY_PREVIEW_EXTENSIONS.has(asset.extension)) {
     if (asset.thumbnailPath && await pathAvailable(asset.thumbnailPath) && asset.proxyPath && await pathAvailable(asset.proxyPath)) return { ok:true,target:asset.thumbnailPath,proxyPath:asset.proxyPath,width:asset.width,height:asset.height };
     const extracted=await extractAffinityPreview(asset.path,path.join(thumbnailDir,`${asset.id}.affinity-preview`));
@@ -693,6 +698,8 @@ async function scanLocation(locationId, { notify = true, resume = false } = {}) 
   finally { location.scanning = false; location.checking = false; finishBackgroundRun(run); }
 }
 function resumePendingScans() { for (const location of library.locations.filter((item) => item.scanCheckpoint?.discovered || item.scanCheckpoint?.nextIndex)) schedulePortfolioBackground(() => scanLocation(location.id, { notify: true, resume: true }), 150); }
+const INDEXING_POLICY_VERSION=2;
+function refreshChangedIndexingPolicy(){library.settings=library.settings||{};if(Number(library.settings.indexingPolicyVersion)>=INDEXING_POLICY_VERSION)return false;library.settings.indexingPolicyVersion=INDEXING_POLICY_VERSION;scheduleSave();for(const location of library.locations)schedulePortfolioBackground(()=>scanLocation(location.id),1200);return true;}
 
 function watchLocation(location) {
   watchers.get(location.id)?.close();
@@ -820,6 +827,8 @@ async function warmThumbnailCache() {
           id: asset.id,
           previewUrl: previewUrlFor(asset),
           mediaUrl: mediaUrlFor(asset),
+          proxyPath:asset.proxyPath,
+          proxyVersion:asset.proxyVersion,
           width: asset.width,
           height: asset.height,
           duration: asset.duration,
@@ -1638,7 +1647,7 @@ ipcMain.handle('portfolio:switch', async (_event, id) => {
   if (databaseWorker) { await databaseWorker.terminate(); databaseWorker = null; }
   for (const watcher of watchers.values()) watcher.close(); watchers.clear(); for (const timer of watcherRefreshTimers.values()) clearTimeout(timer); watcherRefreshTimers.clear(); unlockedCollections.clear(); unlockedFolders.clear();
   activePortfolioId = id; databaseFile = portfolio.database || portfolioDatabasePath(id); legacyJsonFile = portfolio.legacyFile || null; library = libraryCore.migrateLibrary({ loading: true });
-  await savePortfolioRegistry(); broadcast(); await loadLibraryInWorker(); broadcast(); resumePendingScans();
+  await savePortfolioRegistry(); broadcast(); await loadLibraryInWorker(); broadcast(); resumePendingScans();refreshChangedIndexingPolicy();
   refreshSourcesInBackground().then(() => { schedulePortfolioBackground(warmThumbnailCache, 500); schedulePortfolioBackground(warmContentHashes, 300); }).catch((error) => recordDiagnostic('error', 'Portfolio background resume failed', error));
   return publicLibrarySummary();
 });
@@ -2097,7 +2106,7 @@ app.whenReady().then(async () => {
       setTimeout(async () => {
         await loadLibraryInWorker();
         broadcast();
-        schedulePortfolioBackground(warmThumbnailCache,1000);
+        refreshChangedIndexingPolicy();schedulePortfolioBackground(warmThumbnailCache,1000);
         refreshSourcesInBackground().then(() => { schedulePortfolioBackground(warmThumbnailCache, 5000); schedulePortfolioBackground(warmContentHashes, 1500); }).catch((error) => recordDiagnostic('error', 'Startup background processing failed', error));
       }, 0);
     });

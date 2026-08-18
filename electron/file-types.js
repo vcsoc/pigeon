@@ -9,7 +9,7 @@ const FILE_TYPE_GROUPS = Object.freeze({
   documents: Object.freeze(['.pdf','.txt','.rtf','.md','.markdown','.doc','.docx','.odt','.pages','.epub','.html','.htm','.json','.jsonc','.yaml','.yml']),
   presentations: Object.freeze(['.ppt','.pptx','.odp','.key','.keynote']),
   spreadsheets: Object.freeze(['.xls','.xlsx','.ods','.numbers','.csv','.tsv']),
-  design: Object.freeze(['.af','.afdesign','.afphoto','.pspimage','.ai','.sketch','.free','.fig','.eps','.snagx','.xd','.indd','.idml']),
+  design: Object.freeze(['.af','.afdesign','.afphoto','.pspimage','.ai','.sketch','.free','.fig','.eps','.snagx','.xd','.indd','.idml','.lrcat','.lrcat-data','.lrprev','.lrtemplate']),
   fonts: Object.freeze(['.ttf','.otf','.woff','.woff2']),
   models: Object.freeze(['.obj','.fbx','.stl','.gltf','.glb','.dae','.3ds','.blend'])
 });

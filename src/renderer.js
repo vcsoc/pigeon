@@ -943,7 +943,7 @@ function beginInlineFilenameRename(assetId, titleElement) {
 }
 function beginInspectorFilenameRename() { if (!state.selectedId) return; elements.assetName.focus(); elements.assetName.select(); }
 
-const IMAGE_PREVIEW_DOCUMENT_EXTENSIONS=new Set(['PDF','AF','AFDESIGN','AFPHOTO','SNAGX']),TEXT_PREVIEW_DOCUMENT_EXTENSIONS=new Set(['TXT','MD','MARKDOWN','JSON','JSONC','YAML','YML']);
+const IMAGE_PREVIEW_DOCUMENT_EXTENSIONS=new Set(['PDF','AF','AFDESIGN','AFPHOTO','SNAGX','LRPREV']),TEXT_PREVIEW_DOCUMENT_EXTENSIONS=new Set(['TXT','MD','MARKDOWN','JSON','JSONC','YAML','YML']);
 function isImagePreviewDocument(asset){if(!IMAGE_PREVIEW_DOCUMENT_EXTENSIONS.has(String(asset?.extension).toUpperCase()))return false;return Boolean(String(asset.extension).toUpperCase()==='PDF'?asset.thumbnailPath:asset.proxyPath);}
 function isTextPreviewDocument(asset){return TEXT_PREVIEW_DOCUMENT_EXTENSIONS.has(String(asset?.extension).toUpperCase());}
 function hasDocumentThumbnailPreview(asset){return Boolean(asset?.thumbnailPath&&(isImagePreviewDocument(asset)||isTextPreviewDocument(asset)));}
@@ -2483,13 +2483,14 @@ window.pigeon.onLocationsChanged(({ locations, loading, totalAssets }) => {
   if(sourceStatusChanged){ renderSidebar(false); renderGrid(); renderInspector(); }
   else if(!structureChanged) updateLocationProgressUI();
 });
-window.pigeon.onThumbnailReady(({ id, previewUrl, mediaUrl, width, height, duration, failed, error, dominantColor, histogram, palette, perceptualHash, exif, embeddedMetadata, technicalMetadata }) => {
+window.pigeon.onThumbnailReady(({ id, previewUrl, mediaUrl, proxyPath, proxyVersion, width, height, duration, failed, error, dominantColor, histogram, palette, perceptualHash, exif, embeddedMetadata, technicalMetadata }) => {
   const asset = state.library.assets[rendererAssetIndexes.get(id)];
   if (asset) {
     if (failed) { asset.thumbnailPath = null; asset.thumbnailFailedAt = Date.now(); asset.thumbnailFailedModified = asset.modified; asset.thumbnailError = error || 'Preview unavailable'; }
     else { asset.thumbnailPath = asset.thumbnailPath || 'cached'; asset.thumbnailFailedAt = null; asset.thumbnailFailedModified = null; asset.thumbnailError = null; }
     asset.previewUrl = previewUrl || asset.previewUrl;
     asset.mediaUrl = mediaUrl || asset.mediaUrl;
+    asset.proxyPath=proxyPath||asset.proxyPath;asset.proxyVersion=proxyVersion||asset.proxyVersion;
     asset.width = width || asset.width;
     asset.height = height || asset.height;
     asset.duration = duration || asset.duration;

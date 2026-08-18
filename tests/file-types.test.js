@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { FILE_TYPE_GROUPS, DEFAULT_INDEX_CATEGORIES, IMAGE_EXTENSIONS, RAW_IMAGE_EXTENSIONS, RAW_IMAGE_EXTENSION_SET, DOCUMENT_EXTENSIONS, normalizedCustomExtensions, shouldIndexFile, dialogExtensions, indexingPolicySignature } = require('../electron/file-types');
 
 test('focused indexing defaults cover common media, documents, presentations, and design files', () => {
-  for (const file of ['photo.jpg','camera.cr3','animation.gif','clip.mp4','movie.mkv','sound.flac','notes.md','manual.pdf','brief.docx','slides.pptx','sheet.xlsx','design.afdesign','capture.snagx','font.woff2','scene.glb']) {
+  for (const file of ['photo.jpg','camera.cr3','animation.gif','clip.mp4','movie.mkv','sound.flac','notes.md','manual.pdf','brief.docx','slides.pptx','sheet.xlsx','design.afdesign','capture.snagx','catalog.lrcat','preview.lrprev','font.woff2','scene.glb']) {
     assert.equal(shouldIndexFile(file), true, `${file} should be indexed by default`);
   }
   for (const file of ['archive.zip','installer.exe','binary.dll','README']) assert.equal(shouldIndexFile(file), false, `${file} should be excluded by default`);
