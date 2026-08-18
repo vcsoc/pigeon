@@ -12,7 +12,7 @@ test('library shell and generation-safe asset transport are separate and delay-f
 });
 
 test('renderer keeps all assets while bounding only the virtual DOM window',()=>{
-  assert.match(renderer,/assetStreamState\.upsertMany\(assets\)/);assert.match(renderer,/PigeonVirtualWindow\.bounded/);assert.match(renderer,/VIRTUAL_ASSET_WINDOW=120/);assert.match(renderer,/samePortfolio/);assert.match(renderer,/preservedScrollTop/);assert.doesNotMatch(renderer,/function loadMoreAssets/);assert.doesNotMatch(renderer,/Load more thumbnails/);
+  assert.match(renderer,/assetStreamState\.upsertMany\(assets\)/);assert.match(renderer,/PigeonVirtualLayout\.bounded/);assert.match(renderer,/VIRTUAL_ASSET_WINDOW=120/);assert.match(renderer,/samePortfolio/);assert.match(renderer,/preservedScrollTop/);assert.doesNotMatch(renderer,/function loadMoreAssets/);assert.doesNotMatch(renderer,/Load more thumbnails/);
 });
 
 test('thumbnail work yields to interaction and patch bursts remain bounded',()=>{
