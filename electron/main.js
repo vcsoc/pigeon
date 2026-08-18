@@ -1356,13 +1356,14 @@ function createWindow() {
           const portraitFit = getComputedStyle(document.querySelector('#viewer-image')).objectFit === 'contain';
           document.dispatchEvent(new KeyboardEvent('keydown', { key: String.fromCharCode(96), bubbles: true }));
           const minimapVisible = !document.querySelector('#viewer-minimap').classList.contains('hidden');
-          const viewerEditingToolbar = !document.querySelector('#viewer-edit-toolbar').classList.contains('hidden') && Boolean(document.querySelector('#viewer-rotate-left') && document.querySelector('#viewer-crop') && document.querySelector('#viewer-reset-edits'));
-          document.querySelector('#viewer-crop').click();
+          document.querySelector('#media-viewer').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:420,clientY:220}));
+          const viewerEditingToolbar = Boolean(document.querySelector('[data-viewer-action="rotate-left"]')&&document.querySelector('[data-viewer-action="crop"]')&&document.querySelector('[data-viewer-action="reset"]'));
+          document.querySelector('[data-viewer-action="crop"]')?.click();
           const cropGridVisible = !document.querySelector('#viewer-crop-overlay').classList.contains('hidden') && document.querySelectorAll('[data-crop-handle]').length === 8;
           document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
           let inlineCropApplied = false;
           for (let attempt = 0; attempt < 24 && !inlineCropApplied; attempt += 1) { await new Promise((resolve) => setTimeout(resolve, 150)); inlineCropApplied = document.querySelector('#viewer-crop-overlay').classList.contains('hidden') && document.querySelector('#viewer-image').src.includes('edited=1'); }
-          if (inlineCropApplied) document.querySelector('#viewer-reset-edits').click();
+          if (inlineCropApplied){document.querySelector('#media-viewer').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:420,clientY:220}));document.querySelector('[data-viewer-action="reset"]')?.click();}
           let inlineCropReset = false;
           for (let attempt = 0; attempt < 16 && !inlineCropReset; attempt += 1) { await new Promise((resolve) => setTimeout(resolve, 120)); inlineCropReset = document.querySelector('#viewer-image').src.includes('edited=0'); }
           const viewerInlineCrop = cropGridVisible && inlineCropApplied && inlineCropReset;
@@ -1777,7 +1778,7 @@ ipcMain.handle('collection:set-password', async (_event, { id, password, encrypt
   unlockedCollections.delete(id);
   if (encrypt) await encryptCollectionCopies(collection, key);
   else for (const asset of library.assets) { if (asset.encryptedMediaPaths) delete asset.encryptedMediaPaths[id]; if (asset.encryptedThumbnailPaths) delete asset.encryptedThumbnailPaths[id]; }
-  if(encrypt)scheduleAssetSave(library.assets.filter((asset)=>(asset.collectionIds||[]).some((collectionId)=>collectionDescendants(id).includes(collectionId))));
+  if(encrypt){const descendants=collectionDescendants(id);scheduleAssetSave(library.assets.filter((asset)=>(asset.collectionIds||[]).some((collectionId)=>descendants.has(collectionId))));}
   scheduleSave(); broadcast(); return true;
 });
 ipcMain.handle('collection:unlock', (_event, { id, password }) => {
