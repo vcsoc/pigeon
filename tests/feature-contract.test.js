@@ -1227,6 +1227,14 @@ test('focused file indexing and delayed hover playback are configurable',()=>{
   assert.match(main,/shouldIndexFile\(filePath,indexingPreferences\)/);assert.match(main,/preferences\.indexAllFiles===true/);assert.match(main,/previousPolicy!==nextPolicy/);assert.match(fileTypesSource,/DEFAULT_INDEX_CATEGORIES/);assert.match(fileTypesSource,/\.pptx/);assert.match(fileTypesSource,/\.markdown/);
 });
 
+test('thumbnail magnifier dismisses on browsing scroll without stale virtual-card ownership',()=>{
+  const hideStart=renderer.indexOf('function hideDelegatedMagnifier'),hideEnd=renderer.indexOf('let pointerSelectedAssetId',hideStart),hideBody=renderer.slice(hideStart,hideEnd),openStart=renderer.indexOf("elements.grid.addEventListener('pointerover'"),openEnd=renderer.indexOf("elements.grid.addEventListener('pointerout'",openStart),openBody=renderer.slice(openStart,openEnd);
+  assert.match(renderer,/for\(const eventName of \['wheel','scroll'\]\)elements\.gridWrap\.addEventListener\(eventName,hideDelegatedMagnifier,\{passive:true\}\)/);
+  assert.match(hideBody,/activeMagnifierCard=null;clearTimeout\(hoverFitPreviewTimer\);hoverFitPreviewTimer=null/);
+  assert.match(hideBody,/image\.onload=null;image\.removeAttribute\('src'\)/);
+  assert.match(openBody,/if\(activeMagnifierCard===card&&loaded&&delayDone\)hoverPreview\.classList\.remove\('hidden'\)/);
+});
+
 test('Smart Folder metadata patches reconcile changed IDs without rebuilding the active view',()=>{
   assert.match(renderer,/function applyMetadataViewDelta\(changes\)/);assert.match(renderer,/PigeonMetadataViewDelta\.reconcileIndices/);assert.match(renderer,/PigeonMetadataViewDelta\.keyedCardPlan/);assert.match(renderer,/PigeonMetadataViewDelta\.updateCounts/);assert.match(renderer,/deltaHandled=viewChanged&&applyMetadataViewDelta\(changes\)/);assert.match(renderer,/if\(viewChanged&&!deltaHandled\)\{invalidateTagCache\(\);invalidateAssetViewCache\(\);scheduleStreamGridRender\(\);\}/);
   const deltaBody=renderer.slice(renderer.indexOf('function reconcileActiveSmartFolderMetadataDelta'),renderer.indexOf('function applyMetadataViewDelta'));assert.doesNotMatch(deltaBody,/invalidateAssetViewCache|startCooperativeAssetView|renderGrid\(/);assert.match(deltaBody,/host\.appendChild\(card\)/);assert.match(deltaBody,/for\(const id of plan\.remove\)existingById\.get\(id\)\?\.remove\(\)/);
