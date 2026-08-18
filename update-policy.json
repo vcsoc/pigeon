@@ -1,5 +1,5 @@
 {
   "minimumVersion": "0.2.1",
-  "force": false,
+  "force": true,
   "message": "This release contains required update-safety and performance fixes. Update Pigeon to continue."
 }
