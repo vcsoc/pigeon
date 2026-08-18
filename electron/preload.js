@@ -130,6 +130,11 @@ contextBridge.exposeInMainWorld('pigeon', {
     ipcRenderer.on('thumbnail:ready', handler);
     return () => ipcRenderer.removeListener('thumbnail:ready', handler);
   },
+  onAssetsPatched: (callback) => {
+    const handler=(_event,value)=>callback(value);
+    ipcRenderer.on('assets:patched',handler);
+    return()=>ipcRenderer.removeListener('assets:patched',handler);
+  },
   onBackgroundProgress: (callback) => {
     const handler = (_event, value) => callback(value);
     ipcRenderer.on('background:progress', handler);

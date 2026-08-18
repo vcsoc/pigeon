@@ -213,7 +213,9 @@ function compatibilityStreamUrl(asset) { return `pigeon-asset://asset/${asset.id
 function publicAssetForRenderer(asset,location){ const {encryptedMediaPaths,encryptedThumbnailPaths,...publicAsset}=asset; return {...publicAsset,locked:isAssetLocked(asset),previewUrl:previewUrlFor(asset,location),mediaUrl:mediaUrlFor(asset)}; }
 const scanBroadcastQueues=new Map();
 function broadcastScanAssets(location,assets,done=false){if(!mainWindow||mainWindow.isDestroyed()||!assets.length&&!done)return;const visibleAssets=assets.filter((asset)=>!isAssetLocked(asset)),key=`${activePortfolioId}:${location.id}`,queue=scanBroadcastQueues.get(key)||{items:[],running:false};for(let offset=0;offset<visibleAssets.length;offset+=100)queue.items.push({portfolioId:activePortfolioId,locationId:location.id,assets:visibleAssets.slice(offset,offset+100).map((asset)=>publicAssetForRenderer(asset,location)),done:false});if(done){if(queue.items.length)queue.items.at(-1).done=true;else queue.items.push({portfolioId:activePortfolioId,locationId:location.id,assets:[],done:true});}scanBroadcastQueues.set(key,queue);if(queue.running)return;queue.running=true;const drain=()=>{const message=queue.items.shift();if(!message){queue.running=false;scanBroadcastQueues.delete(key);return;}if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('scan:assets',message);setTimeout(drain,16);};drain();}
-function broadcastSidebar(){if(!mainWindow||mainWindow.isDestroyed())return;mainWindow.webContents.send('sidebar:changed',{collections:publicCollections(),smartFolders:library.smartFolders,settings:{sidebarSort:library.settings?.sidebarSort||{},sidebarBranchSort:library.settings?.sidebarBranchSort||{}},activePortfolioId});}
+function broadcastSidebar(){if(!mainWindow||mainWindow.isDestroyed())return;mainWindow.webContents.send('sidebar:changed',{collections:publicCollections(),smartFolders:library.smartFolders,locations:library.locations,portfolios:portfolios.map(({id,name})=>({id,name})),settings:{sidebarSort:library.settings?.sidebarSort||{},sidebarBranchSort:library.settings?.sidebarBranchSort||{}},activePortfolioId});}
+const pendingAssetPatches=new Map();let assetPatchTimer=null;
+function broadcastAssetPatches(patches=[]){if(!patches.length)return;const portfolioId=activePortfolioId;for(const patch of patches){const key=`${portfolioId}:${patch.id}`;pendingAssetPatches.set(key,{portfolioId,patch:{...(pendingAssetPatches.get(key)?.patch||{}),...patch}});}if(assetPatchTimer)return;const drain=()=>{assetPatchTimer=null;if(!mainWindow||mainWindow.isDestroyed()){pendingAssetPatches.clear();return;}const batch=[];let batchPortfolioId=null;for(const[key,entry]of pendingAssetPatches){if(batchPortfolioId===null)batchPortfolioId=entry.portfolioId;if(entry.portfolioId!==batchPortfolioId||batch.length>=250)continue;batch.push(entry.patch);pendingAssetPatches.delete(key);}if(batch.length&&batchPortfolioId===activePortfolioId)mainWindow.webContents.send('assets:patched',{portfolioId:batchPortfolioId,patches:batch});if(pendingAssetPatches.size)assetPatchTimer=setTimeout(drain,16);};assetPatchTimer=setTimeout(drain,0);}
 function broadcast() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   const generation = ++libraryStreamGeneration;
@@ -436,7 +438,7 @@ function streamVideoCompatibility(asset, duration = asset.duration) {
   const finished = new Promise((resolve) => cache.on('finish', resolve).on('error', resolve));
   child.once('close', async (code) => {
     activeFfmpegChildren.delete(child); cache.end(); await finished;
-    if (!canceled && code === 0) { try { await fsp.rm(finalPath, { force: true }); await fsp.rename(partialPath, finalPath); asset.proxyPath = finalPath; asset.proxyVersion = 2; scheduleSave(); broadcast(); } catch {} }
+    if (!canceled && code === 0) { try { await fsp.rm(finalPath, { force: true }); await fsp.rename(partialPath, finalPath); asset.proxyPath = finalPath; asset.proxyVersion = 2; scheduleSave();broadcastAssetPatches([{id:asset.id,proxyPath:asset.proxyPath,proxyVersion:asset.proxyVersion,mediaUrl:mediaUrlFor(asset)}]); } catch {} }
     else { fsp.rm(partialPath, { force: true }).catch(() => {}); if (stderr) console.error(`Compatibility stream failed for ${asset.filename}: ${stderr}`); }
     if (!canceled) { try { controller.close(); } catch {} }
   });
@@ -739,11 +741,11 @@ async function refreshSourcesInBackground({ rescan = false } = {}) {
     }
   });
   await Promise.allSettled(workers);
-  let restored = 0;
-  const staleWorkers = Array.from({ length: Math.min(4, staleAssets.length) }, async () => { while (staleAssets.length && backgroundRunActive(run)) { const asset = staleAssets.shift(); if (await pathAvailable(asset.path)) { asset.sourceMissing = false; asset.sourcePending = false; asset.missingSince = null; restored += 1; } } });
+  let restored = 0,restoredAssets=[];
+  const staleWorkers = Array.from({ length: Math.min(4, staleAssets.length) }, async () => { while (staleAssets.length && backgroundRunActive(run)) { const asset = staleAssets.shift(); if (await pathAvailable(asset.path)) { asset.sourceMissing = false; asset.sourcePending = false; asset.missingSince = null; restored += 1;restoredAssets.push(asset); } } });
   await Promise.allSettled(staleWorkers);
   if (!backgroundRunActive(run)) { finishBackgroundRun(run); return { cancelled: true, online: 0, total: pending.length }; }
-  scheduleSave(); if (restored) broadcast(); else broadcastLocations(); finishBackgroundRun(run);
+  scheduleSave();if(restoredAssets.length)broadcastAssetPatches(restoredAssets.map((asset)=>({id:asset.id,sourceMissing:false,sourcePending:false,missingSince:null,previewUrl:previewUrlFor(asset)})));broadcastLocations();finishBackgroundRun(run);
   for (const locationId of recovered) { if (run.portfolioId !== activePortfolioId) break; await scanLocation(locationId, { notify: true }); }
   return { online: jobLibrary.locations.filter((location) => location.online).length, total: jobLibrary.locations.length, rescanned: recovered.length, restored };
 }
@@ -763,7 +765,7 @@ async function warmContentHashes() {
       if (!backgroundRunActive(run)) break; if (typeof result === 'string'){asset.contentHash = result;changedAssets.push(asset);} else failed += 1; completed += 1;
       if (completed % 10 === 0 || completed === total) reportBackgroundProgress(progressId, { label: 'Analyzing file fingerprints', detail: `${completed.toLocaleString()} of ${total.toLocaleString()}${failed ? ` · ${failed} failed` : ''}`, completed, total });
     } }); await Promise.allSettled(workers);
-    if (backgroundRunActive(run)) { if(changedAssets.length)await persistAssetBatch(changedAssets); broadcast(); reportBackgroundProgress(progressId, { label: failed ? 'File analysis completed with issues' : 'File analysis complete', detail: failed ? `${failed} files skipped` : `${completed} files analyzed`, completed, total, done: true, status: failed ? 'warning' : 'completed' }); }
+    if (backgroundRunActive(run)) { if(changedAssets.length){await persistAssetBatch(changedAssets);broadcastAssetPatches(changedAssets.map((asset)=>({id:asset.id,contentHash:asset.contentHash})));}reportBackgroundProgress(progressId, { label: failed ? 'File analysis completed with issues' : 'File analysis complete', detail: failed ? `${failed} files skipped` : `${completed} files analyzed`, completed, total, done: true, status: failed ? 'warning' : 'completed' }); }
   } finally { finishBackgroundRun(run); }
 }
 
@@ -1091,7 +1093,7 @@ async function applyInlineCrop(id, crop = {}) {
   await pipeline.extract({ left, top, width, height }).png().toFile(target);
   if (asset.editedPath && asset.editedPath !== target) await fsp.rm(asset.editedPath, { force: true });
   asset.editedPath = target; asset.editedAt = Date.now(); asset.inlineCrop = normalized; asset.width = width; asset.height = height; asset.rotation = 0;
-  scheduleSave(); broadcast();
+  scheduleSave();
   return { ...asset, previewUrl: previewUrlFor(asset), mediaUrl: mediaUrlFor(asset) };
 }
 async function resetInlineEdits(id) {
@@ -1100,7 +1102,7 @@ async function resetInlineEdits(id) {
   if (asset.editedPath) await fsp.rm(asset.editedPath, { force: true });
   asset.editedPath = null; asset.editedAt = null; asset.inlineCrop = null; asset.rotation = 0;
   if (asset.kind === 'image' && await pathAvailable(asset.path)) { const metadata = await sharp(asset.path).metadata(); asset.width = metadata.width || asset.width; asset.height = metadata.height || asset.height; }
-  scheduleSave(); broadcast(); return { ...asset, previewUrl: previewUrlFor(asset), mediaUrl: mediaUrlFor(asset) };
+  scheduleSave();return { ...asset, previewUrl: previewUrlFor(asset), mediaUrl: mediaUrlFor(asset) };
 }
 
 async function exportAnnotatedAsset(id, annotations = [], edits = {}) {
@@ -1630,13 +1632,13 @@ ipcMain.handle('portfolio:create', async (_event, name) => {
   portfolios.push({ id, name: trimmed, database, legacyFile: null,managed:true }); await savePortfolioRegistry();
   return { id, name: trimmed };
 });
-ipcMain.handle('portfolio:add-existing',async()=>{const result=await dialog.showOpenDialog(mainWindow,{properties:['openFile'],title:'Add Existing Pigeon Portfolio',filters:[{name:'Pigeon portfolio database',extensions:['db']}]});if(result.canceled||!result.filePaths[0])return null;const database=path.resolve(result.filePaths[0]);if(!(await isPortfolioDatabase(database)))throw new Error('The selected file is not a valid SQLite portfolio database');if(portfolios.some((item)=>normalizedPortfolioDatabase(item.database||portfolioDatabasePath(item.id))===normalizedPortfolioDatabase(database)))throw new Error('That portfolio is already added');const base=path.basename(database,path.extname(database)).replace(/[-_]+/g,' ').trim()||'Existing Portfolio',name=String(await dialog.showMessageBox(mainWindow,{type:'question',title:'Add Existing Portfolio',message:`Add “${base}”?`,detail:database,buttons:['Add Portfolio','Cancel'],defaultId:0,cancelId:1}).then((choice)=>choice.response===0?base:''));if(!name)return null;let unique=name,suffix=2;while(portfolios.some((item)=>item.name.toLowerCase()===unique.toLowerCase()))unique=`${name} ${suffix++}`;const fileId=path.basename(database,'.db'),id=/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(fileId)&&!portfolios.some((item)=>item.id===fileId)?fileId:crypto.randomUUID(),portfolio={id,name:unique,database,legacyFile:null,managed:false};portfolios.push(portfolio);await savePortfolioRegistry();broadcast();return{id,name:unique};});
+ipcMain.handle('portfolio:add-existing',async()=>{const result=await dialog.showOpenDialog(mainWindow,{properties:['openFile'],title:'Add Existing Pigeon Portfolio',filters:[{name:'Pigeon portfolio database',extensions:['db']}]});if(result.canceled||!result.filePaths[0])return null;const database=path.resolve(result.filePaths[0]);if(!(await isPortfolioDatabase(database)))throw new Error('The selected file is not a valid SQLite portfolio database');if(portfolios.some((item)=>normalizedPortfolioDatabase(item.database||portfolioDatabasePath(item.id))===normalizedPortfolioDatabase(database)))throw new Error('That portfolio is already added');const base=path.basename(database,path.extname(database)).replace(/[-_]+/g,' ').trim()||'Existing Portfolio',name=String(await dialog.showMessageBox(mainWindow,{type:'question',title:'Add Existing Portfolio',message:`Add “${base}”?`,detail:database,buttons:['Add Portfolio','Cancel'],defaultId:0,cancelId:1}).then((choice)=>choice.response===0?base:''));if(!name)return null;let unique=name,suffix=2;while(portfolios.some((item)=>item.name.toLowerCase()===unique.toLowerCase()))unique=`${name} ${suffix++}`;const fileId=path.basename(database,'.db'),id=/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(fileId)&&!portfolios.some((item)=>item.id===fileId)?fileId:crypto.randomUUID(),portfolio={id,name:unique,database,legacyFile:null,managed:false};portfolios.push(portfolio);await savePortfolioRegistry();broadcastSidebar();return{id,name:unique};});
 ipcMain.handle('portfolio:rename', async (_event, { id, name }) => {
   const portfolio = portfolios.find((item) => item.id === id);
   const trimmed = String(name || '').trim();
   if (!portfolio || !trimmed) throw new Error('Portfolio and name are required');
   if (portfolios.some((item) => item.id !== id && item.name.toLowerCase() === trimmed.toLowerCase())) throw new Error('A portfolio with that name already exists');
-  portfolio.name = trimmed; await savePortfolioRegistry(); broadcast(); return { id, name: trimmed };
+  portfolio.name = trimmed; await savePortfolioRegistry(); broadcastSidebar(); return { id, name: trimmed };
 });
 ipcMain.handle('portfolio:switch', async (_event, id) => {
   const portfolio = portfolios.find((item) => item.id === id);
@@ -1696,7 +1698,7 @@ ipcMain.handle('portfolio:remove', async (_event, id) => {
   if (id === activePortfolioId) throw new Error('Switch to another portfolio before deleting this one');
   const portfolio = portfolios.find((item) => item.id === id);
   if (!portfolio) return false;
-  portfolios = portfolios.filter((item) => item.id !== id); await savePortfolioRegistry(); if(portfolio.managed!==false)await Promise.all([fsp.rm(portfolio.database || portfolioDatabasePath(id), { force: true }), fsp.rm(`${portfolio.database || portfolioDatabasePath(id)}-wal`, { force: true }), fsp.rm(`${portfolio.database || portfolioDatabasePath(id)}-shm`, { force: true })]); broadcast(); return true;
+  portfolios = portfolios.filter((item) => item.id !== id); await savePortfolioRegistry(); if(portfolio.managed!==false)await Promise.all([fsp.rm(portfolio.database || portfolioDatabasePath(id), { force: true }), fsp.rm(`${portfolio.database || portfolioDatabasePath(id)}-wal`, { force: true }), fsp.rm(`${portfolio.database || portfolioDatabasePath(id)}-shm`, { force: true })]); broadcastSidebar(); return true;
 });
 ipcMain.handle('library:get', () => publicLibrarySummary());
 ipcMain.handle('library:add-folder', async () => {
@@ -1788,7 +1790,7 @@ ipcMain.handle('folder:remove-password',(_event,{locationId,subfolder='',passwor
 ipcMain.handle('collection:remove', (_event, id) => {
   const descendants = collectionDescendants(id), removed = libraryCore.removeCollection(library, id);
   if (library.settings?.collectionAutoTags) for (const collectionId of descendants) delete library.settings.collectionAutoTags[collectionId];
-  scheduleSave(); broadcast(); return removed;
+  scheduleSave(); broadcastSidebar(); return removed;
 });
 ipcMain.handle('smart-folder:create', (_event, { name, filters, parentId }) => {
   const smartFolder = libraryCore.createSmartFolder(library, name, filters, parentId);
@@ -1802,7 +1804,7 @@ ipcMain.handle('smart-folder:move', (_event, { id, parentId }) => {
   const smartFolder = libraryCore.moveSmartFolder(library, id, parentId); scheduleSave(); broadcastSidebar(); return smartFolder;
 });
 ipcMain.handle('smart-folder:remove', (_event, id) => {
-  const removed = libraryCore.removeSmartFolder(library, id); scheduleSave(); broadcast(); return removed;
+  const removed = libraryCore.removeSmartFolder(library, id); scheduleSave(); broadcastSidebar(); return removed;
 });
 const SIDEBAR_SORTS=new Set(['manual','name-asc','name-desc','updated-asc','updated-desc','created-asc','created-desc']);
 ipcMain.handle('sidebar:set-sort',(_event,{type,sort})=>{if(!['collections','smartFolders'].includes(type)||!SIDEBAR_SORTS.has(sort))throw new Error('Invalid sidebar sort');library.settings.sidebarSort={...(library.settings.sidebarSort||{}),[type]:sort};scheduleSave();broadcastSidebar();return sort;});
@@ -1816,7 +1818,7 @@ ipcMain.handle('item:set-icon', (_event, { type, id, icon }) => {
   else if (type === 'location') { const item = library.locations.find((entry) => entry.id === id); if (item) item.icon = value; }
   else if (type === 'subfolder') { library.settings = library.settings || {}; library.settings.itemIcons = library.settings.itemIcons || {}; if (value) library.settings.itemIcons[id] = value; else delete library.settings.itemIcons[id]; }
   else return false;
-  scheduleSave(); broadcast(); return true;
+  scheduleSave();broadcastSidebar();return true;
 });
 function applyTagsInBackground(predicate,tagFactory,label){let index=0,updated=0;const run=async()=>{const changed=[];for(let count=0;index<library.assets.length&&count<300;index++,count++){const asset=library.assets[index];if(!predicate(asset))continue;const tags=tagFactory(asset),existing=new Set((asset.tags||[]).map((tag)=>tag.toLowerCase()));let dirty=false;for(const tag of tags)if(!existing.has(String(tag).toLowerCase())){asset.tags=[...(asset.tags||[]),tag];existing.add(String(tag).toLowerCase());dirty=true;}if(dirty){changed.push(asset);updated+=1;}}if(changed.length)await persistAssetBatch(changed);if(index<library.assets.length)setImmediate(run);else reportBackgroundProgress(`${activePortfolioId}:tags:${Date.now()}`,{label,detail:`${updated} items updated`,completed:updated,total:updated,done:true});};setImmediate(run);}
 ipcMain.handle('collection:set-auto-tags', (_event, { collectionId, tags = [] }) => {
@@ -1862,7 +1864,7 @@ ipcMain.handle('assets:set-order',(_event,{scope,order})=>{if(!/^(collection|sma
 ipcMain.handle('assets:auto-tag',(_event,ids)=>{const selected=new Set(ids);applyTagsInBackground((asset)=>selected.has(asset.id),(asset)=>libraryCore.suggestTags(asset),'Generating local tags');return{pending:true,count:selected.size};});
 ipcMain.handle('tags:rename', (_event, { from, to }) => {
   const replacement = libraryCore.renameTag(library, from, to);
-  scheduleSave(); broadcast(); return replacement;
+  scheduleSave();return replacement;
 });
 ipcMain.handle('tags:delete', async (_event, requestedTags) => {
   const result=libraryCore.deleteTags(library,requestedTags);if(result.assets.length)await persistAssetBatch(result.assets);scheduleSave();return{deletedTags:result.deletedTags,updatedAssets:result.updatedAssets};

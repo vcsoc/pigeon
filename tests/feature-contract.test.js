@@ -327,7 +327,7 @@ test('map view supports batch geolocation, address search, globe and street mode
   assert.equal((html.match(/id="map-search-input"/g) || []).length, 1);
   assert.match(html, /id="map-search-results"[^>]*role="listbox"/);
   assert.doesNotMatch(html, /map-address-suggestions/);
-  assert.match(renderer, /batchUpdateAssets\(state\.mapSelectionIds/);
+  assert.match(renderer,/updateAssetsWithoutGridRefresh\(state\.mapSelectionIds/);
   assert.match(main, /nominatim\.openstreetmap\.org/);
   assert.match(main, /photon\.komoot\.io/);
   assert.match(main, /tile\.openstreetmap\.org/);
@@ -581,6 +581,14 @@ test('previewable text extensions work for legacy file-kind assets',()=>{
   assert.match(main,/PREVIEWABLE_DOCUMENT_EXTENSIONS\.has\(asset\.extension\).*return !asset\.thumbnailPath/);assert.match(main,/if \(PREVIEWABLE_DOCUMENT_EXTENSIONS\.has\(asset\.extension\)\) return createDocumentThumbnail/);assert.match(main,/schedulePortfolioBackground\(warmThumbnailCache,1000\)/);assert.match(renderer,/function isTextPreviewDocument\(asset\)\{return TEXT_PREVIEW_DOCUMENT_EXTENSIONS\.has/);assert.match(renderer,/hasDocumentThumbnailPreview\(asset\)\) && Boolean\(asset\.thumbnailPath\)/);assert.match(renderer,/if\(state\.kind==='visual'\)state\.kind='all'/);assert.match(renderer,/documentFallback=hasDocumentThumbnailPreview\(asset\)/);
 });
 
+test('tagging and unrelated collection deletion preserve existing thumbnail nodes',()=>{
+  const tagHelper=renderer.match(/async function addTagsToAssets[\s\S]*?\nfunction renderIconPicker/)?.[0]||'',collectionDelete=renderer.match(/async function removeCollectionWithoutGridRefresh[\s\S]*?\nasync function editCollectionAutoTags/)?.[0]||'',mainCollectionDelete=main.match(/ipcMain\.handle\('collection:remove'[\s\S]*?\n\}\);/)?.[0]||'';assert.match(tagHelper,/applyTagsToAssetsOptimistically/);assert.doesNotMatch(tagHelper,/renderGrid|reconcileThumbnailCards/);assert.doesNotMatch(collectionDelete,/renderGrid|reconcileThumbnailCards/);assert.match(collectionDelete,/renderSidebar\(false\)/);assert.match(mainCollectionDelete,/broadcastSidebar\(\)/);assert.doesNotMatch(mainCollectionDelete,/broadcast\(\)/);
+});
+
+test('large navigation waits for final permitted results and background metadata patches in place',()=>{
+  assert.match(renderer,/indices=view\.ready\?view\.indices:\[\]/);assert.doesNotMatch(renderer,/onPreview:[^\n]*renderGrid/);assert.match(renderer,/onAssetsPatched/);assert.match(preload,/onAssetsPatched/);assert.match(main,/function broadcastAssetPatches/);const hashes=main.match(/async function warmContentHashes[\s\S]*?\n\}/)?.[0]||'';assert.match(hashes,/broadcastAssetPatches/);assert.doesNotMatch(hashes,/broadcast\(\)/);
+});
+
 test('thumbnail rotation patches affected cards without rebuilding the grid',()=>{
   assert.match(renderer,/function patchRotatedThumbnail/);
   assert.match(renderer,/preview\.classList\.toggle\('quarter-turned',quarterTurn\)/);
@@ -611,9 +619,9 @@ test('collection assignment and multi-selection context actions preserve batch i
   assert.match(renderer, /removeSelectedFromCurrentCollection/);
   assert.match(renderer, /data-context-action="remove-from-collection"/);
   assert.match(renderer, /event\.key === 'Delete' && !isInternalViewerOpen\(\)/);
-  assert.match(renderer, /\{ removeCollectionId: collectionId \}/);
+  assert.match(renderer,/\{removeCollectionId:collectionId\}/);
   assert.match(renderer, /if \(!state\.selectedIds\.has\(id\)\) state\.selectedIds/);
-  assert.match(renderer, /batchUpdateAssets\(selectedIds/);
+  assert.match(renderer,/updateAssetsWithoutGridRefresh\(selectedIds/);
   assert.doesNotMatch(renderer, /data-context-action="crop"/);
   assert.match(renderer, /selectedImageIds/);
   assert.match(renderer, /Rotate \$\{selectedImageIds\.length\} images/);
@@ -722,7 +730,7 @@ test('refresh, robust facets, folder drops, media hover scrubbing, and expanded 
   assert.match(main, /library:refresh-sources/);
   assert.match(main, /staleAssets/);
   assert.match(renderer, /sourceStatusChanged/);
-  assert.match(renderer, /if\(sourceStatusChanged\)\{ renderSidebar\(false\); renderGrid\(\); renderInspector\(\); \}/);
+  assert.match(renderer,/if\(sourceStatusChanged\)\{renderSidebar\(false\);for\(const card/);assert.doesNotMatch(renderer,/if\(sourceStatusChanged\)\{[^\n]*renderGrid/);
   assert.match(renderer, /rating: 'ratings', shape: 'shapes', color: 'colors'/);
   assert.match(renderer, /attachHoverMediaPreview/);
   assert.match(renderer, /media\.currentTime = desiredTime/);
