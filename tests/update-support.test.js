@@ -4,7 +4,25 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { isMissingUpdateMetadataError } = require('../electron/update-support');
+const { compareVersions, isMissingUpdateMetadataError, isNewerVersion, requiresForcedUpdate } = require('../electron/update-support');
+
+test('semantic update comparisons reject older releases and handle multi-digit segments',()=>{
+  assert.equal(compareVersions('0.1.100','0.1.101'),-1);
+  assert.equal(compareVersions('0.2.1','0.1.101'),1);
+  assert.equal(compareVersions('1.0.0','1.0.0'),0);
+  assert.equal(compareVersions('1.0.0-beta.2','1.0.0-beta.10'),-1);
+  assert.equal(isNewerVersion('0.1.100','0.1.101'),false);
+  assert.equal(isNewerVersion('0.2.1','0.1.101'),true);
+  assert.equal(isNewerVersion('not-a-version','0.1.101'),false);
+});
+
+test('forced update policies apply only below the configured minimum',()=>{
+  const policy={minimumVersion:'0.2.1',force:true};
+  assert.equal(requiresForcedUpdate(policy,'0.1.101'),true);
+  assert.equal(requiresForcedUpdate(policy,'0.2.1'),false);
+  assert.equal(requiresForcedUpdate(policy,'0.3.0'),false);
+  assert.equal(requiresForcedUpdate({...policy,force:false},'0.1.101'),false);
+});
 
 test('missing macOS update metadata is recognized as a recoverable release configuration error', () => {
   const error = new Error('Cannot find latest-mac.yml in the latest release artifacts (https://github.com/vcsoc/pigeon/releases/download/v0.1.67/latest-mac.yml): HttpError: 404');
@@ -26,4 +44,6 @@ test('the update IPC handler returns a nonfatal unavailable result for missing m
   const main = fs.readFileSync(path.join(__dirname, '..', 'electron', 'main.js'), 'utf8');
   assert.match(main, /if\(!isMissingUpdateMetadataError\(error\)\)throw error/);
   assert.match(main, /status:'unavailable'.*reason:'missing-update-metadata'/);
+  assert.match(main,/isNewerVersion\(version,currentVersion\)/);
+  assert.match(main,/autoUpdater\.allowDowngrade = false/);
 });
