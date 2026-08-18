@@ -137,7 +137,7 @@ let streamRenderTimer,scanRenderHandle=null,lastUserInteractionAt=0;
 const rendererAssetIndexes=new Map();
 for(const eventName of ['pointerdown','keydown','wheel','input'])window.addEventListener(eventName,()=>{lastUserInteractionAt=performance.now();},{capture:true,passive:true});
 let annotationStart;
-let viewerPanStart;
+let viewerPanStart,viewerPan={x:0,y:0};
 let viewerCropDrag;
 let suppressGridScroll = false;
 const savedLayout = localStorage.getItem('pigeon.layout');
@@ -1653,9 +1653,11 @@ function showAppSubmenu(group, anchor) {
 }
 
 function isInternalViewerOpen() { return !elements.mediaViewer.classList.contains('hidden'); }
+const VIEWER_MIN_ZOOM=.02,VIEWER_MAX_ZOOM=12;
 function viewerSourceSize(){const asset=state.library.assets.find((item)=>item.id===state.viewerAssetId),quarter=Boolean((Number(asset?.rotation)||0)%180),width=elements.viewerImage.naturalWidth||asset?.width||1,height=elements.viewerImage.naturalHeight||asset?.height||1;return quarter?{width:height,height:width,sourceWidth:width,sourceHeight:height}:{width,height,sourceWidth:width,sourceHeight:height};}
 function viewerFitScale(){const stage=$('.viewer-stage'),size=viewerSourceSize();return Math.min(stage.clientWidth/Math.max(size.width,1),stage.clientHeight/Math.max(size.height,1))*.98;}
-function applyViewerImageFit() {const image=elements.viewerImage,asset=state.library.assets.find((item)=>item.id===state.viewerAssetId);if(!asset||asset.kind!=='image'||image.classList.contains('hidden'))return;const size=viewerSourceSize(),scale=state.viewerFit?viewerFitScale():state.viewerZoom;image.style.width=`${Math.max(1,size.sourceWidth*scale)}px`;image.style.height=`${Math.max(1,size.sourceHeight*scale)}px`;image.style.maxWidth='none';image.style.maxHeight='none';}
+function clampViewerPan(scale=state.viewerFit?viewerFitScale():state.viewerZoom){const stage=$('.viewer-stage'),size=viewerSourceSize(),maximumX=Math.abs(size.width*scale-stage.clientWidth)/2,maximumY=Math.abs(size.height*scale-stage.clientHeight)/2;viewerPan.x=Math.max(-maximumX,Math.min(maximumX,viewerPan.x));viewerPan.y=Math.max(-maximumY,Math.min(maximumY,viewerPan.y));return viewerPan;}
+function applyViewerImageFit(){const image=elements.viewerImage,surface=$('#viewer-image-surface'),asset=state.library.assets.find((item)=>item.id===state.viewerAssetId);if(!asset||(asset.kind!=='image'&&!isImagePreviewDocument(asset))||surface.classList.contains('hidden'))return;const size=viewerSourceSize(),scale=state.viewerFit?viewerFitScale():state.viewerZoom;if(state.viewerFit)viewerPan={x:0,y:0};clampViewerPan(scale);surface.style.width=`${Math.max(1,size.width*scale)}px`;surface.style.height=`${Math.max(1,size.height*scale)}px`;surface.style.transform=`translate(-50%,-50%) translate(${viewerPan.x}px,${viewerPan.y}px)`;image.style.width=`${Math.max(1,size.sourceWidth*scale)}px`;image.style.height=`${Math.max(1,size.sourceHeight*scale)}px`;image.style.maxWidth='none';image.style.maxHeight='none';image.style.transform=rotationTransform(asset);}
 function viewerImageContentRect() {
   const stage = $('.viewer-stage');
   const asset = state.library.assets.find((item) => item.id === state.viewerAssetId);
@@ -1695,15 +1697,7 @@ async function applyViewerCrop() {
     cancelViewerCrop(); renderGrid(); renderInspector(); if (state.viewerAssetId === id && isInternalViewerOpen()) renderInternalViewer(); showToast('Crop applied non-destructively');
   } catch (error) { showToast(error.message); }
 }
-function updateViewerMinimap() {
-  const stage = $('.viewer-stage');
-  if (elements.viewerMinimap.classList.contains('hidden')) return;
-  const width = Math.min(100, stage.clientWidth / Math.max(stage.scrollWidth, 1) * 100);
-  const height = Math.min(100, stage.clientHeight / Math.max(stage.scrollHeight, 1) * 100);
-  const left = stage.scrollLeft / Math.max(stage.scrollWidth, 1) * 100;
-  const top = stage.scrollTop / Math.max(stage.scrollHeight, 1) * 100;
-  Object.assign(elements.viewerMinimapViewport.style, { width: `${width}%`, height: `${height}%`, left: `${left}%`, top: `${top}%` });
-}
+function updateViewerMinimap(){if(elements.viewerMinimap.classList.contains('hidden'))return;const stage=$('.viewer-stage'),size=viewerSourceSize(),scale=state.viewerFit?viewerFitScale():state.viewerZoom,displayWidth=Math.max(1,size.width*scale),displayHeight=Math.max(1,size.height*scale),width=Math.min(100,stage.clientWidth/displayWidth*100),height=Math.min(100,stage.clientHeight/displayHeight*100),left=Math.max(0,Math.min(100-width,(displayWidth/2-stage.clientWidth/2-viewerPan.x)/displayWidth*100)),top=Math.max(0,Math.min(100-height,(displayHeight/2-stage.clientHeight/2-viewerPan.y)/displayHeight*100));Object.assign(elements.viewerMinimapViewport.style,{width:`${width}%`,height:`${height}%`,left:`${left}%`,top:`${top}%`});}
 let viewerVideoLoadTimer = null;
 function setViewerVideoStatus(visible, message = 'Preparing compatibility playback…') { const status = $('#viewer-video-status'); status.querySelector('strong').textContent = message; status.classList.toggle('hidden', !visible); }
 function recoverViewerVideo(id, reason = 'codec') {
@@ -1717,7 +1711,7 @@ function renderInternalViewer() {
   const asset = state.library.assets.find((item) => item.id === state.viewerAssetId);
   if (!asset) return;
   const image = asset.kind === 'image' || isImagePreviewDocument(asset), video = asset.kind === 'video', audio = asset.kind === 'audio',text=isTextPreviewDocument(asset);
-  elements.viewerImage.classList.toggle('hidden', !image);
+  $('#viewer-image-surface').classList.toggle('hidden',!image);elements.viewerImage.classList.remove('hidden');
   elements.viewerVideo.classList.toggle('hidden', !video);
   elements.viewerAudio.classList.toggle('hidden', !audio);
   elements.viewerFile.classList.toggle('hidden', image || video || audio || text);elements.viewerTextReader.classList.toggle('hidden',!text);if(text)loadTextReader(asset);
@@ -1741,7 +1735,7 @@ function renderInternalViewer() {
 function openInternalViewer(id) {
   state.selectedId = id; state.selectedIds = new Set([id]); updateCardSelectionStyles(); renderInspector();
   state.viewerReturnScrollTop = elements.gridWrap.scrollTop || state.gridScrollTop;
-  if (state.viewerAssetId !== id) delete elements.viewerVideo.dataset.userRequested; state.viewerAssetId = id; state.viewerFit = true;state.viewerZoom=1;
+  if (state.viewerAssetId !== id) delete elements.viewerVideo.dataset.userRequested; state.viewerAssetId = id; state.viewerFit = true;state.viewerZoom=1;viewerPan={x:0,y:0};
   elements.mediaViewer.classList.remove('hidden');
   $('#filter-bar').classList.add('viewer-hidden-filter');
   elements.grid.classList.add('hidden'); elements.empty.classList.add('hidden'); elements.tagBrowser.classList.add('hidden'); elements.sentinel.classList.add('hidden');
@@ -1758,7 +1752,7 @@ function navigateViewer(direction) {
   const visibleIndices=currentViewIndices();
   if(!visibleIndices.length)return;
   const index=currentViewIndexOf(state.viewerAssetId,visibleIndices),next=Math.min(visibleIndices.length-1,Math.max(0,(index<0?0:index)+direction)),nextAsset=currentViewAssetAt(next,visibleIndices);if(!nextAsset)return;
-  state.viewerAssetId=nextAsset.id;
+  state.viewerAssetId=nextAsset.id;viewerPan={x:0,y:0};
   state.selectedId = state.viewerAssetId;
   state.selectedIds = new Set([state.selectedId]);
   updateCardSelectionStyles(); renderInspector(); renderInternalViewer();
@@ -1777,7 +1771,7 @@ function closeInternalViewer() {
 }
 function toggleViewerFit() {
   if (!isInternalViewerOpen()) return;
-  state.viewerFit = !state.viewerFit;
+  state.viewerFit=!state.viewerFit;viewerPan={x:0,y:0};if(!state.viewerFit)state.viewerZoom=1;
   renderInternalViewer();
 }
 
@@ -2152,18 +2146,8 @@ elements.mapCanvas.addEventListener('wheel', (event) => {
   renderMap();
 }, { passive: false });
 $('.viewer-stage').addEventListener('scroll', updateViewerMinimap, { passive: true });
-$('.viewer-stage').addEventListener('pointerdown', (event) => {
-  if (state.viewerFit || event.button !== 0 || event.target !== elements.viewerImage) return;
-  const stage = $('.viewer-stage');
-  viewerPanStart = { x: event.clientX, y: event.clientY, left: stage.scrollLeft, top: stage.scrollTop };
-  stage.classList.add('dragging'); stage.setPointerCapture(event.pointerId); event.preventDefault();
-});
-$('.viewer-stage').addEventListener('pointermove', (event) => {
-  if (!viewerPanStart) return;
-  const stage = $('.viewer-stage');
-  stage.scrollLeft = viewerPanStart.left - (event.clientX - viewerPanStart.x);
-  stage.scrollTop = viewerPanStart.top - (event.clientY - viewerPanStart.y);
-});
+$('.viewer-stage').addEventListener('pointerdown',(event)=>{if(state.viewerFit||event.button!==0||$('#viewer-image-surface').classList.contains('hidden')||state.viewerCropMode)return;const stage=$('.viewer-stage');viewerPanStart={x:event.clientX,y:event.clientY,panX:viewerPan.x,panY:viewerPan.y};stage.classList.add('dragging');stage.setPointerCapture(event.pointerId);event.preventDefault();});
+$('.viewer-stage').addEventListener('pointermove',(event)=>{if(!viewerPanStart)return;viewerPan.x=viewerPanStart.panX+event.clientX-viewerPanStart.x;viewerPan.y=viewerPanStart.panY+event.clientY-viewerPanStart.y;clampViewerPan();applyViewerImageFit();updateViewerMinimap();});
 const stopViewerPan = () => { viewerPanStart = null; $('.viewer-stage').classList.remove('dragging'); updateViewerMinimap(); };
 $('.viewer-stage').addEventListener('pointerup', stopViewerPan);
 $('.viewer-stage').addEventListener('pointercancel', stopViewerPan);
@@ -2191,7 +2175,7 @@ $('#viewer-crop-overlay').addEventListener('pointermove', (event) => {
 const stopViewerCropDrag = () => { viewerCropDrag = null; };
 $('#viewer-crop-overlay').addEventListener('pointerup', stopViewerCropDrag);
 $('#viewer-crop-overlay').addEventListener('pointercancel', stopViewerCropDrag);
-$('.viewer-stage').addEventListener('wheel',(event)=>{if(elements.viewerImage.classList.contains('hidden'))return;event.preventDefault();const stage=$('.viewer-stage'),oldScale=state.viewerFit?viewerFitScale():state.viewerZoom,imageRect=elements.viewerImage.getBoundingClientRect(),anchorX=(event.clientX-imageRect.left)/Math.max(imageRect.width,1),anchorY=(event.clientY-imageRect.top)/Math.max(imageRect.height,1),factor=Math.exp(-Math.max(-100,Math.min(100,event.deltaY))*.0025),next=Math.max(.02,Math.min(12,oldScale*factor));state.viewerFit=false;state.viewerZoom=next;elements.mediaViewer.classList.add('full-view');elements.viewerMinimap.classList.remove('hidden');$('#viewer-fit').textContent='Full';applyViewerImageFit();requestAnimationFrame(()=>{const newRect=elements.viewerImage.getBoundingClientRect();stage.scrollLeft+=newRect.left+anchorX*newRect.width-event.clientX;stage.scrollTop+=newRect.top+anchorY*newRect.height-event.clientY;updateViewerMinimap();});},{passive:false});
+$('.viewer-stage').addEventListener('wheel',(event)=>{if($('#viewer-image-surface').classList.contains('hidden'))return;event.preventDefault();const stage=$('.viewer-stage'),rect=stage.getBoundingClientRect(),oldScale=state.viewerFit?viewerFitScale():state.viewerZoom,factor=Math.exp(-Math.max(-100,Math.min(100,event.deltaY))*.0025),next=Math.max(VIEWER_MIN_ZOOM,Math.min(VIEWER_MAX_ZOOM,oldScale*factor));if(Math.abs(next-oldScale)<1e-9)return;const cursorX=event.clientX-rect.left-rect.width/2,cursorY=event.clientY-rect.top-rect.height/2,sourceX=(cursorX-viewerPan.x)/oldScale,sourceY=(cursorY-viewerPan.y)/oldScale;viewerPan.x=cursorX-sourceX*next;viewerPan.y=cursorY-sourceY*next;state.viewerFit=false;state.viewerZoom=next;elements.mediaViewer.classList.add('full-view');elements.viewerMinimap.classList.remove('hidden');$('#viewer-fit').textContent='Full';clampViewerPan(next);applyViewerImageFit();updateViewerMinimap();},{passive:false});
 $('#viewer-line-numbers').addEventListener('change',(event)=>elements.viewerTextReader.classList.toggle('hide-line-numbers',!event.target.checked));
 $('#contact-sheet-columns').addEventListener('input',renderContactSheet);$('#contact-sheet-rows').addEventListener('input',renderContactSheet);$('#contact-sheet-order').addEventListener('change',renderContactSheet);$('#contact-sheet-labels').addEventListener('click',(event)=>{state.contactSheetLabels=!state.contactSheetLabels;event.currentTarget.setAttribute('aria-pressed',String(state.contactSheetLabels));renderContactSheet();});$('#contact-sheet-export').addEventListener('click',async()=>{const rect=elements.contactSheetPages.getBoundingClientRect(),result=await window.pigeon.exportContactSheet($('#contact-sheet-export-format').value,{x:Math.round(rect.x),y:Math.round(rect.y),width:Math.round(rect.width),height:Math.round(Math.min(rect.height,window.innerHeight-rect.y))});if(result)showToast('Contact sheet exported');});$('#contact-sheet-print').addEventListener('click',()=>window.print());$('#contact-sheet-close').addEventListener('click',closeContactSheet);$('.sidebar').addEventListener('click',closeContactSheet);
 $('#duplicate-similarity').addEventListener('input', (event) => {

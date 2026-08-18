@@ -171,7 +171,7 @@ test('trash isolation, analytics actions, text reader, contact export, window re
 });
 
 test('preloaded magnifier, true viewer scale, scoped thumbnail sizes and matching folder counts are wired',()=>{
-  assert.match(renderer,/image\.onload=/);assert.match(renderer,/asset\.previewUrl\|\|asset\.mediaUrl/);assert.match(renderer,/function viewerFitScale/);assert.match(renderer,/anchorX=.*imageRect\.left/);assert.match(renderer,/anchorX\*newRect\.width/);assert.match(renderer,/Math\.min\(12,oldScale\*factor\)/);assert.doesNotMatch(styles,/min-width: max-content/);
+  assert.match(renderer,/image\.onload=/);assert.match(renderer,/asset\.previewUrl\|\|asset\.mediaUrl/);assert.match(renderer,/function viewerFitScale/);assert.match(renderer,/sourceX=\(cursorX-viewerPan\.x\)\/oldScale/);assert.match(renderer,/viewerPan\.x=cursorX-sourceX\*next/);assert.match(renderer,/Math\.min\(VIEWER_MAX_ZOOM,oldScale\*factor\)/);assert.doesNotMatch(styles,/min-width: max-content/);
   assert.match(renderer,/function thumbnailSizeScopeKey/);assert.match(renderer,/function thumbnailSizeStorage/);assert.match(renderer,/restoreScopedThumbnailSize/);assert.match(html,/id="zoom-set-default"/);assert.match(renderer,/Portfolio thumbnail default updated/);assert.match(styles,/aspect-ratio:var\(--preview-ratio\)/);assert.match(styles,/object-fit:contain/);
   assert.match(fs.readFileSync(path.join(root,'electron','folder-tree-worker.js'),'utf8'),/directCount/);assert.match(renderer,/state\.includeSubfolderContent\?folder\.count:folder\.directCount/);assert.match(html,/data-pref="coloredTreeLevels"/);assert.match(renderer,/colored-tree-levels/);assert.match(styles,/--tree-level-0/);assert.match(styles,/var\(--tree-color\)/);
 });
@@ -190,7 +190,7 @@ test('clean hierarchy, delayed fit preview, move continuity and contact sheets a
 
 test('structure duplication, broad zoom, cursor viewer zoom, sticky trees, hover preview and topbar actions are wired',()=>{
   assert.match(preload,/duplicateGroupStructure/);assert.match(main,/group:duplicate-structure/);assert.match(main,/copyDirectories/);assert.match(main,/emptyFolders/);assert.match(renderer,/data-folder-action="duplicate"/);assert.match(renderer,/data-smart-action="duplicate"/);assert.match(renderer,/data-location-action="duplicate"/);
-  assert.match(html,/id="zoom-slider"[^>]*min="72"[^>]*max="520"/);assert.match(html,/id="zoom-out"/);assert.match(html,/id="zoom-in"/);assert.match(renderer,/function setThumbnailZoom/);assert.match(styles,/-webkit-app-region:no-drag/);assert.match(renderer,/Math\.min\(12,oldScale\*factor\)/);assert.match(renderer,/anchorX\*newRect\.width/);
+  assert.match(html,/id="zoom-slider"[^>]*min="72"[^>]*max="520"/);assert.match(html,/id="zoom-out"/);assert.match(html,/id="zoom-in"/);assert.match(renderer,/function setThumbnailZoom/);assert.match(styles,/-webkit-app-region:no-drag/);assert.match(renderer,/Math\.min\(VIEWER_MAX_ZOOM,oldScale\*factor\)/);assert.match(renderer,/viewerPan\.x=cursorX-sourceX\*next/);
   assert.match(styles,/\.collapsible-section-label\.pinned-section/);assert.match(renderer,/pinned-section/);assert.match(renderer,/folder-open/);assert.match(html,/id="hover-fit-preview"/);assert.match(renderer,/thumbnail-fit-preview/);assert.match(styles,/\.hover-fit-preview/);assert.match(renderer,/function showQuickActions/);assert.match(renderer,/data-quick-new-action/);
 });
 
@@ -637,6 +637,7 @@ test('internal viewer is chrome-free with context actions, keyboard close, compa
   assert.match(renderer,/event\.code === 'Space'/);
   assert.match(renderer,/viewerZoom/);
   assert.match(renderer,/\.viewer-stage'\)\.addEventListener\('wheel'/);
+  assert.match(html,/id="viewer-image-surface"/);assert.match(renderer,/Math\.abs\(next-oldScale\)<1e-9\)return/);assert.match(renderer,/viewerPanStart=\{x:event\.clientX,y:event\.clientY,panX:viewerPan\.x/);assert.match(renderer,/function clampViewerPan/);assert.match(styles,/\.viewer-image-surface\{/);
   assert.match(styles,/\.media-viewer footer \{ height:28px/);
   assert.match(styles,/\.viewer-stage \{ height:calc\(100% - 28px\)/);
 });
