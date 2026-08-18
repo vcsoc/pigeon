@@ -649,6 +649,9 @@ let libraryAggregateRevision=0,libraryAggregateCache=null,libraryAggregateBuild=
 function applyLibraryAggregateMetrics(metrics){if(!metrics)return;$('#all-count').textContent=metrics.visibleCount;$('#uncategorized-count').textContent=metrics.uncategorizedCount;$('#untagged-count').textContent=metrics.untaggedCount;$('#favorites-count').textContent=metrics.favoritesCount;$('#tags-count').textContent=metrics.tagCatalog.length;$('#offline-count').textContent=metrics.offlineCount;$('#trash-count').textContent=metrics.trashCount;for(const row of $$('.collection-item[data-collection-id]')){const count=row.querySelector(':scope > small');if(count)count.textContent=metrics.collectionCounts.get(row.dataset.collectionId)||0;}}
 function scheduleLibraryAggregateBuild(){const revision=libraryAggregateRevision;if(libraryAggregateCache?.revision===revision||libraryAggregateBuild?.revision===revision)return;const assets=state.library.assets,smartFolders=[...(state.library.smartFolders||[])],configured=[...Object.values(state.library.settings?.folderAutoTags||{}),...Object.values(state.library.settings?.collectionAutoTags||{})].flatMap((rule)=>rule.tags||[]),metrics={revision,visibleCount:0,uncategorizedCount:0,untaggedCount:0,favoritesCount:0,offlineCount:0,trashCount:0,collectionCounts:new Map(),smartFolderCounts:new Map(),stackCounts:new Map(),stackMembers:new Map(),tagEntries:new Map(),configured},build={revision,index:0,metrics};libraryAggregateBuild=build;const step=()=>{if(libraryAggregateBuild!==build||revision!==libraryAggregateRevision)return;const started=performance.now();do{const asset=assets[build.index++];if(!asset)continue;if(asset.deletedAt)metrics.trashCount+=1;if(isOffline(asset))metrics.offlineCount+=1;if(!asset.deletedAt&&!asset.locked){metrics.visibleCount+=1;const tags=asset.tags||[],collections=asset.collectionIds||[];if(!tags.length){metrics.untaggedCount+=1;if(!collections.length)metrics.uncategorizedCount+=1;}if(asset.favorite)metrics.favoritesCount+=1;if(asset.stackId){metrics.stackCounts.set(asset.stackId,(metrics.stackCounts.get(asset.stackId)||0)+1);if(!metrics.stackMembers.has(asset.stackId))metrics.stackMembers.set(asset.stackId,[]);metrics.stackMembers.get(asset.stackId).push(asset.id);}for(const tag of tags){const value=String(tag).trim(),key=value.toLowerCase();if(!value)continue;const entry=metrics.tagEntries.get(key)||{name:value,count:0};entry.count+=1;metrics.tagEntries.set(key,entry);}for(const id of collections)metrics.collectionCounts.set(id,(metrics.collectionCounts.get(id)||0)+1);for(const folder of smartFolders)if(matchesSavedFilters(asset,folder.filters))metrics.smartFolderCounts.set(folder.id,(metrics.smartFolderCounts.get(folder.id)||0)+1);}}while(build.index<assets.length&&performance.now()-started<5);if(build.index<assets.length){scheduleAssetViewTask(step);return;}if(libraryAggregateBuild!==build||revision!==libraryAggregateRevision)return;const canonical=new Map(metrics.tagEntries);for(const tag of configured){const value=String(tag).trim(),key=value.toLowerCase();if(value&&!canonical.has(key))canonical.set(key,{name:value,count:0});}const compare=(a,b)=>a.localeCompare(b,undefined,{sensitivity:'base'});metrics.tagCatalog=[...metrics.tagEntries.values()].sort((a,b)=>compare(a.name,b.name));metrics.existingTags=[...canonical.values()].map((entry)=>entry.name).sort(compare);libraryAggregateCache=metrics;libraryAggregateBuild=null;cachedVisibleAssetCount=metrics.visibleCount;cachedTagCatalog=metrics.tagCatalog;cachedExistingTags=metrics.existingTags;renderedTagSuggestions=null;applyLibraryAggregateMetrics(metrics);renderTagSuggestions();if(state.view==='tags'&&!state.locationId&&!state.collectionId&&!state.smartFolderId)renderTagBrowser();};scheduleAssetViewTask(step);}
 function invalidateLibraryAggregates(){libraryAggregateRevision+=1;libraryAggregateBuild=null;scheduleLibraryAggregateBuild();}
+const sidebarTreeSignatures=new WeakMap();
+function sidebarTreeStructure(markup){return String(markup).replace(/(<small\b[^>]*>)[\s\S]*?(<\/small>)/gi,'$1$2');}
+function reconcileSidebarTree(container,nextMarkup){const markup=String(nextMarkup),signature=sidebarTreeStructure(markup),countText=[...markup.matchAll(/<small\b[^>]*>([\s\S]*?)<\/small>/gi)].map((match)=>match[1].replace(/<[^>]*>/g,'')),countNodes=[...container.querySelectorAll('small')];if(sidebarTreeSignatures.get(container)===signature&&countNodes.length===countText.length){for(let index=0;index<countNodes.length;index+=1)if(countNodes[index].textContent!==countText[index])countNodes[index].textContent=countText[index];return false;}container.innerHTML=markup;sidebarTreeSignatures.set(container,signature);return true;}
 function renderSidebar(rebuildFolderTree = false) {
   const activePortfolio = (state.library.portfolios || []).find((item) => item.id === state.library.activePortfolioId);
   $('#active-portfolio-name').textContent = activePortfolio?.name || 'My Portfolio';
@@ -672,7 +675,7 @@ function renderSidebar(rebuildFolderTree = false) {
     }
   };
   appendCollections();
-  $('#collection-list').innerHTML = collectionRows.join('') || '<div class="facet-empty">No collections</div>';
+  const collectionsRebuilt=reconcileSidebarTree($('#collection-list'),collectionRows.join('') || '<div class="facet-empty">No collections</div>');
   const smartRows = [], appendSmartFolders = (parentId = null, depth = 0) => {
     const siblings=sortedChildren(smartFolderChildren,parentId,'smartFolders');for (const [siblingIndex,folder] of siblings.entries()) {
       const count = smartFolderCounts.get(folder.id), hasChildren = smartFolderChildren.has(folder.id), collapseKey = smartFolderCollapseKey(folder.id), collapsed = hasChildren && collapsedKeys.has(collapseKey);
@@ -680,8 +683,8 @@ function renderSidebar(rebuildFolderTree = false) {
       if (!collapsed) appendSmartFolders(folder.id, depth + 1);
     }
   };
-  appendSmartFolders(); $('#smart-folder-list').innerHTML = smartRows.join('') || '<div class="facet-empty">No smart folders</div>'; wireSidebarKeyboard();
-  $$('.collection-item').forEach((button) => {
+  appendSmartFolders(); const smartFoldersRebuilt=reconcileSidebarTree($('#smart-folder-list'),smartRows.join('') || '<div class="facet-empty">No smart folders</div>'); wireSidebarKeyboard();
+  if(collectionsRebuilt) $$('.collection-item').forEach((button) => {
     button.querySelector('[data-collapse-key]')?.addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); toggleFolderCollapsed(event.currentTarget.dataset.collapseKey); });
     button.addEventListener('click', () => selectCollection(button.dataset.collectionId));
     button.addEventListener('contextmenu', (event) => {
@@ -710,7 +713,7 @@ function renderSidebar(rebuildFolderTree = false) {
       await addAssetsToCollectionWithoutGridRefresh(ids,target,origin.collectionId);
     });
   });
-  $$('#smart-folder-list [data-smart-folder-id]').forEach((button) => {
+  if(smartFoldersRebuilt) $$('#smart-folder-list [data-smart-folder-id]').forEach((button) => {
     button.querySelector('[data-collapse-key]')?.addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); toggleFolderCollapsed(event.currentTarget.dataset.collapseKey); });
     button.addEventListener('click', () => selectSmartFolder(button.dataset.smartFolderId));
     button.addEventListener('dragstart', (event) => { event.dataTransfer.setData('application/x-pigeon-smart-folder', button.dataset.smartFolderId); event.stopPropagation(); });
@@ -731,7 +734,7 @@ function renderSidebar(rebuildFolderTree = false) {
       }));
     });
   });
-  elements.locationList.innerHTML = state.library.locations.map((location) => {
+  const locationMarkup = state.library.locations.map((location) => {
     const tree = folderTreeCache.get(location.id) || { folders:[], visibleFolders:0, totalFolders:0 }, rootCollapseKey = locationCollapseKey(location.id), rootCollapsed = collapsedKeys.has(rootCollapseKey),rootLocked=Boolean(folderLockRule(location.id,'')?.locked);
     const visibleTreeFolders=(rootLocked?[]:tree.folders.filter((folder)=>{const lock=effectiveFolderLockRule(location.id,folder.path);return!lock?.locked||lock.subfolder===String(folder.path).replace(/\\/g,'/').replace(/^\/+|\/+$/g,'').toLowerCase();}));const orderedFolders=[];const appendFolderLevel=(parent='')=>{const children=visibleTreeFolders.filter((folder)=>folder.path.split('/').slice(0,-1).join('/')===parent),sort=sidebarSortValue('folders',`${location.id}:${parent}`);children.sort((a,b)=>compareSidebarItems(a,b,sort));for(const child of children){orderedFolders.push(child);appendFolderLevel(child.path);}};appendFolderLevel();visibleTreeFolders.splice(0,visibleTreeFolders.length,...orderedFolders);
     const folderRows = visibleTreeFolders.map((folder,folderIndex) => { const hasChildren = folder.hasChildren, collapseKey = locationCollapseKey(location.id, folder.path), collapsed = hasChildren && collapsedKeys.has(collapseKey),folderLocked=Boolean(effectiveFolderLockRule(location.id,folder.path)?.locked); const ancestorDepths=visibleTreeFolders.slice(folderIndex+1).find((item)=>item.depth<=folder.depth)?.depth??-1; return `<button class="nav-item location-folder-item ${ancestorDepths<folder.depth?'tree-last':''} ${state.locationId === location.id && state.locationSubfolder === folder.path ? 'active' : ''}" style="--depth:${folder.depth};--tree-color:${treeLevelColor(folder.depth)}" data-location-id="${location.id}" data-subfolder="${encodeURIComponent(folder.path)}" title="${escapeHtml(`${location.path}/${folder.path}`)}"><span class="folder-tree-toggle ${hasChildren ? '' : 'empty'}" data-collapse-key="${collapseKey}" role="button" aria-label="${collapsed ? 'Expand' : 'Collapse'} ${escapeHtml(folder.name)}" aria-expanded="${!collapsed}">${hasChildren ? (collapsed ? '▸' : '▾') : ''}</span><span class="nav-icon tree-folder-icon">${iconSvg(state.library.settings?.itemIcons?.[subfolderIconKey(location.id, folder.path)] || (state.locationId===location.id&&state.locationSubfolder===folder.path?'folder-open':'folder'))}${folderLocked?`<i class="tree-lock-badge">${iconSvg('lock')}</i>`:''}</span><span class="location-name">${escapeHtml(folder.name)}</span><small>${folderLocked?0:(state.includeSubfolderContent?folder.count:folder.directCount||0)}</small></button>`; }).join('') + (tree.visibleFolders > tree.folders.length ? `<button class="location-tree-more" data-load-location-tree="${location.id}">Show ${Math.min(500,tree.visibleFolders-tree.folders.length).toLocaleString()} more of ${tree.visibleFolders.toLocaleString()} folders…</button>` : '');
@@ -740,12 +743,12 @@ function renderSidebar(rebuildFolderTree = false) {
       <button class="location-remove" title="Remove from Pigeon">×</button>
       <div class="location-subfolder-list">${folderRows}</div>
     </div>`;
-  }).join(''); wireSidebarKeyboard();
-  $$('[data-load-location-tree]').forEach((button)=>button.addEventListener('click',()=>{ const id=button.dataset.loadLocationTree; folderTreeLimits.set(id,(folderTreeLimits.get(id)||300)+500); scheduleFolderTreeBuild(); }));
+  }).join(''),locationsRebuilt=reconcileSidebarTree(elements.locationList,locationMarkup); wireSidebarKeyboard();
+  if(locationsRebuilt) $$('[data-load-location-tree]').forEach((button)=>button.addEventListener('click',()=>{ const id=button.dataset.loadLocationTree; folderTreeLimits.set(id,(folderTreeLimits.get(id)||300)+500); scheduleFolderTreeBuild(); }));
   if (rebuildFolderTree) scheduleFolderTreeBuild();
   scheduleSmartFolderCountBuild();
   $$('.library-nav .nav-item[data-view]').forEach((button) => button.classList.toggle('active', !state.locationId && !state.collectionId && !state.smartFolderId && button.dataset.view === state.view));
-  $$('.location-item').forEach((row) => {
+  if(locationsRebuilt) $$('.location-item').forEach((row) => {
     row.querySelector('.location-root-button [data-collapse-key]')?.addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); toggleFolderCollapsed(event.currentTarget.dataset.collapseKey); });
     row.querySelector('.location-root-button').addEventListener('click', () => selectLocation(row.dataset.locationId));
     row.querySelector('.location-root-button').addEventListener('contextmenu', (event) => { event.preventDefault(); const location = state.library.locations.find((item) => item.id === row.dataset.locationId); if (location) showLocationContextMenu(event, location, '', row); });
