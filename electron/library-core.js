@@ -1,4 +1,5 @@
 const crypto = require('node:crypto');
+const smartFolderRules = require('../src/smart-folder-rules');
 
 const SCHEMA_VERSION = 4;
 const DEFAULT_LIBRARY = Object.freeze({
@@ -95,6 +96,7 @@ function createSmartFolder(library, name, filters = {}, parentId = null) {
   const trimmed = String(name || '').trim();
   if (!trimmed) throw new Error('Smart folder name is required');
   if (parentId && !library.smartFolders.some((item) => item.id === parentId)) throw new Error('Parent smart folder does not exist');
+  if(parentId&&!smartFolderRules.resolve(library.smartFolders,parentId).valid)throw new Error('Parent smart folder hierarchy contains a cycle');
   if (library.smartFolders.some((item) => item.parentId === parentId && item.name.toLowerCase() === trimmed.toLowerCase())) throw new Error('A smart folder with that name already exists here');
   const now=Date.now(),siblings=library.smartFolders.filter((item)=>item.parentId===parentId);const folder = { id: idFor('smart-folder'), name: trimmed, parentId, filters: filters || {}, createdAt:now,updatedAt:now,order:siblings.length, icon: null };
   library.smartFolders.push(folder); return folder;
@@ -111,7 +113,7 @@ function moveSmartFolder(library, id, parentId = null) {
   if (!folder) throw new Error('Smart folder does not exist');
   if (parentId && !library.smartFolders.some((item) => item.id === parentId)) throw new Error('Parent smart folder does not exist');
   if (id === parentId) throw new Error('A smart folder cannot contain itself');
-  let cursor = parentId; while (cursor) { if (cursor === id) throw new Error('A smart folder cannot move inside its descendant'); cursor = library.smartFolders.find((item) => item.id === cursor)?.parentId || null; }
+  let cursor = parentId;const seen=new Set();while(cursor){if(cursor===id)throw new Error('A smart folder cannot move inside its descendant');if(seen.has(cursor))throw new Error('Parent smart folder hierarchy contains a cycle');seen.add(cursor);cursor=library.smartFolders.find((item)=>item.id===cursor)?.parentId||null;}
   folder.parentId = parentId;folder.updatedAt=Date.now();folder.order=library.smartFolders.filter((item)=>item.parentId===parentId&&item.id!==id).length; return folder;
 }
 function removeSmartFolder(library, id) {
@@ -244,9 +246,8 @@ function matchesFilters(asset, filters = {}) {
   return !asset.deletedAt;
 }
 
-function evaluateSmartFolder(library, smartFolder) {
-  return library.assets.filter((asset) => matchesFilters(asset, smartFolder.filters));
-}
+function matchesSmartFolder(library,smartFolderOrId,asset){return smartFolderRules.matches(asset,library.smartFolders,smartFolderOrId,matchesFilters);}
+function evaluateSmartFolder(library, smartFolder) { return library.assets.filter((asset)=>matchesSmartFolder(library,smartFolder,asset)); }
 
 function renameTag(library, from, to) {
   const source = String(from || '').trim(), requested = String(to || '').trim();
@@ -288,4 +289,4 @@ function serializeLibrary(library) {
   return JSON.stringify(migrateLibrary(library), null, 2);
 }
 
-module.exports = { SCHEMA_VERSION, DEFAULT_LIBRARY, migrateLibrary, createCollection, renameCollection, moveCollection, removeCollection, createSmartFolder, renameSmartFolder, moveSmartFolder, removeSmartFolder, batchUpdateAssets, stackAssets, unstackAssets, exactDuplicateGroups, similarAssets, visualSimilarityScore, similarImageGroups, matchesFilters, evaluateSmartFolder, renameTag, deleteTags, suggestTags, serializeLibrary, colorDistance, hashDistance, idFor };
+module.exports = { SCHEMA_VERSION, DEFAULT_LIBRARY, migrateLibrary, createCollection, renameCollection, moveCollection, removeCollection, createSmartFolder, renameSmartFolder, moveSmartFolder, removeSmartFolder, batchUpdateAssets, stackAssets, unstackAssets, exactDuplicateGroups, similarAssets, visualSimilarityScore, similarImageGroups, matchesFilters, matchesSmartFolder, evaluateSmartFolder, renameTag, deleteTags, suggestTags, serializeLibrary, colorDistance, hashDistance, idFor };

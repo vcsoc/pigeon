@@ -1,5 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const { performance } = require('node:perf_hooks');
 const { DatabaseSync } = require('node:sqlite');
 const libraryCore = require('./library-core');
 
@@ -52,7 +53,16 @@ function createLibraryStore(databaseFile) {
     deletes: Object.fromEntries(TABLES.map((table) => [table, database.prepare(`DELETE FROM ${table} WHERE id=?`)]))
   };
 
-  const saveBatch = ({ location, assets = [] }) => { database.exec('BEGIN IMMEDIATE'); try { if(location){ const payload=JSON.stringify(location); statements.locations.run(...rowValues('locations',location,payload)); caches.locations.set(location.id,payload); } for(const item of assets){ const payload=JSON.stringify(item); statements.assets.run(...rowValues('assets',item,payload)); caches.assets.set(item.id,payload); } database.exec('COMMIT'); return true; } catch(error){ try{database.exec('ROLLBACK');}catch{} throw error; } };
+  const transaction = (operation) => { database.exec('BEGIN IMMEDIATE'); try { const result=operation(); database.exec('COMMIT'); return result; } catch(error){ try{database.exec('ROLLBACK');}catch{} throw error; } };
+  const upsertAssets = (assets = []) => transaction(() => { let changed=0; for(const item of assets){ if(!item?.id)continue;const payload=JSON.stringify(item);if(caches.assets.get(item.id)===payload)continue;statements.assets.run(...rowValues('assets',item,payload));caches.assets.set(item.id,payload);changed+=1;}return changed; });
+  const deleteAssets = (ids = []) => transaction(() => { let changed=0;for(const id of new Set(ids)){if(!caches.assets.has(id))continue;statements.deletes.assets.run(id);caches.assets.delete(id);changed+=1;}return changed; });
+  const saveBatch = ({ location, assets = [] }) => transaction(() => { let changed=0;if(location){const payload=JSON.stringify(location);if(caches.locations.get(location.id)!==payload){statements.locations.run(...rowValues('locations',location,payload));caches.locations.set(location.id,payload);changed+=1;}}for(const item of assets){const payload=JSON.stringify(item);if(caches.assets.get(item.id)===payload)continue;statements.assets.run(...rowValues('assets',item,payload));caches.assets.set(item.id,payload);changed+=1;}return changed; });
+
+  const saveLibraryMetadata = (input) => {
+    const library=libraryCore.migrateLibrary(input),{locations,collections,smartFolders,...metadata}=library;
+    delete metadata.assets;
+    return transaction(()=>{let changed=0;const metadataPayload=JSON.stringify(metadata);const previousMetadata=database.prepare("SELECT value FROM library_metadata WHERE key='library'").get()?.value;if(previousMetadata!==metadataPayload){statements.metadata.run('library',metadataPayload);changed+=1;}const groups={locations,collections,smart_folders:smartFolders};for(const table of ['locations','collections','smart_folders']){const present=new Set();for(const item of groups[table]){present.add(item.id);const payload=JSON.stringify(item);if(caches[table].get(item.id)===payload)continue;statements[table].run(...rowValues(table,item,payload));caches[table].set(item.id,payload);changed+=1;}for(const id of [...caches[table].keys()])if(!present.has(id)){statements.deletes[table].run(id);caches[table].delete(id);changed+=1;}}return changed;});
+  };
 
   const save = (input) => {
     const library = libraryCore.migrateLibrary(input), { locations, assets, collections, smartFolders, ...metadata } = library;
@@ -75,13 +85,15 @@ function createLibraryStore(databaseFile) {
 
   function backup(target){ fs.mkdirSync(path.dirname(target),{recursive:true}); try{fs.rmSync(target,{force:true});}catch{} database.exec(`VACUUM INTO ${sqliteString(target)}`); return target; }
 
-  function load() {
+  function load({ onSpan = null } = {}) {
+    const metadataStarted=performance.now();
     const row = database.prepare("SELECT value FROM library_metadata WHERE key='library'").get();
     if (!row) return null;
-    const metadata = JSON.parse(row.value), read = (table) => database.prepare(`SELECT payload FROM ${table} ORDER BY rowid`).all().map((item) => JSON.parse(item.payload));
-    return libraryCore.migrateLibrary({ ...metadata, locations: read('locations'), assets: read('assets'), collections: read('collections'), smartFolders: read('smart_folders') });
+    const metadata = JSON.parse(row.value);onSpan?.({name:'sqlite-read-metadata',durationMs:performance.now()-metadataStarted,sourceBytes:row.value.length});
+    const read = (table) => {const startedAt=performance.now(),values=[];let sourceBytes=0;for(const item of database.prepare(`SELECT payload FROM ${table} ORDER BY rowid`).iterate()){sourceBytes+=item.payload.length;values.push(JSON.parse(item.payload));}onSpan?.({name:`sqlite-read-${table.replace('_','-')}`,durationMs:performance.now()-startedAt,size:values.length,sourceBytes});return values;};
+    const migrateStarted=performance.now(),library=libraryCore.migrateLibrary({ ...metadata, locations: read('locations'), assets: read('assets'), collections: read('collections'), smartFolders: read('smart_folders') });onSpan?.({name:'sqlite-migrate-library',durationMs:performance.now()-migrateStarted,size:library.assets.length});return library;
   }
-  return { database, load, save, saveBatch, backup, close: () => database.close() };
+  return { database, load, save, saveBatch, upsertAssets, deleteAssets, saveLibraryMetadata, backup, close: () => database.close() };
 }
 
 function importLegacyJson(store, legacyJsonFile) {

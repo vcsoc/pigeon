@@ -12,6 +12,9 @@ contextBridge.exposeInMainWorld('pigeon', {
   getLegalDocuments: () => ipcRenderer.invoke('app:legal-documents'),
   getDiagnostics: () => ipcRenderer.invoke('diagnostics:get'),
   getTelemetry: () => ipcRenderer.invoke('telemetry:get'),
+  recordPerformanceSpan: (span) => ipcRenderer.send('performance:renderer-span', span),
+  acknowledgeAssetBatch: (payload) => ipcRenderer.send('library:assets-consumed', payload),
+  prioritizeThumbnails: (payload) => ipcRenderer.send('thumbnails:prioritize', payload),
   buildFolderTree: (payload) => ipcRenderer.invoke('folder-tree:build', payload),
   logDiagnostic: (level, message, context = '') => ipcRenderer.invoke('diagnostics:log', { level, message, context }),
   reportFatal: (source, message, context = '') => ipcRenderer.send('diagnostics:fatal', { source, message: String(message || 'Unknown fatal error'), context: String(context || '') }),
@@ -38,6 +41,7 @@ contextBridge.exposeInMainWorld('pigeon', {
   startAssetDrag: (ids) => ipcRenderer.send('assets:start-drag', ids),
   rebuildThumbnails: (ids) => ipcRenderer.invoke('assets:rebuild-thumbnails', ids),
   getEmbeddedMetadata: (id) => ipcRenderer.invoke('asset:embedded-metadata', id),
+  getAssetDetails: (id) => ipcRenderer.invoke('asset:details', id),
   removeLocation: (id) => ipcRenderer.invoke('library:remove-location', id),
   rescan: (id) => ipcRenderer.invoke('library:rescan', id),
   refreshSources: () => ipcRenderer.invoke('library:refresh-sources'),
@@ -162,6 +166,21 @@ contextBridge.exposeInMainWorld('pigeon', {
     const handler = (_event, value) => callback(value);
     ipcRenderer.on('library:assets', handler);
     return () => ipcRenderer.removeListener('library:assets', handler);
+  },
+  onLibraryAssetsComplete: (callback) => {
+    const handler = (_event, value) => callback(value);
+    ipcRenderer.on('library:assets-complete', handler);
+    return () => ipcRenderer.removeListener('library:assets-complete', handler);
+  },
+  onLibraryAssetsDelta: (callback) => {
+    const handler = (_event, value) => callback(value);
+    ipcRenderer.on('library:assets-delta', handler);
+    return () => ipcRenderer.removeListener('library:assets-delta', handler);
+  },
+  onLibraryAssetsDeltaComplete: (callback) => {
+    const handler = (_event, value) => callback(value);
+    ipcRenderer.on('library:assets-delta-complete', handler);
+    return () => ipcRenderer.removeListener('library:assets-delta-complete', handler);
   },
   onScanAssets: (callback) => {
     const handler = (_event, value) => callback(value);
