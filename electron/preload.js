@@ -3,6 +3,8 @@ function reportFatal(source,error,context=''){try{ipcRenderer.send('diagnostics:
 process.on('uncaughtException',(error,origin)=>reportFatal('preload:uncaughtException',error,origin));
 process.on('unhandledRejection',(error)=>reportFatal('preload:unhandledRejection',error));
 process.on('warning',(warning)=>reportFatal('preload:warning',warning));
+const startupVersion=process.argv.find((argument)=>argument.startsWith('--pigeon-app-version='))?.slice('--pigeon-app-version='.length)||'';
+window.addEventListener('DOMContentLoaded',()=>{const target=document.getElementById('startup-version');if(target&&startupVersion)target.textContent=`Version ${startupVersion}`;},{once:true});
 
 contextBridge.exposeInMainWorld('pigeon', {
   getLibrary: () => ipcRenderer.invoke('library:get'),

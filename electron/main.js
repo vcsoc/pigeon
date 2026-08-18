@@ -1189,6 +1189,7 @@ function createWindow() {
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
+      additionalArguments: [`--pigeon-app-version=${app.getVersion()}`],
       contextIsolation: true,
       nodeIntegration: false
     }
