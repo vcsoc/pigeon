@@ -42,7 +42,7 @@ test('every Smart Folder asset receives a placeholder and thumbnails load safely
 });
 
 test('huge portfolio views cooperatively sort and keep a fixed virtual DOM window',()=>{
-  assert.match(html,/cooperative-view\.js[\s\S]*renderer\.js/);assert.match(renderer,/COOPERATIVE_VIEW_THRESHOLD=1000,VIRTUAL_ASSET_WINDOW=480/);assert.match(renderer,/function currentAssetViewSnapshot/);assert.match(renderer,/scheduleAssetViewTask/);assert.match(renderer,/performance\.now\(\)-assetViewSliceStarted>=6/);assert.match(renderer,/30000000\/rows/);assert.match(renderer,/state\.virtualStart=next/);assert.match(renderer,/selectAllVisibleAssetsCooperatively/);assert.match(styles,/\.virtual-grid-spacer/);assert.match(cooperativeView,/filterChunk=512,runSize=2048,mergeChunk=1024/);
+  assert.match(html,/cooperative-view\.js[\s\S]*renderer\.js/);assert.match(renderer,/COOPERATIVE_VIEW_THRESHOLD=1000,VIRTUAL_ASSET_WINDOW=480/);assert.match(renderer,/function currentAssetViewSnapshot/);assert.match(renderer,/scheduleAssetViewTask/);assert.match(renderer,/performance\.now\(\)-assetViewSliceStarted>=6/);assert.match(renderer,/30000000\/rows/);assert.match(renderer,/state\.virtualStart=next/);assert.match(renderer,/bufferRows=Math\.max\(8,Math\.floor\(VIRTUAL_ASSET_WINDOW\/metrics\.columns\/3\)\)/);assert.match(renderer,/if\(!assetView\.virtual&&Date\.now\(\)>=state\.postMoveRevealUntil/);assert.match(renderer,/selectAllVisibleAssetsCooperatively/);assert.match(styles,/\.virtual-grid-spacer/);assert.match(styles,/overflow-anchor:none/);assert.match(cooperativeView,/filterChunk=512,runSize=2048,mergeChunk=1024/);
 });
 
 test('inspector folder paths, bidirectional read-ahead and compact thumbnail spacing are wired',()=>{
@@ -637,7 +637,7 @@ test('internal viewer is chrome-free with context actions, keyboard close, compa
   assert.match(renderer,/event\.code === 'Space'/);
   assert.match(renderer,/viewerZoom/);
   assert.match(renderer,/\.viewer-stage'\)\.addEventListener\('wheel'/);
-  assert.match(html,/id="viewer-image-surface"/);assert.match(renderer,/renderPixelatedSurface\(\$\('#viewer-image-surface'\),elements\.viewerImage/);assert.match(renderer,/host\.id==='viewer-image-surface'\?\{left:'0',top:'0',width:'100%',height:'100%'\}/);assert.match(renderer,/Math\.abs\(next-oldScale\)<1e-9\)return/);assert.match(renderer,/viewerPanStart=\{x:event\.clientX,y:event\.clientY,panX:viewerPan\.x/);assert.match(renderer,/function clampViewerPan/);assert.match(styles,/\.viewer-image-surface\{/);
+  assert.match(html,/id="viewer-image-surface"/);assert.match(renderer,/renderPixelatedSurface\(\$\('#viewer-image-surface'\),elements\.viewerImage/);assert.match(renderer,/host\.id==='viewer-image-surface'\?\{left:'0',top:'0',width:'100%',height:'100%'\}/);assert.match(renderer,/Math\.abs\(next-oldScale\)<1e-9\)return/);assert.match(renderer,/viewerPanStart=\{x:event\.clientX,y:event\.clientY,panX:viewerPan\.x/);assert.match(renderer,/function clampViewerPan/);assert.match(styles,/\.viewer-image-surface\{/);assert.match(styles,/\.media-viewer\.full-view \.viewer-stage img[^}]*object-fit:fill/);assert.doesNotMatch(styles,/\.media-viewer\.full-view \.viewer-stage img[^}]*object-fit:\s*none/);
   assert.match(styles,/\.media-viewer footer \{ height:28px/);
   assert.match(styles,/\.viewer-stage \{ height:calc\(100% - 28px\)/);
 });
