@@ -40,6 +40,12 @@ test('a view-scoped restore writes once while later thumbnail and final-sort com
   assert.equal(restorer.commit({ready:true}),false,'navigation generations cannot inherit a stale restore');
 });
 
+test('switching to a 700-result portfolio retains only the 120-card live window',()=>{
+  const total=700,size=120,columns=5,top=geometry({identity:'portfolio:destination',total,start:0,size,columns,rowHeight:180,scrollTop:0,viewportHeight:900}),bottom=geometry({identity:'portfolio:destination',total,start:total,size,columns,rowHeight:180,scrollTop:999999,viewportHeight:900});
+  for(const view of [top,bottom]){assert.equal(view.virtual,true);assert.equal(view.count,size);assert.ok(view.end<=total);assert.equal(view.extentPx,Math.ceil(total/columns)*180);}
+  assert.equal(bottom.end,total);assert.ok(bottom.start>top.start);assert.equal(bottom.scrollTop,bottom.maxScrollTop);
+});
+
 test('view geometry clamps a stale full-library offset to the active Smart Folder extent',()=>{
   const result=geometry({identity:'smart:unrated',total:5198,start:12000,size:120,columns:5,rowHeight:180,scrollTop:500000,viewportHeight:900});
   assert.equal(result.identity,'smart:unrated');assert.equal(result.end,5198);assert.ok(result.count>0&&result.count<=120);assert.ok(result.start>=0&&result.start<result.end);assert.equal(result.extentPx,Math.ceil(5198/5)*180);assert.equal(result.scrollTop,result.maxScrollTop);

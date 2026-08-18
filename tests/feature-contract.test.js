@@ -1235,6 +1235,14 @@ test('thumbnail magnifier dismisses on browsing scroll without stale virtual-car
   assert.match(openBody,/if\(activeMagnifierCard===card&&loaded&&delayDone\)hoverPreview\.classList\.remove\('hidden'\)/);
 });
 
+test('medium portfolio switches keep completed thumbnail results inside the virtual card budget',()=>{
+  const start=renderer.indexOf('function currentAssetViewSnapshot'),end=renderer.indexOf('function applyVirtualCardPlacement',start),snapshot=renderer.slice(start,end);
+  assert.match(snapshot,/if\(!ready\)return\{assets:allAssets\.slice\(0,VIRTUAL_ASSET_WINDOW\)/);
+  assert.match(snapshot,/const indices=allAssets\.map\(\(asset\)=>rendererAssetIndexes\.get\(asset\.id\)\)/);
+  assert.match(snapshot,/virtual=total>VIRTUAL_ASSET_WINDOW,metrics=virtual\?virtualGridMetrics\(total,indices\):null/);
+  assert.match(snapshot,/assets:virtual\?indices\.slice\(windowRange\.start,windowRange\.end\)/);
+});
+
 test('Smart Folder metadata patches reconcile changed IDs without rebuilding the active view',()=>{
   assert.match(renderer,/function applyMetadataViewDelta\(changes\)/);assert.match(renderer,/PigeonMetadataViewDelta\.reconcileIndices/);assert.match(renderer,/PigeonMetadataViewDelta\.keyedCardPlan/);assert.match(renderer,/PigeonMetadataViewDelta\.updateCounts/);assert.match(renderer,/deltaHandled=viewChanged&&applyMetadataViewDelta\(changes\)/);assert.match(renderer,/if\(viewChanged&&!deltaHandled\)\{invalidateTagCache\(\);invalidateAssetViewCache\(\);scheduleStreamGridRender\(\);\}/);
   const deltaBody=renderer.slice(renderer.indexOf('function reconcileActiveSmartFolderMetadataDelta'),renderer.indexOf('function applyMetadataViewDelta'));assert.doesNotMatch(deltaBody,/invalidateAssetViewCache|startCooperativeAssetView|renderGrid\(/);assert.match(deltaBody,/host\.appendChild\(card\)/);assert.match(deltaBody,/for\(const id of plan\.remove\)existingById\.get\(id\)\?\.remove\(\)/);
