@@ -22,7 +22,9 @@ For removable and external locations, Pigeon stores a small 256px JPEG thumbnail
 - Nested collections, multi-select batch actions, saved smart folders, reference trash, duplicates, and visual similarity
 - Local automatic tags, URL/clipboard/screenshot capture, rotating backups, and folder-based metadata sync
 - Non-destructive annotations and derivative image edits
-- Sandboxed local plugins and a Chrome/Edge capture extension
+- Sandboxed local plugins and drag-to-capture extensions for Chrome, Edge, Firefox, Safari, Brave, Opera, and Vivaldi
+- Native single- and multi-file drag-out to Explorer, Finder, and other desktop applications; unavailable cloud placeholders are safely skipped, while Shift-drag keeps Pigeon-only organization behavior
+- Optional collision-safe naming for Pigeon-managed moves and exports, with an explicit Skip/Keep both choice for byte-identical files
 - Packaging targets for Windows, macOS, and Linux
 
 See [`docs/PIGEON_1_FEATURES.md`](docs/PIGEON_1_FEATURES.md) for the complete local-first feature contract and usage.
@@ -34,13 +36,16 @@ npm install
 npm start
 ```
 
-Build native packages with:
+Build native packages and all browser-extension variants with:
 
 ```sh
 npm run dist:win
 npm run dist:mac
 npm run dist:linux
+npm run extensions:build
 ```
+
+On any website, drag an image or video into the dimmed Pigeon drop panel to download it into the active portfolio’s temporary virtual **Downloads** collection. See [`browser-extension/README.md`](browser-extension/README.md) for per-browser loading and Safari signing instructions.
 
 The workflow in `.github/workflows/build-desktop.yml` builds Windows x64, a universal macOS package, and Linux x64 on their native runners. A version tag such as `v0.1.0` also publishes the installers and update metadata to the corresponding GitHub Release.
 

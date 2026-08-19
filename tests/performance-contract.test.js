@@ -11,8 +11,8 @@ test('library shell and generation-safe asset transport are separate and delay-f
   assert.doesNotMatch(summary,/assets\s*:/);assert.match(broadcast,/ASSET_STREAM_BATCH_SIZE/);assert.match(broadcast,/setImmediate\(sendNextBatch\)/);assert.doesNotMatch(broadcast,/visibleAssets=rendererVisibleAssets/);assert.match(main,/library:assets-consumed/);assert.match(main,/library:assets-complete/);assert.match(renderer,/assetStreamState\.applyChunk/);assert.match(renderer,/acknowledgeAssetBatchAfterFrame/);assert.match(renderer,/if\(!result\.accepted\)return/);assert.match(preload,/acknowledgeAssetBatch/);assert.match(preload,/onLibraryAssetsComplete/);
 });
 
-test('renderer keeps all assets while bounding only the virtual DOM window',()=>{
-  assert.match(renderer,/assetStreamState\.upsertMany\(assets\)/);assert.match(renderer,/PigeonVirtualLayout\.bounded/);assert.match(renderer,/VIRTUAL_ASSET_WINDOW=120/);assert.match(renderer,/samePortfolio/);assert.match(renderer,/preservedScrollTop/);assert.doesNotMatch(renderer,/function loadMoreAssets/);assert.doesNotMatch(renderer,/Load more thumbnails/);
+test('renderer keeps all assets while adapting the bounded virtual DOM window to the viewport',()=>{
+  assert.match(renderer,/assetStreamState\.upsertMany\(assets\)/);assert.match(renderer,/PigeonVirtualLayout\.windowForScroll/);assert.match(renderer,/VIRTUAL_ASSET_WINDOW=120/);assert.match(renderer,/range\.count/);assert.match(renderer,/samePortfolio/);assert.match(renderer,/preservedScrollTop/);assert.doesNotMatch(renderer,/function loadMoreAssets/);assert.doesNotMatch(renderer,/Load more thumbnails/);
 });
 
 test('thumbnail work yields to interaction and patch bursts remain bounded',()=>{
@@ -30,13 +30,20 @@ test('startup avoids repeated whole-library renderer work before first paint',()
   assert.match(sidebar,/scheduleLibraryAggregateBuild/);assert.doesNotMatch(sidebar,/assets\.filter\(\(asset\).*matchesSavedFilters/);assert.match(tags,/scheduleLibraryAggregateBuild/);assert.match(renderer,/performance\.now\(\)-started<5/);assert.match(stream,/if\(firstUsable\)\{scheduleStreamGridRender/);assert.doesNotMatch(stream,/scheduleStreamGridRender\(firstUsable\)/);assert.match(main,/projectFolderTreeAssetsCooperatively/);assert.match(preload,/getAssetDetails/);
 });
 
-test('first nonempty asset batch commits the default grid before saved navigation and completion cannot retain the splash',()=>{
+test('startup keeps the provisional grid behind the splash until the restored viewport is ready',()=>{
   const scheduler=renderer.slice(renderer.indexOf('function scheduleStreamGridRender'),renderer.indexOf('function acknowledgeAssetBatchAfterFrame'));
   const completion=renderer.slice(renderer.indexOf('window.pigeon.onLibraryAssetsComplete'),renderer.indexOf('function scheduleScanGridRender'));
+  const reveal=renderer.slice(renderer.indexOf('function startupViewportHasPendingThumbnails'),renderer.indexOf('let streamRenderTimer'));
   assert.match(assetStream,/!firstUsable&&library\.assets\.length>0/);
   assert.doesNotMatch(scheduler,/restoreNavigationState/);
   assert.match(completion,/restoreNavigationState\(\);updateFilterChips\(\)/);
-  assert.match(completion,/if\(!startupSplashFinished\)requestAnimationFrame\(finishStartupSplash\)/);
+  assert.match(completion,/render\(\{preserveCards:true\}\);scheduleStartupViewportReveal\(\)/);
+  assert.doesNotMatch(completion,/requestAnimationFrame\(finishStartupSplash\)/);
+  assert.match(reveal,/state\.library\.assetStreamPending/);
+  assert.match(reveal,/state\.navigationRestoredPortfolioId!==state\.library\.activePortfolioId/);
+  assert.match(reveal,/querySelectorAll\('\.asset-card'\)/);
+  assert.match(reveal,/pendingThumbnailCards\.has\(card\)\|\|activeThumbnailLoads\.has\(card\)/);
+  assert.match(reveal,/STARTUP_VIEWPORT_READY_TIMEOUT_MS/);
 });
 
 test('startup avoids hidden tag DOM and unlocks stream only a yielded visibility delta',()=>{

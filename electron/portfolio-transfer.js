@@ -21,6 +21,7 @@ async function stageAssetFiles(assets, targetDirectory) {
   if (!Array.isArray(assets) || !assets.length) throw new Error('Select one or more available files');
   const unavailable = [];
   for (const asset of assets) {
+    if (asset.sourceMissing || asset.sourcePending) { unavailable.push(asset.filename || asset.name || asset.path); continue; }
     try { const stat = await fsp.stat(asset.path); if (!stat.isFile()) unavailable.push(asset.filename || asset.name || asset.path); }
     catch { unavailable.push(asset.filename || asset.name || asset.path); }
   }
@@ -29,18 +30,20 @@ async function stageAssetFiles(assets, targetDirectory) {
     error.code = 'SOURCE_FILES_UNAVAILABLE'; error.files = unavailable; throw error;
   }
   await fsp.mkdir(targetDirectory, { recursive: true });
-  const usedNames = new Set(), staged = [];
+  const usedNames = new Set((await fsp.readdir(targetDirectory).catch(() => [])).map((name) => name.toLowerCase())), staged = [], writtenPaths = [], thumbnailNames = new Set();
   try {
     for (const asset of assets) {
       const filename = uniqueTransferFilename(asset.filename || path.basename(asset.path), usedNames), targetPath = path.join(targetDirectory, filename);
-      await fsp.copyFile(asset.path, targetPath);
+      await fsp.copyFile(asset.path, targetPath);writtenPaths.push(targetPath);
       let thumbnailPath = null;
       if (asset.thumbnailPath) {
         try {
           const thumbnailStat = await fsp.stat(asset.thumbnailPath);
           if (thumbnailStat.isFile()) {
             const thumbnailDirectory = path.join(targetDirectory, '.pigeon-thumbnails'), extension = path.extname(asset.thumbnailPath) || '.jpg';
-            await fsp.mkdir(thumbnailDirectory, { recursive: true }); thumbnailPath = path.join(thumbnailDirectory, `${asset.id}${extension}`); await fsp.copyFile(asset.thumbnailPath, thumbnailPath);
+            await fsp.mkdir(thumbnailDirectory, { recursive: true });
+            if (!thumbnailNames.size) for (const name of await fsp.readdir(thumbnailDirectory).catch(() => [])) thumbnailNames.add(name.toLowerCase());
+            thumbnailPath = path.join(thumbnailDirectory, uniqueTransferFilename(`${asset.id}${extension}`, thumbnailNames)); await fsp.copyFile(asset.thumbnailPath, thumbnailPath);writtenPaths.push(thumbnailPath);
           }
         } catch { thumbnailPath = null; }
       }
@@ -48,7 +51,7 @@ async function stageAssetFiles(assets, targetDirectory) {
     }
     return staged;
   } catch (error) {
-    await fsp.rm(targetDirectory, { recursive: true, force: true }).catch(() => {});
+    await Promise.all(writtenPaths.map((writtenPath) => fsp.rm(writtenPath, { force: true }).catch(() => {})));
     throw error;
   }
 }

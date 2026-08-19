@@ -34,3 +34,10 @@ test('late aspect refinement rebuilds exact geometry without ratcheting or losin
 test('bottom to up to down windows remain contiguous and retain the full result tail',()=>{
   for(const mode of ['grid','justified','list']){const model=layout.build({mode,width:1040,cardWidth:180,gap:mode==='list'?3:4,metaHeight:mode==='list'?10:32,ratios}),bottom=assertContiguous(model,model.extentPx-720),up=assertContiguous(model,model.extentPx*.55),down=assertContiguous(model,model.extentPx-720);assert.equal(bottom.end,ratios.length);assert.ok(up.start<bottom.start);assert.equal(down.end,ratios.length);}
 });
+
+test('fullscreen masonry expands beyond the base window and never clips visible lanes or the tail',()=>{
+  const viewportHeight=1280,model=layout.build({mode:'grid',width:3560,cardWidth:80,gap:4,metaHeight:32,ratios});
+  const assertVisibleRange=(scrollTop)=>{const overscanPx=viewportHeight*.75,lower=Math.max(0,scrollTop-overscanPx-model.maxItemHeight),upper=scrollTop+viewportHeight+overscanPx,visible=model.items.filter((item)=>item.y+item.height>=lower&&item.y<=upper),range=layout.windowForScroll({model,scrollTop,viewportHeight,size:120});assert.ok(visible.length);assert.ok(range.count>=120);for(const item of visible)assert.ok(item.index>=range.start&&item.index<range.end,`card ${item.index} at ${item.y}px was clipped from ${range.start}-${range.end}`);return range;};
+  const top=assertVisibleRange(0),middle=assertVisibleRange(model.extentPx*.5),bottom=assertVisibleRange(model.extentPx-viewportHeight);
+  assert.ok(top.count>120,'fullscreen viewport must grow beyond the normal 120-card base window');assert.ok(middle.start>top.start);assert.equal(bottom.end,model.total,'the final source items must render at the bottom');
+});

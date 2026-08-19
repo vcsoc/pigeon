@@ -23,3 +23,11 @@ test('stream indexes remain correct across chunks, scan additions, and patches',
   assert.deepEqual(stream.library.assets.map((asset)=>asset.id),['a','b','c','d']);
   assert.equal(stream.indexes.get('d'),3);assert.equal(stream.library.assets[1].rating,1);assert.equal(stream.library.assets[2].rating,5);
 });
+
+test('successful permanent deletions remove only returned assets and compact stream indexes',()=>{
+  const removed=[];const stream=create({onRemove:(asset)=>removed.push(asset.id)});stream.begin({streamGeneration:3,assetStreamPending:false});stream.upsertMany([{id:'a'},{id:'b'},{id:'c'}]);
+  assert.equal(stream.removeMany(['b','missing']).removed,1);
+  assert.deepEqual(stream.library.assets.map((asset)=>asset.id),['a','c']);
+  assert.deepEqual([...stream.indexes], [['a',0],['c',1]]);
+  assert.deepEqual(removed,['b']);
+});

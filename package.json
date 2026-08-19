@@ -1,6 +1,6 @@
 {
   "name": "pigeon",
-  "version": "0.2.9",
+  "version": "0.2.10",
   "description": "A reference-first visual asset library for files that stay where they are.",
   "main": "electron/main.js",
   "author": "Chris Visser",
@@ -8,19 +8,22 @@
   "homepage": "https://github.com/vcsoc/pigeon",
   "desktopName": "pigeon.desktop",
   "scripts": {
+    "precheck": "node --check electron/file-conflicts.js && node --check electron/native-drag.js && node --check src/rename-session.js",
     "start": "electron .",
     "dev": "electron . --dev",
     "smoke": "electron . --smoke-test",
     "smoke:seeded": "electron . --smoke-test --smoke-seeded",
     "smoke:large": "electron . --smoke-test --smoke-large",
-    "check": "node --check scripts/verify-packaged-app.js && node --check electron/main.js && node --check electron/preload.js && node --check electron/database.js && node --check electron/database-worker.js && node --check electron/library-worker.js && node --check electron/asset-transport.js && node --check electron/scan-worker.js && node --check electron/folder-tree-worker.js && node --check electron/thumbnail-worker.js && node --check electron/thumbnail-scheduler.js && node --check electron/performance-spans.js && node --check electron/node-web-worker.mjs && node --check electron/pdf-thumbnail-worker.js && node --check electron/pdf-thumbnail-child.js && node --check electron/text-document-preview.js && node --check electron/embedded-metadata.js && node --check electron/lightroom-preview.js && node --check electron/library-core.js && node --check electron/affinity-preview.js && node --check electron/snagx-preview.js && node --check electron/file-types.js && node --check electron/update-support.js && node --check electron/portfolio-transfer.js && node --check electron/plugin-worker.js && node --check scripts/prepare-mac-universal.js && node --check src/cooperative-view.js && node --check src/smart-folder-rules.js && node --check src/metadata-view-delta.js && node --check src/asset-stream-state.js && node --check src/asset-indexes.js && node --check src/virtual-window.js && node --check src/virtual-layout-model.js && node --check src/renderer.js",
+    "check": "node --check scripts/verify-packaged-app.js && node --check electron/cloud-files.js && node --check electron/main.js && node --check electron/preload.js && node --check electron/database.js && node --check electron/database-worker.js && node --check electron/library-worker.js && node --check electron/asset-transport.js && node --check electron/scan-worker.js && node --check electron/folder-tree-worker.js && node --check electron/thumbnail-worker.js && node --check electron/thumbnail-scheduler.js && node --check electron/performance-spans.js && node --check electron/node-web-worker.mjs && node --check electron/pdf-thumbnail-worker.js && node --check electron/pdf-thumbnail-child.js && node --check electron/text-document-preview.js && node --check electron/embedded-metadata.js && node --check electron/lightroom-preview.js && node --check electron/library-core.js && node --check electron/affinity-preview.js && node --check electron/snagx-preview.js && node --check electron/file-types.js && node --check electron/update-support.js && node --check electron/portfolio-transfer.js && node --check electron/plugin-worker.js && node --check scripts/prepare-mac-universal.js && node --check src/cooperative-view.js && node --check src/smart-folder-rules.js && node --check src/metadata-view-delta.js && node --check src/asset-stream-state.js && node --check src/asset-indexes.js && node --check src/virtual-window.js && node --check src/virtual-layout-model.js && node --check src/renderer.js",
     "test": "node --test --test-timeout=19000 tests/*.test.js",
     "verify": "npm run check && npm test && npm run smoke:seeded",
     "dist": "electron-builder --publish never",
     "dist:win": "electron-builder --win --x64 --publish never",
     "dist:mac": "node scripts/prepare-mac-universal.js && electron-builder --mac --universal --publish never",
     "dist:linux": "electron-builder --linux --x64 --publish never",
-    "icons:generate": "node scripts/generate-app-icons.js"
+    "icons:generate": "node scripts/generate-app-icons.js",
+    "extensions:build": "node scripts/build-browser-extensions.js",
+    "extensions:check": "node --check browser-extension/drop-url.js && node --check browser-extension/service-worker.js && node --check browser-extension/content-script.js && node --check browser-extension/popup.js && node --check scripts/build-browser-extensions.js"
   },
   "devDependencies": {
     "@electron/asar": "^3.4.1",
@@ -35,7 +38,8 @@
     "libraw-wasm": "^1.6.0",
     "pdfjs-dist": "^6.2.108",
     "sharp": "^0.35.3",
-    "yauzl": "3.4.0"
+    "yauzl": "3.4.0",
+    "youtubei.js": "^17.2.0"
   },
   "build": {
     "appId": "cool.pigeon.app",

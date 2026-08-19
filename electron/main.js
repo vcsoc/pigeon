@@ -7,7 +7,7 @@ const crypto = require('node:crypto');
 const sharp = require('sharp');
 const libraryCore = require('./library-core');
 const { createLibraryStore } = require('./database');
-const { stageAssetFiles } = require('./portfolio-transfer');
+const { safeTransferFilename, stageAssetFiles } = require('./portfolio-transfer');
 const ffmpegExecutable = require('ffmpeg-static').replace('app.asar', 'app.asar.unpacked');
 const os = require('node:os');
 const { availableMemoryBytes } = require('./system-resources');
@@ -25,6 +25,12 @@ const { autoUpdater } = require('electron-updater');
 const { createThumbnailScheduler } = require('./thumbnail-scheduler');
 const { createPerformanceRecorder, assetMix } = require('./performance-spans');
 const { lightweightAsset, assetDetails } = require('./asset-transport');
+const { youtubeVideoId, canonicalYouTubeUrl, safeVideoName, getYouTubeMetadata, downloadYouTubeVideo } = require('./youtube-import');
+const { inspectCloudFiles, isCloudStoragePath } = require('./cloud-files');
+const { portfolioChooserHtml, startupModifierPowerShell } = require('./startup-portfolio-chooser');
+const { portfolioAutoImportPath, samePath } = require('./auto-import');
+const { orderedNativeDragSelection, prepareCollisionSafeDragFiles } = require('./native-drag');
+const { resolveFileConflict } = require('./file-conflicts');
 autoUpdater.disableWebInstaller = true;
 autoUpdater.allowDowngrade = false;
 
@@ -47,6 +53,7 @@ let mainWindow,hoverControlProcess=null,hoverControlPressed=false,rendererIpcRea
 function startHoverControlMonitor(){if(process.platform!=='win32'||hoverControlProcess)return;const script=`Add-Type -Name K -Namespace P -MemberDefinition '[DllImport("user32.dll")] public static extern short GetAsyncKeyState(int vKey);';$last=-1;while($true){$v=if(([P.K]::GetAsyncKeyState(0x11)-band 0x8000)-ne 0){1}else{0};if($v-ne $last){[Console]::Out.WriteLine($v);[Console]::Out.Flush();$last=$v};Start-Sleep -Milliseconds 70}`;const child=spawn('powershell.exe',['-NoProfile','-NonInteractive','-Command',script],{windowsHide:true,stdio:['ignore','pipe','ignore']});hoverControlProcess=child;let pending='';child.stdout.on('data',(chunk)=>{pending+=chunk;const lines=pending.split(/\r?\n/);pending=lines.pop();for(const line of lines){const pressed=line.trim()==='1';if(pressed!==hoverControlPressed){hoverControlPressed=pressed;mainWindow?.webContents.send('hover-control:changed',pressed);}}});child.once('exit',()=>{if(hoverControlProcess===child)hoverControlProcess=null;});}
 function stopHoverControlMonitor(){const child=hoverControlProcess;hoverControlProcess=null;if(child)child.kill();hoverControlPressed=false;mainWindow?.webContents.send('hover-control:changed',false);}
 let mediaServer = null, mediaServerPort = 0;
+const EXTENSION_CAPTURE_PORT = 47635;
 const mediaServerToken = crypto.randomBytes(24).toString('hex');
 let databaseFile;
 let legacyJsonFile;
@@ -71,6 +78,8 @@ const watcherIgnoreUntil = new Map();
 const backgroundRuns = new Map();
 const portfolioBackgroundTimers = new Set();
 const backgroundHashWorkers = new Set();
+const activeScanJobs = new Set();
+let activeLibraryLoadJob = null;
 const workerTelemetry = new Map();
 let backgroundEpoch = 0;
 let thumbnailGenerationScheduler=null,mainAssetIndex=new Map();
@@ -114,25 +123,30 @@ process.on('multipleResolves',(type,_promise,value)=>recordDiagnostic('warning',
 let broadcastTimer;
 let libraryStreamGeneration = 0;
 let activeLibraryStream=null;
+let resolveRendererSubscriptionsReady;
+const rendererSubscriptionsReady=new Promise((resolve)=>{resolveRendererSubscriptionsReady=resolve;});
 let rendererVisibleAssetIds=new Set(),activeVisibilityDelta=null;
 let lastBackupAt = 0;
 const smokeTest = process.argv.includes('--smoke-test');
 const smokeSeeded = process.argv.includes('--smoke-seeded');
+const startupPortfolioChooserProbe = smokeTest ? Promise.resolve(false) : startupPortfolioChooserRequested();
 const smokeLarge = process.argv.includes('--smoke-large');
+const smokeFullscreenPerformance = process.argv.includes('--smoke-fullscreen-performance');
 const pendingProtocolUrls = [];
+let protocolImportsReady = false;
 if (smokeTest) {
   const watchdog = setTimeout(() => { console.error('[smoke] exceeded 45-second limit'); app.exit(1); }, smokeLarge ? 45000 : 19000); watchdog.unref();
   process.on('unhandledRejection', (error) => { console.error(`[smoke] failed: ${error?.stack || error}`); app.exit(1); });
 }
 if (smokeTest) {
   const smokeProfile = path.join(os.tmpdir(), 'pigeon-smoke-profile');
-  if (smokeSeeded) fs.rmSync(smokeProfile, { recursive: true, force: true });
+  if (smokeSeeded||smokeFullscreenPerformance) fs.rmSync(smokeProfile, { recursive: true, force: true });
   app.setPath('userData', smokeProfile);
 }
 const crashDumpDirectory=path.join(app.getPath('userData'),'crashes'); fs.mkdirSync(crashDumpDirectory,{recursive:true}); app.setPath('crashDumps',crashDumpDirectory); crashReporter.start({uploadToServer:false,compress:false});
 const runtimePreferencesFile = path.join(app.getPath('userData'), 'runtime-preferences.json');
 const windowStateFile=path.join(app.getPath('userData'),'window-state.json');
-try { const runtimePreferences = JSON.parse(fs.readFileSync(runtimePreferencesFile, 'utf8')); if (runtimePreferences.hardwareAcceleration === false) app.disableHardwareAcceleration(); } catch { /* Defaults remain enabled. */ }
+let runtimePreferences={};try { runtimePreferences = JSON.parse(fs.readFileSync(runtimePreferencesFile, 'utf8')); if (runtimePreferences.hardwareAcceleration === false) app.disableHardwareAcceleration(); } catch { runtimePreferences={}; }
 const hasInstanceLock = app.requestSingleInstanceLock();
 if (!hasInstanceLock) app.quit();
 
@@ -153,7 +167,7 @@ async function telemetrySnapshot() {
   const workerQueued=threads.reduce((sum,item)=>sum+Math.max(0,(Number(item.filesTotal)||0)-(Number(item.filesCompleted)||0)),0),rendererQueued=[...scanBroadcastQueues.values()].reduce((sum,queue)=>sum+queue.items.reduce((count,item)=>count+(item.assets?.length||0),0),0),queuedItems=workerQueued+rendererQueued+pdfWorkerWaiters.length+pendingProtocolUrls.length;
   return { timestamp: Date.now(), collective: { cpu, memoryBytes, gpuCpu: gpuProcesses.reduce((sum, item) => sum + (item.cpu?.percentCPUUsage || 0), 0), gpuMemoryBytes: gpuProcesses.reduce((sum, item) => sum + (item.memory?.workingSetSize || 0) * 1024, 0), filesCompleted: threads.reduce((sum, item) => sum + item.filesCompleted, 0), filesTotal: threads.reduce((sum, item) => sum + item.filesTotal, 0), queuedItems, activeRuns: [...backgroundRuns.values()].filter(backgroundRunActive).length, activeThreads: threads.length, logicalCpus: os.cpus().length, totalMemoryBytes: os.totalmem(), maxBackgroundThreads: MAX_BACKGROUND_THREADS, cpuLimit: INDEX_CPU_LIMIT, uptimeSeconds: process.uptime(), diagnosticErrors: diagnosticEntries.filter((entry)=>entry.level==='error').length }, threads, processes: metrics.map((item) => ({ pid: item.pid, type: item.type, cpu: item.cpu?.percentCPUUsage || 0, memoryBytes: (item.memory?.workingSetSize || 0) * 1024 })),thumbnailScheduler:thumbnailGenerationScheduler?.stats()||null,performanceSpans:performanceRecorder.snapshot() };
 }
-async function waitForIndexCpuBudget(run) { while (backgroundRunActive(run)) { const [snapshot,freeMemory]=await Promise.all([telemetrySnapshot(),availableMemoryBytes()]); if (snapshot.collective.cpu < INDEX_CPU_LIMIT && freeMemory>=MIN_FREE_MEMORY_BYTES) return true; reportBackgroundProgress(run.progressId,{label:freeMemory<MIN_FREE_MEMORY_BYTES?'Background work paused for memory':'Background work yielding to your laptop',detail:freeMemory<MIN_FREE_MEMORY_BYTES?`Waiting for available memory · ${Math.round(freeMemory/1024/1024)} MB available`:`CPU ${Math.round(snapshot.collective.cpu)}% · limit ${INDEX_CPU_LIMIT}%`,status:'paused'}); await new Promise((resolve) => setTimeout(resolve, freeMemory<MIN_FREE_MEMORY_BYTES?1200:500)); } return false; }
+async function waitForIndexCpuBudget(run) { while (backgroundRunActive(run)) { const [snapshot,freeMemory]=await Promise.all([telemetrySnapshot(),availableMemoryBytes()]); if (snapshot.collective.cpu < INDEX_CPU_LIMIT && freeMemory>=MIN_FREE_MEMORY_BYTES) return true; if(run.reportPauses!==false)reportBackgroundProgress(run.progressId,{label:freeMemory<MIN_FREE_MEMORY_BYTES?'Background work paused for memory':'Background work yielding to your laptop',detail:freeMemory<MIN_FREE_MEMORY_BYTES?`Waiting for available memory · ${Math.round(freeMemory/1024/1024)} MB available`:`CPU ${Math.round(snapshot.collective.cpu)}% · limit ${INDEX_CPU_LIMIT}%`,status:'paused'}); await new Promise((resolve) => setTimeout(resolve, freeMemory<MIN_FREE_MEMORY_BYTES?1200:500)); } return false; }
 function scanWorkActive(){return [...backgroundRuns.values()].some((run)=>run.type==='scan'&&backgroundRunActive(run));}
 async function waitForScanIdle(run){while(backgroundRunActive(run)&&scanWorkActive())await backgroundDelay(500,run);return backgroundRunActive(run);}
 
@@ -211,22 +225,37 @@ function previewUrlFor(asset, location = library.locations.find((item) => item.i
 function mediaUrlFor(asset) { const query = `proxy=${asset.proxyPath && asset.proxyVersion === 3 ? 1 : 0}&edited=${asset.editedPath ? 1 : 0}&v=${asset.editedAt || asset.modified || 0}`, streamable = asset.kind === 'video' || asset.kind === 'audio'; return mediaServerPort && streamable ? `http://127.0.0.1:${mediaServerPort}/asset/${asset.id}?token=${mediaServerToken}&${query}` : `pigeon-asset://asset/${asset.id}?original=1&${query}`; }
 async function startMediaServer() {
   if (mediaServer) return; mediaServer = http.createServer(async (request, response) => {
+    let captureHeaders=null;
     try {
-      const url = new URL(request.url, 'http://127.0.0.1'); if (url.searchParams.get('token') !== mediaServerToken || !url.pathname.startsWith('/asset/')) { response.writeHead(403).end(); return; }
+      const url = new URL(request.url, 'http://127.0.0.1'),origin=String(request.headers.origin||''),extensionOrigin=/^(chrome-extension|moz-extension|safari-web-extension):\/\//.test(origin);if(url.pathname==='/extension/import')captureHeaders={ 'Access-Control-Allow-Origin': extensionOrigin?origin:'*', 'Access-Control-Allow-Headers':'Content-Type, X-Pigeon-Extension', 'Access-Control-Allow-Methods':'POST, OPTIONS', 'Access-Control-Allow-Private-Network':'true', 'Cache-Control':'no-store' };
+      if(url.pathname==='/extension/import'&&request.method==='OPTIONS'){response.writeHead(204,captureHeaders).end();return;}
+      if(url.pathname==='/extension/import'&&request.method==='POST'){
+        if(request.headers['x-pigeon-extension']!=='2'||!protocolImportsReady){response.writeHead(protocolImportsReady?403:503,{...captureHeaders,'Content-Type':'application/json'}).end(JSON.stringify({ok:false,message:protocolImportsReady?'Extension request rejected':'Pigeon is still opening'}));return;}
+        let size=0,body='';for await(const chunk of request){size+=chunk.length;if(size>16384)throw new Error('Capture request is too large');body+=chunk;}
+        const payload=JSON.parse(body||'{}'),asset=await importUrl(payload.url,{collection:payload.collection||'downloads',mediaOnly:true});if(!asset?.id||!(await pathAvailable(asset.path)))throw new Error('Pigeon did not finish receiving and indexing the item');
+        response.writeHead(200,{...captureHeaders,'Content-Type':'application/json'}).end(JSON.stringify({ok:true,id:asset.id,path:asset.path,portfolioId:activePortfolioId,portfolioName:portfolios.find((item)=>item.id===activePortfolioId)?.name||'',mode:asset.linkedYouTube?'linked':'downloaded'}));return;
+      }
+      if (url.searchParams.get('token') !== mediaServerToken || !url.pathname.startsWith('/asset/')) { response.writeHead(403).end(); return; }
       const id = decodeURIComponent(url.pathname.slice('/asset/'.length)), asset = library.assets.find((item) => item.id === id); if (!asset || isAssetLocked(asset)) { response.writeHead(404).end(); return; }
-      const useProxy = url.searchParams.get('proxy') === '1' && asset.proxyPath, useEdited = url.searchParams.get('edited') === '1' && asset.editedPath, source = useEdited || useProxy || asset.path, stat = await fsp.stat(source), extension = path.extname(source).toLowerCase(), mime = ({ '.mp4':'video/mp4', '.m4v':'video/mp4', '.mov':'video/quicktime', '.webm':'video/webm', '.ogv':'video/ogg', '.mp3':'audio/mpeg', '.wav':'audio/wav', '.m4a':'audio/mp4', '.aac':'audio/aac', '.flac':'audio/flac', '.ogg':'audio/ogg', '.oga':'audio/ogg', '.opus':'audio/ogg' })[extension] || 'application/octet-stream', match = request.headers.range?.match(/bytes=(\d+)-(\d*)/), headers = { 'Content-Type': mime, 'Accept-Ranges': 'bytes', 'Cache-Control': 'private, max-age=3600', 'Access-Control-Allow-Origin': '*' };
+      const useProxy = url.searchParams.get('proxy') === '1' && asset.proxyPath, useEdited = url.searchParams.get('edited') === '1' && asset.editedPath, source = useEdited || useProxy || asset.path;
+      if (!useEdited && !useProxy && (asset.sourceMissing || asset.sourcePending || !await pathAvailable(source))) { markAssetSourcePending(asset); response.writeHead(404).end(); return; }
+      const stat = await fsp.stat(source), extension = path.extname(source).toLowerCase(), mime = ({ '.mp4':'video/mp4', '.m4v':'video/mp4', '.mov':'video/quicktime', '.webm':'video/webm', '.ogv':'video/ogg', '.mp3':'audio/mpeg', '.wav':'audio/wav', '.m4a':'audio/mp4', '.aac':'audio/aac', '.flac':'audio/flac', '.ogg':'audio/ogg', '.oga':'audio/ogg', '.opus':'audio/ogg' })[extension] || 'application/octet-stream', match = request.headers.range?.match(/bytes=(\d+)-(\d*)/), headers = { 'Content-Type': mime, 'Accept-Ranges': 'bytes', 'Cache-Control': 'private, max-age=3600', 'Access-Control-Allow-Origin': '*' };
       let start = 0, end = stat.size - 1, status = 200; if (match) { start = Number(match[1]); end = match[2] ? Math.min(Number(match[2]), end) : end; if (start > end) { response.writeHead(416, { ...headers, 'Content-Range': `bytes */${stat.size}` }).end(); return; } status = 206; headers['Content-Range'] = `bytes ${start}-${end}/${stat.size}`; }
       headers['Content-Length'] = String(end - start + 1); response.writeHead(status, headers); const stream = fs.createReadStream(source, { start, end }); stream.on('error', () => response.destroy()); request.on('close', () => stream.destroy()); stream.pipe(response);
-    } catch { if (!response.headersSent) response.writeHead(404); response.end(); }
+    } catch(error) { if (!response.headersSent){const extensionRequest=Boolean(captureHeaders);response.writeHead(extensionRequest?500:404,{...(captureHeaders||{}),...(extensionRequest?{'Content-Type':'application/json'}:{})});response.end(extensionRequest?JSON.stringify({ok:false,message:error.message||'Pigeon could not save this item'}):'');}else response.end(); }
   });
-  await new Promise((resolve, reject) => { mediaServer.once('error', reject); mediaServer.listen(0, '127.0.0.1', () => { mediaServerPort = mediaServer.address().port; resolve(); }); });
+  await new Promise((resolve, reject) => {
+    const listening=()=>{mediaServer.removeListener('error',fixedPortError);mediaServerPort=mediaServer.address().port;resolve();};
+    const fixedPortError=(error)=>{if(error.code!=='EADDRINUSE'){reject(error);return;}mediaServer.once('error',reject);mediaServer.listen(0,'127.0.0.1',listening);};
+    mediaServer.once('error',fixedPortError);mediaServer.listen(EXTENSION_CAPTURE_PORT,'127.0.0.1',listening);
+  });
 }
 function compatibilityStreamUrl(asset) { return `pigeon-asset://asset/${asset.id}?original=1&stream=1&duration=${asset.duration || 0}&v=${asset.modified || 0}&session=${Date.now()}`; }
 
 function publicAssetForRenderer(asset,location,locked=isAssetLocked(asset)){return{...lightweightAsset(asset),locked,previewUrl:previewUrlFor(asset,location),mediaUrl:mediaUrlFor(asset)};}
 function publicAssetDetails(asset){return asset?assetDetails(asset):null;}
 const scanBroadcastQueues=new Map();
-function broadcastScanAssets(location,assets,done=false){if(!mainWindow||mainWindow.isDestroyed()||!assets.length&&!done)return;const visibleAssets=assets.filter((asset)=>!isAssetLocked(asset)),key=`${activePortfolioId}:${location.id}`,queue=scanBroadcastQueues.get(key)||{items:[],running:false};for(let offset=0;offset<visibleAssets.length;offset+=100)queue.items.push({portfolioId:activePortfolioId,locationId:location.id,assets:visibleAssets.slice(offset,offset+100).map((asset)=>publicAssetForRenderer(asset,location)),done:false});if(done){if(queue.items.length)queue.items.at(-1).done=true;else queue.items.push({portfolioId:activePortfolioId,locationId:location.id,assets:[],done:true});}scanBroadcastQueues.set(key,queue);if(queue.running)return;queue.running=true;const drain=()=>{const message=queue.items.shift();if(!message){queue.running=false;scanBroadcastQueues.delete(key);return;}if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('scan:assets',message);setTimeout(drain,16);};drain();}
+function broadcastScanAssets(location,assets,done=false){if(!mainWindow||mainWindow.isDestroyed()||!assets.length&&!done)return;const portfolioId=activePortfolioId,visibleAssets=assets.filter((asset)=>!isAssetLocked(asset)),key=`${portfolioId}:${location.id}`,queue=scanBroadcastQueues.get(key)||{portfolioId,items:[],running:false,timer:null,cancelled:false};for(let offset=0;offset<visibleAssets.length;offset+=100)queue.items.push({portfolioId,locationId:location.id,assets:visibleAssets.slice(offset,offset+100).map((asset)=>publicAssetForRenderer(asset,location)),done:false});if(done){if(queue.items.length)queue.items.at(-1).done=true;else queue.items.push({portfolioId,locationId:location.id,assets:[],done:true});}scanBroadcastQueues.set(key,queue);if(queue.running)return;queue.running=true;const drain=()=>{queue.timer=null;if(queue.cancelled||queue.portfolioId!==activePortfolioId){queue.items.length=0;queue.running=false;scanBroadcastQueues.delete(key);return;}const message=queue.items.shift();if(!message){queue.running=false;scanBroadcastQueues.delete(key);return;}if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('scan:assets',message);queue.timer=setTimeout(drain,16);};drain();}
 function broadcastSidebar(){if(!mainWindow||mainWindow.isDestroyed())return;mainWindow.webContents.send('sidebar:changed',{collections:publicCollections(),smartFolders:library.smartFolders,locations:library.locations,portfolios:portfolios.map(({id,name})=>({id,name})),settings:{sidebarSort:library.settings?.sidebarSort||{},sidebarBranchSort:library.settings?.sidebarBranchSort||{}},activePortfolioId});}
 const pendingAssetPatches=new Map();let assetPatchTimer=null;
 function broadcastAssetPatches(patches=[]){if(!patches.length)return;const portfolioId=activePortfolioId;for(const patch of patches){const key=`${portfolioId}:${patch.id}`;pendingAssetPatches.set(key,{portfolioId,patch:{...(pendingAssetPatches.get(key)?.patch||{}),...patch}});}if(assetPatchTimer)return;const drain=()=>{assetPatchTimer=null;if(!mainWindow||mainWindow.isDestroyed()){pendingAssetPatches.clear();return;}const batch=[];let batchPortfolioId=null;for(const[key,entry]of pendingAssetPatches){if(batchPortfolioId===null)batchPortfolioId=entry.portfolioId;if(entry.portfolioId!==batchPortfolioId||batch.length>=250)continue;batch.push(entry.patch);pendingAssetPatches.delete(key);}if(batch.length&&batchPortfolioId===activePortfolioId)mainWindow.webContents.send('assets:patched',{portfolioId:batchPortfolioId,patches:batch});if(pendingAssetPatches.size)assetPatchTimer=setTimeout(drain,16);};assetPatchTimer=setTimeout(drain,0);}
@@ -289,7 +318,7 @@ function reportBackgroundProgress(id, { label, detail = '', completed = 0, total
 }
 function beginBackgroundRun(type, suffix = '') {
   const key = `${activePortfolioId}:${type}:${suffix}`; const existing = backgroundRuns.get(key); if (existing && !existing.cancelled) return null;
-  const run = { key, type, portfolioId: activePortfolioId, epoch: backgroundEpoch, library, cancelled: false, progressId: `${activePortfolioId}:${type}${suffix ? `:${suffix}` : ''}` }; backgroundRuns.set(key, run); return run;
+  const run = { key, type, portfolioId: activePortfolioId, epoch: backgroundEpoch, library, cancelled: false, controller: new AbortController(), progressId: `${activePortfolioId}:${type}${suffix ? `:${suffix}` : ''}` }; backgroundRuns.set(key, run); return run;
 }
 function backgroundRunActive(run) { return Boolean(run && !run.cancelled && run.epoch === backgroundEpoch && run.portfolioId === activePortfolioId && run.library === library && !app.isQuitting); }
 function finishBackgroundRun(run) { if (run && backgroundRuns.get(run.key) === run) backgroundRuns.delete(run.key); }
@@ -300,7 +329,10 @@ async function retryBackground(operation, run, { attempts = 3, timeout = 10000, 
 }
 function schedulePortfolioBackground(callback, delay = 0) { const portfolioId = activePortfolioId, epoch = backgroundEpoch; const timer = setTimeout(() => { portfolioBackgroundTimers.delete(timer); if (portfolioId === activePortfolioId && epoch === backgroundEpoch && !app.isQuitting) callback(); }, delay); portfolioBackgroundTimers.add(timer); return timer; }
 async function cancelPortfolioBackground(reason = 'Portfolio switched') {
-  backgroundEpoch += 1; for (const run of backgroundRuns.values()) { run.cancelled = true; reportBackgroundProgress(run.progressId, { label: run.type, detail: reason, done: true, status: 'paused' }); } backgroundRuns.clear();
+  backgroundEpoch += 1; for (const run of backgroundRuns.values()) { run.cancelled = true; run.controller?.abort(); reportBackgroundProgress(run.progressId, { label: run.type, detail: reason, done: true, status: 'paused' }); } backgroundRuns.clear();
+  for (const job of [...activeScanJobs]) job.cancel();
+  for (const queue of scanBroadcastQueues.values()) { queue.cancelled=true;if(queue.timer)clearTimeout(queue.timer);queue.items.length=0; } scanBroadcastQueues.clear();
+  if(activeLibraryLoadJob?.portfolioId===activePortfolioId)activeLibraryLoadJob.cancel();
   thumbnailGenerationScheduler?.setContext({portfolioId:null,generation:libraryStreamGeneration+1});
   for (const timer of portfolioBackgroundTimers) clearTimeout(timer); portfolioBackgroundTimers.clear();
   while (thumbnailQueue.length) thumbnailQueue.shift().resolve({ ok: false, cancelled: true, message: reason });
@@ -321,12 +353,13 @@ async function writeBackup(reason = 'automatic') {
 }
 
 function startDatabaseWorker() {
-  if (databaseWorker) databaseWorker.terminate().catch(() => {});
-  databaseWorker = new Worker(path.join(__dirname, 'database-worker.js'), { workerData: { databaseFile } }); trackWorker(databaseWorker, 'database');
-  databaseWorker.on('message', ({ id, ok, message, metrics }) => { const request = databaseRequests.get(id); if (!request) return; databaseRequests.delete(id); if(metrics)performanceRecorder.record('database-write',{portfolioId:request.portfolioId,portfolioSize:library.assets.length,changedRecords:metrics.changedRecords,queueWaitMs:request.sentAt-request.queuedAt,serializationMs:metrics.serializationMs,transactionMs:metrics.transactionMs,phase:request.action});ok ? request.resolve(metrics||true) : request.reject(new Error(message)); });
-  databaseWorker.on('error', (error) => { recordDiagnostic('error', 'Database worker failed', error); for (const request of databaseRequests.values()) request.reject(error); databaseRequests.clear(); databaseWorker = null; });
+  if (databaseWorker) stopDatabaseWorker('Database worker replaced').catch(() => {});
+  const worker = databaseWorker = new Worker(path.join(__dirname, 'database-worker.js'), { workerData: { databaseFile } }); trackWorker(worker, 'database');
+  worker.on('message', ({ id, ok, message, metrics }) => { const request = databaseRequests.get(id); if (!request||request.worker!==worker) return; databaseRequests.delete(id); if(metrics)performanceRecorder.record('database-write',{portfolioId:request.portfolioId,portfolioSize:request.librarySize,changedRecords:metrics.changedRecords,queueWaitMs:request.sentAt-request.queuedAt,serializationMs:metrics.serializationMs,transactionMs:metrics.transactionMs,phase:request.action});ok ? request.resolve(metrics||true) : request.reject(new Error(message)); });
+  worker.on('error', (error) => { recordDiagnostic('error', 'Database worker failed', error); for (const [id,request] of databaseRequests)if(request.worker===worker){databaseRequests.delete(id);request.reject(error);}if(databaseWorker===worker)databaseWorker=null; });
 }
-function sendDatabaseRequest(action,snapshot,target=null) { if (!databaseWorker) startDatabaseWorker(); const queuedAt=performance.now();return new Promise((resolve,reject)=>{ const id=++databaseRequestId,sentAt=performance.now(); databaseRequests.set(id,{resolve,reject,queuedAt,sentAt,action,portfolioId:activePortfolioId}); databaseWorker.postMessage({id,action,library:snapshot,target}); }); }
+async function stopDatabaseWorker(reason='Database worker stopped'){const worker=databaseWorker;if(!worker)return;databaseWorker=null;for(const[id,request]of databaseRequests)if(request.worker===worker){databaseRequests.delete(id);request.reject(new Error(reason));}await worker.terminate().catch(()=>{});}
+function sendDatabaseRequest(action,snapshot,target=null) { if (!databaseWorker) startDatabaseWorker(); const worker=databaseWorker,queuedAt=performance.now(),portfolioId=activePortfolioId,librarySize=library.assets.length;return new Promise((resolve,reject)=>{ const id=++databaseRequestId,sentAt=performance.now(); databaseRequests.set(id,{resolve,reject,queuedAt,sentAt,action,portfolioId,librarySize,worker}); worker.postMessage({id,action,library:snapshot,target}); }); }
 function sendDatabaseSave(snapshot){ return sendDatabaseRequest('save',snapshot); }
 function persistScanBatch(location,assets){ return sendDatabaseRequest('save-batch',{location:location?{...location,scanning:false,checking:false}:null,assets}); }
 function persistAssetBatch(assets){return sendDatabaseRequest('upsert-assets',{assets});}
@@ -338,7 +371,7 @@ function libraryMetadataSnapshot(){const{assets,...metadata}=library;return meta
 function scheduleAssetSave(assets){for(const asset of Array.isArray(assets)?assets:[assets])if(asset?.id)pendingAssetSaves.set(asset.id,asset);scheduleDeltaFlush();}
 function scheduleMetadataSave(){pendingMetadataSave=true;scheduleDeltaFlush();}
 function scheduleDeltaFlush(delay=60){clearTimeout(deltaSaveTimer);deltaSaveTimer=setTimeout(()=>{deltaSaveTimer=null;flushDeltaPersistence().catch(()=>{});},delay);}
-async function flushDeltaPersistence(){if(deltaSaveInFlight)return deltaSaveInFlight;deltaSaveInFlight=(async()=>{while(pendingAssetSaves.size||pendingMetadataSave){const assets=[...pendingAssetSaves.values()];pendingAssetSaves.clear();const metadata=pendingMetadataSave?libraryMetadataSnapshot():null;pendingMetadataSave=false;try{if(assets.length)await sendDatabaseRequest('upsert-assets',{assets});if(metadata)await sendDatabaseRequest('save-library-metadata',metadata);}catch(error){for(const asset of assets)if(!pendingAssetSaves.has(asset.id))pendingAssetSaves.set(asset.id,asset);if(metadata)pendingMetadataSave=true;recordDiagnostic('error','Could not save incremental SQLite changes',error);scheduleDeltaFlush(500);throw error;}}})().finally(()=>{deltaSaveInFlight=null;});return deltaSaveInFlight;}
+async function flushDeltaPersistence(){if(deltaSaveInFlight)return deltaSaveInFlight;deltaSaveInFlight=(async()=>{while(pendingAssetSaves.size||pendingMetadataSave){const assets=[];for(const[id,asset]of pendingAssetSaves){pendingAssetSaves.delete(id);assets.push(asset);if(assets.length>=250)break;}const metadata=pendingMetadataSave?libraryMetadataSnapshot():null;pendingMetadataSave=false;try{if(assets.length)await sendDatabaseRequest('upsert-assets',{assets});if(metadata)await sendDatabaseRequest('save-library-metadata',metadata);if(pendingAssetSaves.size)await new Promise((resolve)=>setImmediate(resolve));}catch(error){for(const asset of assets)if(!pendingAssetSaves.has(asset.id))pendingAssetSaves.set(asset.id,asset);if(metadata)pendingMetadataSave=true;recordDiagnostic('error','Could not save incremental SQLite changes',error);scheduleDeltaFlush(500);throw error;}}})().finally(()=>{deltaSaveInFlight=null;});return deltaSaveInFlight;}
 async function acquirePdfWorkerSlot(){ if(activePdfWorkers>=PDF_WORKER_LIMIT) await new Promise((resolve)=>pdfWorkerWaiters.push(resolve)); activePdfWorkers+=1; }
 function releasePdfWorkerSlot(){ activePdfWorkers=Math.max(0,activePdfWorkers-1); pdfWorkerWaiters.shift()?.(); }
 function scheduleSave() {
@@ -387,34 +420,38 @@ async function saveLibraryNow() {
   scheduleMetadataSave();clearTimeout(deltaSaveTimer);deltaSaveTimer=null;await flushDeltaPersistence();
 }
 
-function reconcileConfiguredCollectionTagsCooperatively(){
-  if(!Object.keys(library.settings?.collectionAutoTags||{}).length)return;const jobLibrary=library,portfolioId=activePortfolioId;let cursor=0;
-  const step=()=>{if(library!==jobLibrary||activePortfolioId!==portfolioId)return;const startedAt=performance.now(),changed=[];while(cursor<jobLibrary.assets.length&&changed.length<250&&performance.now()-startedAt<6){const asset=jobLibrary.assets[cursor++],before=(asset.tags||[]).length;applyConfiguredCollectionTags(asset);if(asset.tags.length!==before)changed.push(asset);}if(changed.length)scheduleAssetSave(changed);if(cursor<jobLibrary.assets.length)setImmediate(step);};
-  setImmediate(step);
+async function reconcileConfiguredCollectionTagsCooperatively(){
+  if(!Object.keys(library.settings?.collectionAutoTags||{}).length)return true;const jobLibrary=library,portfolioId=activePortfolioId;let cursor=0;
+  while(cursor<jobLibrary.assets.length){if(library!==jobLibrary||activePortfolioId!==portfolioId)return false;const startedAt=performance.now(),changed=[];while(cursor<jobLibrary.assets.length&&changed.length<250&&performance.now()-startedAt<6){const asset=jobLibrary.assets[cursor++],before=(asset.tags||[]).length;applyConfiguredCollectionTags(asset);if(asset.tags.length!==before)changed.push(asset);}if(changed.length)scheduleAssetSave(changed);if(cursor<jobLibrary.assets.length)await new Promise((resolve)=>setImmediate(resolve));}
+  return library===jobLibrary&&activePortfolioId===portfolioId;
 }
 
 async function loadLibraryInWorker() {
   await fsp.mkdir(thumbnailDir, { recursive: true });
-  const loadSpan=performanceRecorder.start('library-worker-transfer',{portfolioId:activePortfolioId,portfolioSize:library.assets.length});
+  const portfolioId=activePortfolioId,targetDatabaseFile=databaseFile,targetLegacyJsonFile=legacyJsonFile,targetLibrary=library,loadSpan=performanceRecorder.start('library-worker-transfer',{portfolioId,portfolioSize:library.assets.length});
   return new Promise((resolve) => {
-    const worker = new Worker(path.join(__dirname, 'library-worker.js'), { workerData: { databaseFile, legacyJsonFile } }); trackWorker(worker, 'library-load');
-    worker.once('message', (result) => {
+    const worker = new Worker(path.join(__dirname, 'library-worker.js'), { workerData: { databaseFile:targetDatabaseFile, legacyJsonFile:targetLegacyJsonFile } }); trackWorker(worker, 'library-load');
+    let settled=false;const finish=()=>{if(settled)return false;settled=true;if(activeLibraryLoadJob===job)activeLibraryLoadJob=null;resolve();return true;},job={portfolioId,worker,cancel:()=>{if(!finish())return;worker.terminate().catch(()=>{});}};activeLibraryLoadJob=job;
+    worker.once('message', async (result) => {
+      if(settled)return;
       if (smokeTest) console.log('[smoke] library worker returned');
+      if(activeLibraryLoadJob!==job||portfolioId!==activePortfolioId||targetDatabaseFile!==databaseFile||targetLibrary!==library){job.cancel();return;}
       if (result.library && Array.isArray(result.library.locations) && Array.isArray(result.library.assets)) {
         const adoptStarted=performance.now();library={...result.library,loading:false};for(const location of library.locations){location.scanning=false;location.checking=false;location.rescanRequested=false;}performanceRecorder.record('main-library-adopt',{portfolioId:activePortfolioId,portfolioSize:library.assets.length,durationMs:performance.now()-adoptStarted});
-        const indexStarted=performance.now();mainAssetIndex=new Map(library.assets.map((asset)=>[asset.id,asset]));performanceRecorder.record('main-asset-index',{portfolioId:activePortfolioId,portfolioSize:library.assets.length,durationMs:performance.now()-indexStarted});reconcileConfiguredCollectionTagsCooperatively();
+        const indexStarted=performance.now();mainAssetIndex=new Map();for(let index=0;index<library.assets.length;index+=2000){for(const asset of library.assets.slice(index,index+2000))mainAssetIndex.set(asset.id,asset);if(index+2000<library.assets.length)await new Promise((next)=>setImmediate(next));if(activeLibraryLoadJob!==job||portfolioId!==activePortfolioId){job.cancel();return;}}performanceRecorder.record('main-asset-index',{portfolioId:activePortfolioId,portfolioSize:library.assets.length,durationMs:performance.now()-indexStarted});if(!(await reconcileConfiguredCollectionTagsCooperatively())){job.cancel();return;}
       } else if (!result.error) library = { ...libraryCore.migrateLibrary({}), loading: false };
       else {
         library = { ...libraryCore.migrateLibrary({}), loading: false, loadError: result.error.message || null };
         console.error('Could not load SQLite library:', result.error);
       }
-      for(const span of result.performance||[])performanceRecorder.record(span.name,{...span,portfolioId:activePortfolioId,portfolioSize:library.assets.length});const memory=process.memoryUsage();performanceRecorder.end(loadSpan,{portfolioSize:library.assets.length,heapUsedMb:memory.heapUsed/1024/1024,rssMb:memory.rss/1024/1024});resolve();
+      for(const span of result.performance||[])performanceRecorder.record(span.name,{...span,portfolioId:activePortfolioId,portfolioSize:library.assets.length});const memory=process.memoryUsage();performanceRecorder.end(loadSpan,{portfolioSize:library.assets.length,heapUsedMb:memory.heapUsed/1024/1024,rssMb:memory.rss/1024/1024});finish();
     });
     worker.once('error', (error) => {
+      if(settled)return;
       console.error('Library worker failed:', error);
-      library = { version: 1, locations: [], assets: [], loading: false, loadError: error.message };
-      mainAssetIndex=new Map();performanceRecorder.end(loadSpan,{phase:'failed'});
-      resolve();
+      if(portfolioId===activePortfolioId&&targetDatabaseFile===databaseFile&&targetLibrary===library){library = { version: 1, locations: [], assets: [], loading: false, loadError: error.message };mainAssetIndex=new Map();}
+      performanceRecorder.end(loadSpan,{phase:'failed'});
+      finish();
     });
   });
 }
@@ -443,9 +480,14 @@ async function fileContainsAtom(filePath, atom) {
 }
 async function pathAvailable(targetPath, timeout = 1800) {
   if (!targetPath) return false;
-  try { await withTimeout(fsp.access(targetPath, fs.constants.F_OK), timeout, 'Path check timed out'); return true; }
+  try {
+    await withTimeout(fsp.access(targetPath, fs.constants.F_OK), timeout, 'Path check timed out');
+    if (isCloudStoragePath(targetPath)) return (await inspectCloudFiles([targetPath], { timeout })).get(String(targetPath))?.available === true;
+    return true;
+  }
   catch { return false; }
 }
+async function startupPortfolioChooserRequested(){if(process.argv.includes('--choose-portfolio'))return true;if(process.platform!=='win32')return false;return(await execFileText('powershell.exe',['-NoProfile','-NonInteractive','-Command',startupModifierPowerShell()],1500))==='1';}
 
 function finishThumbnailWorkerJob(worker, result, retire = false) {
   const job = worker.currentJob; if (!job) { if (retire) { const index = thumbnailWorkers.indexOf(worker); if (index >= 0) thumbnailWorkers.splice(index, 1); worker.terminate().catch(() => {}); dispatchThumbnailJobs(); } return; }
@@ -612,7 +654,8 @@ async function inspectFile(filePath, location, existing, { deferHash = false, in
     if (!inspection && !stat.isFile()) return null;
     const extension = path.extname(filePath).toLowerCase();
     const unchanged = existing && existing.size === stat.size && existing.modified === (stat.mtimeMs ?? stat.modified);
-    const contentHash = inspection ? inspection.contentHash : unchanged && existing.contentHash ? existing.contentHash : deferHash ? existing?.contentHash || null : await hashFile(filePath, location.unstable ? 8000 : 30000);
+    const sourcePending = Boolean(inspection?.placeholder);
+    const contentHash = sourcePending ? existing?.contentHash || null : inspection ? inspection.contentHash : unchanged && existing.contentHash ? existing.contentHash : deferHash ? existing?.contentHash || null : await hashFile(filePath, location.unstable ? 8000 : 30000);
     const asset = {
       id: makeId(path.resolve(filePath).toLowerCase()),
       locationId: location.id,
@@ -664,7 +707,7 @@ async function inspectFile(filePath, location, existing, { deferHash = false, in
       inlineCrop: existing?.inlineCrop || null,
       geo: existing?.geo || null,
       sourceMissing: false,
-      sourcePending: false,
+      sourcePending,
       missingSince: null
     };
     if (library.settings?.autoTag && !asset.needsOrganization && !asset.tags.length) asset.tags = libraryCore.suggestTags(asset);
@@ -675,11 +718,18 @@ async function inspectFile(filePath, location, existing, { deferHash = false, in
   }
 }
 
-function inspectScanBatch(batch, location, previous, run, batchNumber) {
+async function inspectScanBatch(batch, location, previous, run, batchNumber) {
+  if(!backgroundRunActive(run))return[];
+  const cloudStates = location.unstable ? await inspectCloudFiles(batch, { timeout: 5000, signal:run.controller?.signal }) : new Map();
+  if(!backgroundRunActive(run))return[];
+  const placeholders = batch.flatMap((filePath) => { const state = cloudStates.get(filePath); return state?.placeholder ? [{ filePath, size: state.size, created: state.created, modified: state.modified, contentHash: null, placeholder: true }] : []; });
+  const localBatch = batch.filter((filePath) => !cloudStates.get(filePath)?.placeholder);
+  if (!localBatch.length) return placeholders;
   return new Promise((resolve) => {
-    const worker = new Worker(path.join(__dirname, 'scan-worker.js'), { workerData: { batch: batch.map((filePath) => ({ filePath, existing: previous.get(path.resolve(filePath)) ? { size: previous.get(path.resolve(filePath)).size, modified: previous.get(path.resolve(filePath)).modified, contentHash: previous.get(path.resolve(filePath)).contentHash } : null })), deferHash: location.unstable, inlineHashMaxBytes: SCAN_INLINE_HASH_MAX_BYTES, dutyCycle: Math.max(0.08, (INDEX_CPU_LIMIT / 100) / INDEX_WORKER_COUNT) }, resourceLimits: { maxOldGenerationSizeMb: 128 } });
+    const worker = new Worker(path.join(__dirname, 'scan-worker.js'), { workerData: { batch: localBatch.map((filePath) => ({ filePath, existing: previous.get(path.resolve(filePath)) ? { size: previous.get(path.resolve(filePath)).size, modified: previous.get(path.resolve(filePath)).modified, contentHash: previous.get(path.resolve(filePath)).contentHash } : null })), deferHash: location.unstable, inlineHashMaxBytes: SCAN_INLINE_HASH_MAX_BYTES, dutyCycle: Math.max(0.08, (INDEX_CPU_LIMIT / 100) / INDEX_WORKER_COUNT) }, resourceLimits: { maxOldGenerationSizeMb: 128 } });
     const telemetry = trackWorker(worker, 'index-scan', { portfolioId: run.portfolioId, filesTotal: batch.length, batch: batchNumber }); telemetry.currentFile = batch[0] || '';
-    let settled = false; const finish = async (result) => { if (settled) return; settled = true; clearTimeout(timer); telemetry.filesCompleted = result?.results?.length || 0; telemetry.status = result?.error ? 'failed' : 'completed'; telemetry.expectedExit = true; try { telemetry.memoryBytes = worker.resourceLimits?.maxOldGenerationSizeMb ? worker.resourceLimits.maxOldGenerationSizeMb * 1024 * 1024 : 0; } catch { /* unavailable */ } try { await worker.terminate(); } catch {} resolve(result?.results || []); };
+    let settled = false,job; const finish = (result) => { if (settled) return; settled = true; clearTimeout(timer);activeScanJobs.delete(job); telemetry.filesCompleted = placeholders.length + (result?.results?.length || 0); telemetry.status = result?.cancelled?'cancelled':result?.error ? 'failed' : 'completed'; telemetry.expectedExit = true; try { telemetry.memoryBytes = worker.resourceLimits?.maxOldGenerationSizeMb ? worker.resourceLimits.maxOldGenerationSizeMb * 1024 * 1024 : 0; } catch { /* unavailable */ } resolve(result?.cancelled?[]:[...placeholders, ...(result?.results || [])]);worker.terminate().catch(()=>{}); };
+    job={run,worker,cancel:()=>finish({cancelled:true})};activeScanJobs.add(job);if(!backgroundRunActive(run)){job.cancel();return;}
     const timer = setTimeout(() => { recordDiagnostic('warning', 'Index worker timed out', { location: location.path, batch: batchNumber }); finish({ error: 'timeout' }); }, location.unstable ? 15000 : 45000);
     worker.once('message', finish); worker.once('error', (error) => { recordDiagnostic('error', 'Index worker failed', error); finish({ error: error.message }); }); worker.once('exit', () => finish({ error: 'exited' }));
   });
@@ -749,9 +799,9 @@ async function scanLocation(locationId, { notify = true, resume = false } = {}) 
   } catch (error) { recordDiagnostic('error', `Scan failed for ${location.name}`, error); reportBackgroundProgress(progressId, { label: `Scan failed: ${location.name}`, detail: error.message, done: true, status: 'failed' }); }
   finally { location.scanning = false; location.checking = false; finishBackgroundRun(run); }
 }
-function resumePendingScans() { for (const location of library.locations.filter((item) => item.scanCheckpoint?.discovered || item.scanCheckpoint?.nextIndex)) schedulePortfolioBackground(() => scanLocation(location.id, { notify: true, resume: true }), 150); }
+function resumePendingScans() { for (const location of library.locations.filter((item) => !item.autoImportLegacyRoot&&(item.scanCheckpoint?.discovered || item.scanCheckpoint?.nextIndex))) schedulePortfolioBackground(() => scanLocation(location.id, { notify: true, resume: true }), 150); }
 const INDEXING_POLICY_VERSION=2;
-function refreshChangedIndexingPolicy(){library.settings=library.settings||{};if(Number(library.settings.indexingPolicyVersion)>=INDEXING_POLICY_VERSION)return false;library.settings.indexingPolicyVersion=INDEXING_POLICY_VERSION;scheduleSave();for(const location of library.locations)schedulePortfolioBackground(()=>scanLocation(location.id),1200);return true;}
+function refreshChangedIndexingPolicy(){library.settings=library.settings||{};if(Number(library.settings.indexingPolicyVersion)>=INDEXING_POLICY_VERSION)return false;library.settings.indexingPolicyVersion=INDEXING_POLICY_VERSION;scheduleSave();for(const location of library.locations.filter((item)=>!item.autoImportLegacyRoot))schedulePortfolioBackground(()=>scanLocation(location.id),1200);return true;}
 
 function watchLocation(location) {
   watchers.get(location.id)?.close();
@@ -773,7 +823,7 @@ function watchLocation(location) {
 
 async function refreshSourcesInBackground({ rescan = false } = {}) {
   const run = beginBackgroundRun('source-refresh'); if (!run) return { online: library.locations.filter((location) => location.online).length, total: library.locations.length, alreadyRunning: true };
-  const jobLibrary = run.library, pending = [...jobLibrary.locations];
+  const jobLibrary = run.library, pending = jobLibrary.locations.filter((location)=>!location.autoImportLegacyRoot);
   for (const location of pending) location.checking = true;
   broadcastLocations();
   const recovered = [], staleAssets = [];
@@ -801,6 +851,11 @@ async function refreshSourcesInBackground({ rescan = false } = {}) {
 }
 
 function fingerprintTimeoutForSize(size){return Math.min(10*60*1000,Math.max(15000,15000+Math.round((Math.max(0,Number(size)||0)/(1024*1024*1024))*120000)));}
+function markAssetSourcePending(asset) {
+  if (!asset || asset.sourcePending) return;
+  asset.sourcePending = true; asset.sourceMissing = false; asset.missingSince = null; scheduleAssetSave(asset);
+  broadcastAssetPatches([{ id: asset.id, sourcePending: true, sourceMissing: false, missingSince: null }]);
+}
 async function warmContentHashes() {
   const run = beginBackgroundRun('content-hashes'); if (!run) return;
   const jobLibrary = run.library, pending = jobLibrary.assets.filter((asset) => !asset.contentHash && !asset.sourcePending && !asset.sourceMissing && jobLibrary.locations.find((location) => location.id === asset.locationId)?.online === true && !jobLibrary.locations.find((location) => location.id === asset.locationId)?.unstable), total = pending.length, progressId = run.progressId;
@@ -811,7 +866,7 @@ async function warmContentHashes() {
     const workers = Array.from({ length: Math.min(BACKGROUND_HASH_WORKERS, pending.length) }, async () => { while (pending.length && backgroundRunActive(run)) {
       if(scanWorkActive()&&!(await waitForScanIdle(run)))break;
       if(!(await waitForIndexCpuBudget(run)))break;
-      const asset = pending.shift(),fingerprintTimeout=fingerprintTimeoutForSize(asset.size),result = await retryBackground(async () => { const hash = await hashFile(asset.path,fingerprintTimeout); if (!hash) throw new Error('Fingerprint unavailable'); return hash; }, run, { attempts: asset.size>SCAN_INLINE_HASH_MAX_BYTES?1:3, timeout:fingerprintTimeout+2000, baseDelay: 100, label: `Fingerprint ${asset.filename}` });
+      const asset = pending.shift();if(!(await pathAvailable(asset.path))){markAssetSourcePending(asset);failed+=1;completed+=1;continue;}const fingerprintTimeout=fingerprintTimeoutForSize(asset.size),result = await retryBackground(async () => { const hash = await hashFile(asset.path,fingerprintTimeout); if (!hash) throw new Error('Fingerprint unavailable'); return hash; }, run, { attempts: asset.size>SCAN_INLINE_HASH_MAX_BYTES?1:3, timeout:fingerprintTimeout+2000, baseDelay: 100, label: `Fingerprint ${asset.filename}` });
       if (!backgroundRunActive(run)) break; if (typeof result === 'string'){asset.contentHash = result;changedAssets.push(asset);} else failed += 1; completed += 1;
       if (completed % 10 === 0 || completed === total) reportBackgroundProgress(progressId, { label: 'Analyzing file fingerprints', detail: `${completed.toLocaleString()} of ${total.toLocaleString()}${failed ? ` · ${failed} failed` : ''}`, completed, total });
     } }); await Promise.allSettled(workers);
@@ -835,6 +890,7 @@ async function warmCompatibilityVideoCache() {
 }
 
 function thumbnailWorkRequired(asset) {
+  if (asset.linkedYouTube) return false;
   if (asset.thumbnailFailedAt && asset.thumbnailFailedModified === asset.modified && !(asset.extension==='PDF'&&asset.thumbnailFailureVersion!==PDF_PREVIEW_VERSION)) return false;
   if (asset.kind === 'video') return !asset.thumbnailPath || !asset.width || !asset.height || !asset.duration;
   if (asset.kind === 'audio') return !asset.thumbnailPath || !asset.duration;
@@ -844,7 +900,8 @@ function thumbnailWorkRequired(asset) {
 async function generateScheduledThumbnail(job){
   const asset=mainAssetIndex.get(job.id);if(!asset||Number(asset.modified||0)!==job.version||!thumbnailWorkRequired(asset)||asset.sourcePending||asset.sourceMissing)return;
   const location=library.locations.find((item)=>item.id===asset.locationId);if(location?.online!==true)return;
-  const run={epoch:backgroundEpoch,portfolioId:activePortfolioId,library,progressId:`${activePortfolioId}:thumbnail:${asset.id}`};if(!(await waitForIndexCpuBudget(run)))return;
+  if(!(await pathAvailable(asset.path))){markAssetSourcePending(asset);return;}
+  const run={epoch:backgroundEpoch,portfolioId:activePortfolioId,library,progressId:`${activePortfolioId}:thumbnail:${asset.id}`,reportPauses:false};if(!(await waitForIndexCpuBudget(run)))return;
   const span=performanceRecorder.start('thumbnail-generation',{portfolioId:activePortfolioId,portfolioSize:library.assets.length,queueWaitMs:Date.now()-job.enqueuedAt,phase:job.reason,assetMix:{[asset.kind||'other']:1}});
   const thumbnail=await retryBackground(async()=>{const value=asset.kind==='video'?await prepareVideoFiles(asset):await createThumbnail(asset);if(!value?.ok)throw new Error(value?.message||'Preview unavailable');return value;},run,{attempts:3,timeout:asset.extension==='PDF'?35000:RAW_IMAGE_EXTENSION_SET.has(path.extname(asset.path).toLowerCase())?95000:11000,baseDelay:120,label:`Preview ${asset.filename}`});
   if(!backgroundRunActive(run))return;
@@ -884,6 +941,21 @@ async function addLocations(paths, type) {
   broadcast();
   return publicLibrarySummary();
 }
+
+async function saveRuntimePreferences(patch={}){runtimePreferences={...runtimePreferences,...patch};await fsp.mkdir(path.dirname(runtimePreferencesFile),{recursive:true});await fsp.writeFile(runtimePreferencesFile,JSON.stringify(runtimePreferences),'utf8');}
+function autoImportOwner(){return{portfolioId:activePortfolioId,epoch:backgroundEpoch,library};}
+function autoImportOwnerActive(owner){return Boolean(owner&&owner.portfolioId===activePortfolioId&&owner.epoch===backgroundEpoch&&owner.library===library&&!app.isQuitting);}
+function activeAutoImportEnabled(){return runtimePreferences.autoImportEnabled===undefined?Boolean(library.settings?.preferences?.autoImport):Boolean(runtimePreferences.autoImportEnabled);}
+function activePortfolioAutoImportDirectory(){const portfolio=portfolios.find((item)=>item.id===activePortfolioId),preferences=library.settings?.preferences||{},root=runtimePreferences.autoImportRoot||preferences.autoImportFolder||importsDir;return portfolio?portfolioAutoImportPath(root,portfolio.name):null;}
+async function ensureActivePortfolioAutoImportLocation({create=false,scan=false}={}){
+  const owner=autoImportOwner(),preferences=library.settings?.preferences||{},configuredRoot=runtimePreferences.autoImportRoot||preferences.autoImportFolder||importsDir,directory=activePortfolioAutoImportDirectory();if(!directory)return null;
+  if(!runtimePreferences.autoImportRoot&&preferences.autoImportFolder)saveRuntimePreferences({autoImportRoot:preferences.autoImportFolder,autoImportEnabled:Boolean(preferences.autoImport)}).catch(()=>{});
+  for(const location of owner.library.locations){if(samePath(location.path,configuredRoot)&&!samePath(location.path,directory)){location.autoImportLegacyRoot=true;watchers.get(location.id)?.close();watchers.delete(location.id);}}
+  let exists=await fsp.stat(directory).then((stat)=>stat.isDirectory()).catch(()=>false);if(!exists&&create){await fsp.mkdir(directory,{recursive:true});exists=true;}if(!exists||!autoImportOwnerActive(owner))return null;
+  let location=owner.library.locations.find((item)=>samePath(item.path,directory));if(!location){location={id:makeId(`location:${path.resolve(directory).toLowerCase()}`),name:path.basename(directory),path:path.resolve(directory),type:'folder',removable:await isRemovable(directory),online:true,scanning:false,assetCount:0,addedAt:Date.now(),lastScanned:null,autoImport:true,autoImportRoot:path.resolve(configuredRoot)};owner.library.locations.push(location);scheduleMetadataSave();}else{location.autoImport=true;location.autoImportRoot=path.resolve(configuredRoot);location.autoImportLegacyRoot=false;location.online=true;}
+  if(!autoImportOwnerActive(owner))return null;watchLocation(location);if(scan)await scanLocation(location.id,{notify:true});return autoImportOwnerActive(owner)?location:null;
+}
+function stopActiveAutoImportWatchers(){for(const location of library.locations.filter((item)=>item.autoImport)){watchers.get(location.id)?.close();watchers.delete(location.id);const timer=watcherRefreshTimers.get(location.id);if(timer)clearTimeout(timer);watcherRefreshTimers.delete(location.id);}}
 
 async function uniqueManagedImportPath(directory, filename) {
   const parsed = path.parse(String(filename || 'dropped-file'));
@@ -971,6 +1043,8 @@ async function registerProtocol() {
     const candidates = wantsOriginal ? [wantsEdited && asset.editedPath ? asset.editedPath : wantsProxy && asset.proxyPath ? asset.proxyPath : asset.path] : wantsEdited && asset.editedPath ? [asset.editedPath] : asset.thumbnailPath ? [asset.thumbnailPath] : asset.kind !== 'image' ? [asset.path] : [];
     for (const candidate of candidates) {
       try {
+        const originalSource = candidate === asset.path;
+        if (originalSource && (asset.sourceMissing || asset.sourcePending || !await pathAvailable(candidate))) { markAssetSourcePending(asset); continue; }
         const stat = await fsp.stat(candidate);
         const extension = path.extname(candidate).toLowerCase();
         const mime = ({ '.svg':'image/svg+xml', '.png':'image/png', '.webp':'image/webp', '.gif':'image/gif', '.jpg':'image/jpeg', '.jpeg':'image/jpeg', '.mp4':'video/mp4', '.m4v':'video/mp4', '.mov':'video/quicktime', '.webm':'video/webm', '.ogv':'video/ogg', '.mp3':'audio/mpeg', '.wav':'audio/wav', '.m4a':'audio/mp4', '.aac':'audio/aac', '.flac':'audio/flac', '.ogg':'audio/ogg', '.oga':'audio/ogg', '.opus':'audio/ogg' })[extension] || 'application/octet-stream';
@@ -1012,23 +1086,107 @@ async function registerProtocol() {
   });
 }
 
-async function importUrl(urlValue) {
+function ensureDownloadsCollection() {
+  let collection = library.collections.find((item) => item.parentId === null && item.name.toLowerCase() === 'downloads');
+  if (!collection) {
+    collection = libraryCore.createCollection(library, 'Downloads', null);
+    collection.icon = 'download';
+    scheduleMetadataSave();
+  }
+  return collection;
+}
+
+async function indexAutoImportFile(target,location,owner){
+  if(!autoImportOwnerActive(owner))throw new Error('The active portfolio changed before the download completed');const resolved=path.resolve(target),existing=owner.library.assets.find((item)=>item.path===resolved),asset=await inspectFile(resolved,location,existing);if(!asset)throw new Error('Pigeon downloaded the file but could not index it');if(!autoImportOwnerActive(owner))throw new Error('The active portfolio changed before the download could be indexed');
+  if(existing){asset.tags=existing.tags||[];asset.note=existing.note||'';asset.rating=existing.rating||0;asset.favorite=Boolean(existing.favorite);asset.collectionIds=existing.collectionIds||[];asset.deletedAt=existing.deletedAt||null;asset.quickChecked=Boolean(existing.quickChecked);asset.thumbnailEffect=Boolean(existing.thumbnailEffect);Object.assign(existing,asset);}else owner.library.assets.push(asset);location.assetCount=owner.library.assets.filter((item)=>item.locationId===location.id).length;mainAssetIndex.set(asset.id,existing||asset);await persistScanBatch(location,[existing||asset]);return existing||asset;
+}
+
+async function fetchYouTubeThumbnail(url, target) {
+  const response = await fetch(url, { redirect: 'follow' });
+  if (!response.ok) throw new Error(`YouTube thumbnail download failed with status ${response.status}`);
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (!bytes.length || bytes.length > 15 * 1024 * 1024) throw new Error('YouTube thumbnail is unavailable or exceeds the 15 MB safety limit');
+  await fsp.mkdir(path.dirname(target), { recursive: true });
+  const temporary = `${target}.${crypto.randomUUID()}.partial`;
+  try { await fsp.writeFile(temporary, bytes); await fsp.rename(temporary, target); }
+  catch (error) { await fsp.rm(temporary, { force: true }).catch(() => {}); throw error; }
+}
+
+async function createLinkedYouTubeAsset(urlValue, destination, location, owner) {
+  const metadata = await getYouTubeMetadata(urlValue);
+  if (!autoImportOwnerActive(owner)) throw new Error('The active portfolio changed while YouTube details were loading');
+  const base = await uniqueManagedImportPath(destination, `${safeVideoName(metadata.title || 'YouTube video')}.youtube.url`);
+  const thumbnail = path.join(thumbnailDir, `${metadata.videoId}-${crypto.randomUUID()}.jpg`);
+  await fsp.mkdir(destination, { recursive: true });
+  try {
+    await fsp.writeFile(base, `[InternetShortcut]\r\nURL=${metadata.canonicalUrl}\r\n`, { flag: 'wx' });
+    await fetchYouTubeThumbnail(metadata.thumbnailUrl, thumbnail);
+    if (!autoImportOwnerActive(owner)) throw new Error('The active portfolio changed while the YouTube link was being saved');
+    const asset = await indexAutoImportFile(base, location, owner);
+    Object.assign(asset, { kind: 'video', extension: 'YOUTUBE', filename: metadata.title, sourceUrl: metadata.canonicalUrl, linkedYouTube: true, youtubeVideoId: metadata.videoId, thumbnailPath: thumbnail, duration: metadata.duration, width: 480, height: 360, needsOrganization: false });
+    await persistScanBatch(location, [asset]);
+    return asset;
+  } catch (error) {
+    await Promise.all([base, thumbnail].map((file) => fsp.rm(file, { force: true }).catch(() => {})));
+    throw error;
+  }
+}
+
+async function importUrl(urlValue, { collection = '', mediaOnly = false } = {}) {
   const url = new URL(urlValue);
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Only HTTP and HTTPS URLs are supported');
+  const portfolioDrop=collection==='downloads',importOwner=portfolioDrop?autoImportOwner():null,autoImportLocation=portfolioDrop?await ensureActivePortfolioAutoImportLocation({create:true,scan:false}):null,destination=autoImportLocation?.path||importsDir;if(portfolioDrop&&!autoImportLocation)throw new Error('Could not prepare the active portfolio auto-import folder');
+  const youtubeId = youtubeVideoId(url);
+  if (youtubeId) {
+    const downloadEnabled = library.settings?.preferences?.youtubeAutoDownload !== false;
+    const quality = library.settings?.preferences?.youtubeDownloadQuality || '720';
+    let asset, target = '';
+    if (portfolioDrop && !downloadEnabled) asset = await createLinkedYouTubeAsset(canonicalYouTubeUrl(url), destination, autoImportLocation, importOwner);
+    else {
+      ({ target } = await downloadYouTubeVideo(url.toString(), { outputDir: destination, quality, ffmpegPath: ffmpegExecutable }));
+      if(portfolioDrop&&!autoImportOwnerActive(importOwner)){await fsp.rm(target,{force:true}).catch(()=>{});throw new Error('The active portfolio changed while YouTube was downloading');}
+      asset = portfolioDrop?await indexAutoImportFile(target,autoImportLocation,importOwner):(await addLocations([target], 'file'),library.assets.find((item)=>item.path===path.resolve(target)));
+    }
+    if(portfolioDrop&&!autoImportOwnerActive(importOwner))throw new Error('The active portfolio changed before the YouTube download was committed');
+    if (asset) {
+      asset.sourceUrl = canonicalYouTubeUrl(url);
+      asset.importMode = asset.linkedYouTube ? 'linked' : 'downloaded';
+      if (collection === 'downloads') {
+        const downloads = ensureDownloadsCollection();
+        asset.collectionIds = [...new Set([...(asset.collectionIds || []), downloads.id])];
+        asset.needsOrganization = false;
+        applyConfiguredCollectionTags(asset);
+      }
+      scheduleAssetSave(asset);
+    }
+    if(portfolioDrop){await saveLibraryNow();broadcastScanAssets(autoImportLocation,[asset]);broadcastSidebar();}else{scheduleSave();broadcast();}
+    return asset;
+  }
   const response = await fetch(url, { redirect: 'follow' });
   if (!response.ok) throw new Error(`Download failed with status ${response.status}`);
+  const headerType = response.headers.get('content-type') || '';
+  if (mediaOnly && headerType.includes('html')) throw new Error('This web page does not expose a downloadable image or video');
   const bytes = Buffer.from(await response.arrayBuffer());
   if (bytes.length > 250 * 1024 * 1024) throw new Error('Download exceeds the 250 MB safety limit');
-  await fsp.mkdir(importsDir, { recursive: true });
-  const headerType = response.headers.get('content-type') || '';
+  await fsp.mkdir(destination, { recursive: true });
   const extensionByType = headerType.includes('png') ? '.png' : headerType.includes('jpeg') ? '.jpg' : headerType.includes('webp') ? '.webp' : headerType.includes('gif') ? '.gif' : headerType.includes('svg') ? '.svg' : headerType.includes('mp4') ? '.mp4' : headerType.includes('webm') ? '.webm' : headerType.includes('pdf') ? '.pdf' : headerType.includes('markdown') ? '.md' : headerType.includes('html') ? '.html' : headerType.includes('json') ? '.json' : headerType.includes('text/plain') ? '.txt' : '';
   const urlName = path.basename(decodeURIComponent(url.pathname)) || `download-${Date.now()}${extensionByType}`;
   const safeName = urlName.replace(/[<>:"/\\|?*\x00-\x1f]/g, '-').slice(0, 180);
-  const target = path.join(importsDir, `${Date.now()}-${safeName}${path.extname(safeName) ? '' : extensionByType}`);
-  await fsp.writeFile(target, bytes);
-  await addLocations([target], 'file');
-  const asset = library.assets.find((item) => item.path === path.resolve(target));
-  if (asset){asset.sourceUrl = url.toString();scheduleAssetSave(asset);}broadcast();
+  const target = portfolioDrop?await uniqueManagedImportPath(destination,`${safeName}${path.extname(safeName)?'':extensionByType}`):path.join(destination,`${Date.now()}-${safeName}${path.extname(safeName)?'':extensionByType}`),temporary=`${target}.${crypto.randomUUID()}.partial`;
+  await fsp.writeFile(temporary, bytes);if(portfolioDrop&&!autoImportOwnerActive(importOwner)){await fsp.rm(temporary,{force:true}).catch(()=>{});throw new Error('The active portfolio changed while the file was downloading');}await fsp.rename(temporary,target);
+  const asset = portfolioDrop?await indexAutoImportFile(target,autoImportLocation,importOwner):(await addLocations([target], 'file'),library.assets.find((item)=>item.path===path.resolve(target)));
+  if(portfolioDrop&&!autoImportOwnerActive(importOwner))throw new Error('The active portfolio changed before the download was committed');
+  if (asset) {
+    asset.sourceUrl = url.toString();
+    if (collection === 'downloads') {
+      const downloads = ensureDownloadsCollection();
+      asset.collectionIds = [...new Set([...(asset.collectionIds || []), downloads.id])];
+      asset.needsOrganization = false;
+      applyConfiguredCollectionTags(asset);
+    }
+    scheduleAssetSave(asset);
+  }
+  if(portfolioDrop){await saveLibraryNow();broadcastScanAssets(autoImportLocation,[asset]);broadcastSidebar();}else{scheduleSave();broadcast();}
   return asset;
 }
 
@@ -1142,7 +1300,11 @@ async function exportAnnotatedAsset(id, annotations = [], edits = {}) {
 }
 
 function safeExportName(value, fallback = 'Export') { const cleaned = String(value || '').replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/[. ]+$/g, '').trim(); return cleaned || fallback; }
-async function copyExportAsset(asset, target) { if (asset.sourceMissing || !(await pathAvailable(asset.path))) return false; await fsp.mkdir(path.dirname(target), { recursive: true }); await fsp.copyFile(asset.path, target); return true; }
+function automaticConflictRenameEnabled(){return library.settings?.preferences?.autoRenameFileConflicts!==false;}
+async function decideIdenticalFileConflict({destination}){const result=await dialog.showMessageBox(mainWindow,{type:'question',title:'Identical file already exists',message:`${path.basename(destination)} already exists and is identical to the incoming file.`,detail:'Skip leaves the existing file unchanged. Keep both creates a collision-safe new filename.',buttons:['Skip','Keep both'],defaultId:0,cancelId:0,noLink:true});return result.response===1?'keep-both':'skip';}
+async function resolveManagedFileConflict(source,target){return resolveFileConflict(source,target,{autoRename:automaticConflictRenameEnabled(),decideIdentical:decideIdenticalFileConflict});}
+async function moveFileWithoutOverwrite(source,target){let targetCreated=false;try{try{await fsp.link(source,target);}catch(error){if(error.code==='EEXIST')throw error;await fsp.copyFile(source,target,fs.constants.COPYFILE_EXCL);}targetCreated=true;await fsp.rm(source,{force:false});}catch(error){if(targetCreated)await fsp.rm(target,{force:true}).catch(()=>{});throw error;}}
+async function copyExportAsset(asset,target){if(asset.sourceMissing||!(await pathAvailable(asset.path)))return{copied:false,skipped:true,renamed:false,target};await fsp.mkdir(path.dirname(target),{recursive:true});const conflict=await resolveManagedFileConflict(asset.path,target);if(conflict.action==='skip'||conflict.action==='same')return{copied:false,skipped:true,renamed:false,target:conflict.target,identical:true};await fsp.copyFile(asset.path,conflict.target,fs.constants.COPYFILE_EXCL);return{copied:true,skipped:false,renamed:conflict.renamed,target:conflict.target};}
 async function exportLibraryGroup(type, id) {
   let name, assets, paths = new Map();
   if (type === 'collection') {
@@ -1152,9 +1314,9 @@ async function exportLibraryGroup(type, id) {
     const root = library.smartFolders.find((item) => item.id === id); if (!root) throw new Error('Smart folder does not exist'); name = root.name; assets = libraryCore.evaluateSmartFolder(library,root).filter((asset)=>!isAssetLocked(asset));
     for (const asset of assets) { const location = library.locations.find((item) => item.id === asset.locationId), relative = location?.type === 'folder' ? path.relative(location.path, path.dirname(asset.path)) : ''; paths.set(asset.id, relative && !relative.startsWith('..') ? relative.split(path.sep).map((part) => safeExportName(part)) : []); }
   } else throw new Error('Unsupported export type');
-  const result = await dialog.showOpenDialog(mainWindow, { title: `Export ${name}`, properties: ['openDirectory', 'createDirectory'] }); if (result.canceled || !result.filePaths[0]) return null; const rootTarget = path.join(result.filePaths[0], safeExportName(name)); let copied = 0, skipped = 0;
-  for (const asset of assets) { let target = path.join(rootTarget, ...(paths.get(asset.id) || []), safeExportName(asset.filename, `${asset.id}.${String(asset.extension || 'file').toLowerCase()}`)); if (await pathAvailable(target)) target = path.join(path.dirname(target), `${path.basename(target, path.extname(target))}-${asset.id.slice(0,6)}${path.extname(target)}`); if (await copyExportAsset(asset, target)) copied += 1; else skipped += 1; }
-  return { path: rootTarget, files: copied, skipped };
+  const result = await dialog.showOpenDialog(mainWindow, { title: `Export ${name}`, properties: ['openDirectory', 'createDirectory'] }); if (result.canceled || !result.filePaths[0]) return null; const rootTarget = path.join(result.filePaths[0], safeExportName(name)); let copied = 0, skipped = 0,renamed=0;
+  for (const asset of assets) { const target=path.join(rootTarget,...(paths.get(asset.id)||[]),safeExportName(asset.filename,`${asset.id}.${String(asset.extension||'file').toLowerCase()}`)),outcome=await copyExportAsset(asset,target);if(outcome.copied)copied+=1;if(outcome.skipped)skipped+=1;if(outcome.renamed)renamed+=1; }
+  return { path: rootTarget, files: copied, skipped,renamed };
 }
 
 async function runPlugin(pluginName) {
@@ -1180,6 +1342,7 @@ async function runPlugin(pluginName) {
 function savedWindowOptions(){let saved=null;try{saved=JSON.parse(fs.readFileSync(windowStateFile,'utf8'));}catch{}const displays=screen.getAllDisplays(),intersects=(bounds,area)=>bounds&&bounds.x<area.x+area.width&&bounds.x+bounds.width>area.x&&bounds.y<area.y+area.height&&bounds.y+bounds.height>area.y;if(saved&&displays.some((display)=>intersects(saved,display.workArea)))return{x:saved.x,y:saved.y,width:Math.max(920,saved.width||1440),height:Math.max(620,saved.height||900)};const area=screen.getPrimaryDisplay().workArea,width=Math.min(1440,area.width),height=Math.min(900,area.height);return{x:area.x+Math.round((area.width-width)/2),y:area.y+Math.round((area.height-height)/2),width,height};}
 function centerWindowOnDisplay(index=0){if(!mainWindow)return false;const primary=screen.getPrimaryDisplay(),displays=[primary,...screen.getAllDisplays().filter((display)=>display.id!==primary.id)],display=displays[index]||primary,area=display.workArea,bounds=mainWindow.getBounds(),width=Math.min(bounds.width,area.width),height=Math.min(bounds.height,area.height);mainWindow.unmaximize();mainWindow.setBounds({x:area.x+Math.round((area.width-width)/2),y:area.y+Math.round((area.height-height)/2),width,height});return Boolean(displays[index]);}
 function revealMainWindow(){if(!mainWindow||mainWindow.isDestroyed())return false;if(mainWindow.isMinimized())mainWindow.restore();if(!mainWindow.isVisible())mainWindow.show();mainWindow.focus();return true;}
+function showStartupPortfolioChooser(){return new Promise((resolve)=>{let settled=false;const chooser=new BrowserWindow({width:460,height:440,minWidth:380,minHeight:320,resizable:true,show:false,title:'Choose a portfolio · Pigeon',icon:path.join(__dirname,'..','pigeon-logo.png'),backgroundColor:'#191b1f',autoHideMenuBar:true,webPreferences:{contextIsolation:true,nodeIntegration:false,sandbox:true}}),finish=(portfolioId)=>{if(settled)return;settled=true;if(!chooser.isDestroyed())chooser.destroy();resolve(portfolioId)};chooser.setMenuBarVisibility(false);chooser.webContents.setWindowOpenHandler(()=>({action:'deny'}));chooser.webContents.on('will-navigate',(event,target)=>{let url;try{url=new URL(target);}catch{return;}if(url.protocol!=='pigeon-portfolio-choice:')return;event.preventDefault();if(url.hostname==='select'){const id=decodeURIComponent(url.pathname.replace(/^\//,''));finish(portfolios.some((portfolio)=>portfolio.id===id)?id:null);}else if(url.hostname==='cancel')finish(null);});chooser.on('closed',()=>finish(null));chooser.once('ready-to-show',()=>chooser.show());chooser.loadURL(`data:text/html;charset=UTF-8,${encodeURIComponent(portfolioChooserHtml(portfolios,activePortfolioId))}`);});}
 function createWindow() {
   rendererIpcReady=false;
   mainWindow = new BrowserWindow({
@@ -1212,11 +1375,43 @@ function createWindow() {
   if (smokeTest) {
     mainWindow.webContents.once('did-finish-load', async () => {
       console.log('[smoke] renderer loaded');
-      const smokeDelay = Math.min(2500, Number(process.env.PIGEON_SMOKE_DELAY) || 200);
+      const smokeDelay = Math.min(2500, Number(process.env.PIGEON_SMOKE_DELAY) || (!smokeSeeded&&!smokeLarge?1800:200));
       await new Promise((resolve) => setTimeout(resolve, smokeDelay));
       console.log('[smoke] capturing window');
+      const smokeStartupState=await mainWindow.webContents.executeJavaScript(`({subscriptionsReady:document.documentElement.dataset.rendererSubscriptionsReady||'',rendererReadyApi:typeof window.pigeon?.rendererReady,streamGeneration:state?.streamGeneration,loading:state?.library?.loading,assetStreamPending:state?.library?.assetStreamPending,assets:state?.library?.assets?.length,splashHidden:document.querySelector('#startup-splash')?.classList.contains('hidden')})`);
+      console.log(`[smoke] startup state ${JSON.stringify(smokeStartupState)}`);
+      if(!smokeSeeded&&!smokeLarge&&(!smokeStartupState.subscriptionsReady||smokeStartupState.loading||smokeStartupState.assetStreamPending||!smokeStartupState.splashHidden))throw new Error(`Normal startup did not finish: ${JSON.stringify(smokeStartupState)}`);
+      if(smokeFullscreenPerformance){
+        for(let attempt=0;attempt<100;attempt+=1){const ready=await mainWindow.webContents.executeJavaScript(`document.documentElement.dataset.rendererSubscriptionsReady==='true'`);if(ready)break;await new Promise((resolve)=>setTimeout(resolve,50));}
+        const smokePerformanceLibrary={...publicLibrarySummary(),assets:library.assets.map((asset)=>publicAssetForRenderer(asset,library.locations.find((location)=>location.id===asset.locationId))),assetStreamPending:false};
+        const injectedCount=await mainWindow.webContents.executeJavaScript(`(()=>{const incoming=${JSON.stringify(smokePerformanceLibrary)};state.library=assetStreamState.begin(incoming);assetStreamState.upsertMany(incoming.assets);state.library=assetStreamState.library;state.library.assetStreamPending=false;rendererAssetIndexes.clear();state.library.assets.forEach((asset,index)=>rendererAssetIndexes.set(asset.id,index));invalidateAssetViewCache();return state.library.assets.length;})()`);
+        console.log(`[smoke] fullscreen fixture ${JSON.stringify({assets:injectedCount})}`);
+        const result=await mainWindow.webContents.executeJavaScript(`(async()=>{
+          for(let attempt=0;attempt<100&&state.library.assets.length<6000;attempt+=1)await new Promise((resolve)=>setTimeout(resolve,50));
+          state.view='all';state.kind='all';
+          const selected=state.library.assets[0];if(!selected)throw new Error('No fullscreen performance asset '+JSON.stringify({streamGeneration:state.streamGeneration,assetStreamPending:state.library.assetStreamPending,totalAssets:state.library.totalAssets,activePortfolioId:state.library.activePortfolioId}));
+          state.selectedId=selected.id;state.selectedIds=new Set([selected.id]);invalidateAssetViewCache();renderGrid();
+          for(let attempt=0;attempt<100&&(!cooperativeAssetView?.ready||state.virtualMetrics?.total!==state.library.assets.length||!document.querySelector('.asset-card'));attempt+=1){await new Promise((resolve)=>setTimeout(resolve,50));renderGrid({preserveCards:true});}
+          await new Promise((resolve)=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+          const cardsBefore=document.querySelectorAll('.asset-card').length,enterStarted=performance.now(),enterPromise=toggleBackquoteFullscreenViewer(),enterDispatchMs=performance.now()-enterStarted;
+          await enterPromise;await new Promise((resolve)=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+          const enterPaintMs=performance.now()-enterStarted,viewerOpen=!document.querySelector('#media-viewer').classList.contains('hidden'),fullscreenEntered=Boolean(document.fullscreenElement),exitStarted=performance.now(),exitPromise=toggleBackquoteFullscreenViewer(),exitDispatchMs=performance.now()-exitStarted;
+          await new Promise((resolve)=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));const exitFirstGridPaintMs=performance.now()-exitStarted;
+          await exitPromise;await new Promise((resolve)=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+          const exitPaintMs=performance.now()-exitStarted,wrap=document.querySelector('#grid-wrap'),expectedLastId='asset-'+(state.library.assets.length-1);
+          for(let attempt=0;attempt<30&&(gridScrollRestore.pending()||wrap.scrollHeight<(state.virtualMetrics?.extentPx||0)*.9);attempt+=1)await new Promise((resolve)=>setTimeout(resolve,50));
+          let cardsAfter=[];for(let attempt=0;attempt<20;attempt+=1){wrap.scrollTop=wrap.scrollHeight;wrap.dispatchEvent(new Event('scroll'));await new Promise((resolve)=>setTimeout(resolve,100));cardsAfter=[...document.querySelectorAll('.asset-card')];if(cardsAfter.at(-1)?.dataset.assetId===expectedLastId)break;}
+          const lastId=cardsAfter.at(-1)?.dataset.assetId;
+          return{total:state.library.assets.length,cardsBefore,cardsAfter:cardsAfter.length,enterDispatchMs,enterPaintMs,exitDispatchMs,exitFirstGridPaintMs,exitPaintMs,viewerOpen,fullscreenEntered,viewerClosed:document.querySelector('#media-viewer').classList.contains('hidden'),fullscreenExited:!document.fullscreenElement,lastId,scrollTop:wrap.scrollTop,scrollHeight:wrap.scrollHeight};
+        })()`,true);
+        console.log(`[smoke] fullscreen performance ${JSON.stringify(result)}`);
+        if(result.total<6000||!result.viewerOpen||!result.fullscreenEntered||!result.viewerClosed||!result.fullscreenExited||result.enterDispatchMs>100||result.enterPaintMs>1500||result.exitFirstGridPaintMs>350||result.exitPaintMs>1500||result.lastId!==`asset-${result.total-1}`)throw new Error(`Fullscreen performance verification failed: ${JSON.stringify(result)}`);
+        app.exit(0);return;
+      }
       if(process.env.PIGEON_SMOKE_CAPTURE_TREE==='1'){mainWindow.setSize(340,920);await mainWindow.webContents.executeJavaScript(`(()=>{document.documentElement.style.setProperty('--sidebar-width','310px');document.querySelector('.app-shell')?.classList.add('tree-capture');document.querySelectorAll('[data-collapse-key]').forEach((toggle)=>{if(toggle.getAttribute('aria-expanded')==='false')toggle.click();});document.querySelector('#sidebar-tree-scroll').scrollTop=0;})()`);await new Promise((resolve)=>setTimeout(resolve,700));const image=await mainWindow.webContents.capturePage({x:0,y:0,width:310,height:900});await fsp.writeFile(path.join(process.cwd(),'pigeon-tree-smoke.png'),image.toPNG());console.log('[smoke] tree capture complete');app.exit(0);return;}
       if (smokeSeeded) {
+        for(let attempt=0;attempt<100&&(!Array.isArray(library?.assets)||!Array.isArray(library?.locations)||library.loading);attempt+=1)await new Promise((resolve)=>setTimeout(resolve,25));
+        console.log(`[smoke] seeded library ready ${JSON.stringify({assets:Array.isArray(library?.assets)?library.assets.length:null,locations:Array.isArray(library?.locations)?library.locations.length:null,loading:library?.loading})}`);
         const droppedSource = path.join(app.getPath('userData'), 'smoke-drop-source.svg');
         await fsp.writeFile(droppedSource, '<svg xmlns="http://www.w3.org/2000/svg" width="137" height="91"><rect width="137" height="91" fill="#7138a8"/><circle cx="37" cy="43" r="19" fill="#ffcf48"/></svg>');
         const droppedSourceHash = await hashFile(droppedSource), droppedResult = await importDroppedFiles([droppedSource]), droppedAsset = library.assets.find((asset) => asset.path.startsWith(droppedResult.path) && asset.filename.startsWith('smoke-drop-source'));
@@ -1240,10 +1435,12 @@ function createWindow() {
         } catch (error) { console.error('[smoke] external drop failed', error.message); }
         finally { if (mainWindow.webContents.debugger.isAttached()) mainWindow.webContents.debugger.detach(); }
         await new Promise((resolve) => setTimeout(resolve, 80));
-        const verification = await mainWindow.webContents.executeJavaScript(`(async () => {
+        const smokeSwitchLocationId=smokeUnstableLocation?.id||null;if(smokeUnstableLocation)await Promise.all(Array.from({length:320},(_,index)=>fsp.writeFile(path.join(smokeUnstableLocation.path,`switch-load-${index}.svg`),`<svg xmlns="http://www.w3.org/2000/svg" width="80" height="60"><rect width="80" height="60" fill="#${(index+4096).toString(16).padStart(6,'0').slice(-6)}"/></svg>`)));
+        const verification = await mainWindow.webContents.executeJavaScript(`(async () => {let smokeUiStage='startup';try{
+          for(let attempt=0;attempt<80&&(!Array.isArray(state.library?.assets)||!Array.isArray(state.library?.collections)||!Array.isArray(state.library?.smartFolders)||state.library.assetStreamPending);attempt+=1)await new Promise((resolve)=>setTimeout(resolve,25));
           const startupSplashHidden = document.querySelector('#startup-splash')?.classList.contains('hidden');
           const managedDropStorage = ${managedDropStorage}, externalFileDrop = ${externalFileDrop};
-          const droppedInboxAsset = state.library.assets.find((asset) => asset.needsOrganization);
+          const droppedInboxAsset = (state.library.assets||[]).find((asset) => asset.needsOrganization);
           const savedView = state.view, savedKind = state.kind; state.view = 'uncategorized'; state.kind = 'visual'; state.locationId = null; state.collectionId = null; state.smartFolderId = null;
           const dropStartsUncategorized = Boolean(droppedInboxAsset && filteredAssets().some((asset) => asset.id === droppedInboxAsset.id));
           if (droppedInboxAsset) droppedInboxAsset.tags = ['Organized']; const tagCompletesOrganization = Boolean(droppedInboxAsset && !filteredAssets().some((asset) => asset.id === droppedInboxAsset.id));
@@ -1255,19 +1452,23 @@ function createWindow() {
           document.querySelector('[data-section-toggle="smart-folders"]')?.click();
           const sidebarSectionsCollapse = document.querySelector('#sidebar-section-smart-folders')?.classList.contains('collapsed') && JSON.parse(localStorage.getItem('pigeon.collapsedSidebarSections') || '[]').includes('smart-folders');
           document.querySelector('[data-section-toggle="smart-folders"]')?.click();
+          smokeUiStage='dialogs';
+          console.log('[smoke-ui] dialogs');
           document.querySelector('#add-collection')?.click(); const collectionDialog = document.querySelector('#text-entry-dialog').open && document.querySelector('#text-entry-title').textContent.includes('Collection'); document.querySelector('#text-entry-input').value = 'UI modal collection'; document.querySelector('#confirm-text-entry')?.click(); await new Promise((resolve) => setTimeout(resolve, 60));
-          document.querySelector('#save-smart-folder')?.click(); const smartFolderDialog = document.querySelector('#smart-folder-dialog').open && document.querySelectorAll('.smart-rule').length === 1, smartTagInput = document.querySelector('[data-smart-tag-input]'); renderTagAutocomplete(smartTagInput); const smartTagAutocomplete = smartTagInput?.dataset.tagAutocomplete === 'true' && !document.querySelector('#tag-autocomplete').classList.contains('hidden'); document.querySelector('#smart-folder-name').value = 'UI modal smart folder'; document.querySelector('[data-rule-part="value"]').value = 'nested'; document.querySelector('[data-rule-part="value"]').dispatchEvent(new Event('input', { bubbles: true })); document.querySelector('#create-smart-folder')?.click(); await new Promise((resolve) => setTimeout(resolve, 60));
+          document.querySelector('#save-smart-folder')?.click(); const smartFolderDialog = document.querySelector('#smart-folder-dialog').open && document.querySelectorAll('.smart-rule').length === 1, smartTagInput = document.querySelector('[data-smart-tag-input]'); renderTagAutocomplete(smartTagInput); const smartTagAutocomplete = smartTagInput?.dataset.tagAutocomplete === 'true' && !document.querySelector('#tag-autocomplete').classList.contains('hidden'),smartFolderNameInput=document.querySelector('#smart-folder-name'),smartRuleValueInput=document.querySelector('[data-rule-part="value"]');if(smartFolderNameInput)smartFolderNameInput.value='UI modal smart folder';if(smartRuleValueInput){smartRuleValueInput.value='nested';smartRuleValueInput.dispatchEvent(new Event('input',{bubbles:true}));} document.querySelector('#create-smart-folder')?.click(); await new Promise((resolve) => setTimeout(resolve, 60));
           document.querySelector('.brand-menu')?.click(); const portfolioRowTrigger = !document.querySelector('#portfolio-switcher').classList.contains('hidden') && !document.querySelector('button.brand-menu'); document.querySelector('#quick-create-portfolio')?.click(); const portfolioDialog = document.querySelector('#text-entry-dialog').open && document.querySelector('#text-entry-title').textContent.includes('Portfolio'); document.querySelector('#cancel-text-entry')?.click(); closePortfolioSwitcher();
-          const creationDialogs = collectionDialog && smartFolderDialog && portfolioDialog && state.library.collections.some((item) => item.name === 'UI modal collection') && state.library.smartFolders.some((item) => item.name === 'UI modal smart folder');
-          const iconCollection = state.library.collections.find((item) => item.name === 'UI modal collection'), iconCollectionButton = document.querySelector('[data-collection-id="' + iconCollection?.id + '"]'); iconCollectionButton?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 180, clientY: 300 })); if (!document.querySelector('[data-folder-action="change-icon"]')) showCollectionContextMenu({ clientX: 180, clientY: 300 }, iconCollection);
-          const changeIconContextAction = [...document.querySelectorAll('[data-folder-action]')].find((button) => button.textContent.includes('Change Icon')), folderContextMenuPositioned = elements.contextMenu.style.left === '180px' && elements.contextMenu.style.top === '300px', contextMenuLeftAligned = Boolean(changeIconContextAction && getComputedStyle(changeIconContextAction).justifyContent === 'flex-start' && getComputedStyle(changeIconContextAction).textAlign === 'left'); changeIconContextAction?.click(); if (!document.querySelector('#icon-picker-dialog').open) openIconPicker({ type: 'collection', id: iconCollection.id, current: iconCollection.icon, fallback: 'collection' }); const iconPickerOpened = document.querySelector('#icon-picker-dialog').open && document.querySelectorAll('#icon-picker-grid svg').length >= 30; await chooseItemIcon('camera'); await new Promise((resolve) => setTimeout(resolve, 100));
-          const iconStateSaved = state.library.collections.find((item) => item.id === iconCollection.id)?.icon === 'camera', iconRendered = Boolean(document.querySelector('[data-collection-id="' + iconCollection.id + '"] svg'));
+          const creationDialogs = collectionDialog && smartFolderDialog && portfolioDialog && (state.library.collections||[]).some((item) => item.name === 'UI modal collection') && (state.library.smartFolders||[]).some((item) => item.name === 'UI modal smart folder');
+          const iconCollection = (state.library.collections||[]).find((item) => item.name === 'UI modal collection'), iconCollectionButton = document.querySelector('[data-collection-id="' + iconCollection?.id + '"]'); iconCollectionButton?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 180, clientY: 300 })); if (iconCollection && !document.querySelector('[data-folder-action="change-icon"]')) showCollectionContextMenu({ clientX: 180, clientY: 300 }, iconCollection);
+          const changeIconContextAction = [...document.querySelectorAll('[data-folder-action]')].find((button) => button.textContent.includes('Change Icon')), folderContextMenuPositioned = elements.contextMenu.style.left === '180px' && elements.contextMenu.style.top === '300px', contextMenuLeftAligned = Boolean(changeIconContextAction && getComputedStyle(changeIconContextAction).justifyContent === 'flex-start' && getComputedStyle(changeIconContextAction).textAlign === 'left'); changeIconContextAction?.click(); if (iconCollection && !document.querySelector('#icon-picker-dialog').open) openIconPicker({ type: 'collection', id: iconCollection.id, current: iconCollection.icon, fallback: 'collection' }); const iconPickerOpened = document.querySelector('#icon-picker-dialog').open && document.querySelectorAll('#icon-picker-grid svg').length >= 30; if (iconCollection) await chooseItemIcon('camera'); await new Promise((resolve) => setTimeout(resolve, 100));
+          const iconStateSaved = Boolean(iconCollection && (state.library.collections||[]).find((item) => item.id === iconCollection.id)?.icon === 'camera'), iconRendered = Boolean(iconCollection && document.querySelector('[data-collection-id="' + iconCollection.id + '"] svg'));
           const customItemIcons = Boolean(changeIconContextAction && folderContextMenuPositioned && iconPickerOpened && iconStateSaved && iconRendered);
+          smokeUiStage='folders';
+          console.log('[smoke-ui] folders');
           document.querySelector('[data-view="all"]')?.click(); document.querySelector('#clear-filters')?.click();
           let physicalFolderNodes = [...document.querySelectorAll('.location-folder-item')]; const nestedFolderNode = physicalFolderNodes.find((button) => decodeURIComponent(button.dataset.subfolder) === 'nested');
           nestedFolderNode?.click(); const subfolderToggle = document.querySelector('#subfolder-content-toggle'), directFolderContentOnly = subfolderToggle?.getAttribute('aria-pressed') === 'false' && document.querySelectorAll('.asset-card').length === 0; subfolderToggle?.click(); const descendantFolderContentVisible = subfolderToggle?.getAttribute('aria-pressed') === 'true' && document.querySelectorAll('.asset-card').length === 1 && localStorage.getItem('pigeon.includeSubfolderContent') === 'true'; subfolderToggle?.click(); const subfolderContentToggle = directFolderContentOnly && descendantFolderContentVisible && subfolderToggle?.getAttribute('aria-pressed') === 'false' && localStorage.getItem('pigeon.includeSubfolderContent') === 'false';
           nestedFolderNode?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 190, clientY: 360 })); const folderAutoTagMenu = [...document.querySelectorAll('[data-location-action]')].some((button) => button.textContent.includes('Auto-Tag')); document.querySelector('[data-location-action="auto-tag"]')?.click(); const folderAutoTagDialog = document.querySelector('#text-entry-dialog').open && document.querySelector('#text-entry-title').textContent.includes('Auto-Tag'), autoTagInput = document.querySelector('#text-entry-input'), folderTagPopup = document.querySelector('#tag-autocomplete'), autoTagStartsClear = autoTagInput.value === '' && folderTagPopup.classList.contains('hidden'); const probeTag = allExistingTags()[0] || 'image'; autoTagInput.value = probeTag.slice(0, Math.min(3, probeTag.length)); autoTagInput.dispatchEvent(new Event('input', { bubbles: true })); const folderTagOption = folderTagPopup.querySelector('[data-tag-suggestion]'), folderTagOptionRect = folderTagOption?.getBoundingClientRect(); const folderTagAutocomplete = autoTagStartsClear && autoTagInput.dataset.tagAutocomplete === 'true' && autoTagInput.dataset.tagMultiple === 'true' && folderTagPopup.parentElement === document.querySelector('#text-entry-dialog') && folderTagPopup.matches(':popover-open') && folderTagOptionRect && document.elementFromPoint(folderTagOptionRect.left + 4, folderTagOptionRect.top + 4)?.closest('[data-tag-suggestion]') === folderTagOption; autoTagInput.value = 'Folder Alpha, Folder Beta'; document.querySelector('#confirm-text-entry').click(); await new Promise((resolve) => setTimeout(resolve, 100));
-          const refreshedNestedFolder = [...document.querySelectorAll('.location-folder-item')].find((button) => decodeURIComponent(button.dataset.subfolder) === 'nested'); refreshedNestedFolder?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 190, clientY: 360 })); document.querySelector('[data-location-action="auto-tag"]')?.click(); const autoTagExistingPills = [...document.querySelectorAll('#text-entry-tag-pills [data-remove-entry-tag]')], autoTagPillsVisible = autoTagExistingPills.length === 2 && document.querySelector('#text-entry-input').value === '' && document.querySelector('#tag-autocomplete').classList.contains('hidden'); autoTagExistingPills[0]?.click(); document.querySelector('#text-entry-input').value = 'Folder Gamma'; document.querySelector('#confirm-text-entry').click(); await new Promise((resolve) => setTimeout(resolve, 80)); const savedFolderRuleTags = state.library.settings?.folderAutoTags?.[folderAutoTagKey(nestedFolderNode.dataset.locationId, 'nested')]?.tags || []; const autoTagPillEditor = autoTagPillsVisible && savedFolderRuleTags.length === 2 && savedFolderRuleTags.includes('Folder Beta') && savedFolderRuleTags.includes('Folder Gamma');
+          const refreshedNestedFolder = [...document.querySelectorAll('.location-folder-item')].find((button) => decodeURIComponent(button.dataset.subfolder) === 'nested'); refreshedNestedFolder?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 190, clientY: 360 })); document.querySelector('[data-location-action="auto-tag"]')?.click(); const autoTagExistingPills = [...document.querySelectorAll('#text-entry-tag-pills [data-remove-entry-tag]')], autoTagPillsVisible = autoTagExistingPills.length === 2 && document.querySelector('#text-entry-input').value === '' && document.querySelector('#tag-autocomplete').classList.contains('hidden'); autoTagExistingPills[0]?.click(); document.querySelector('#text-entry-input').value = 'Folder Gamma'; document.querySelector('#confirm-text-entry').click(); await new Promise((resolve) => setTimeout(resolve, 80)); const savedFolderRuleTags = nestedFolderNode ? state.library.settings?.folderAutoTags?.[folderAutoTagKey(nestedFolderNode.dataset.locationId, 'nested')]?.tags || [] : []; const autoTagPillEditor = autoTagPillsVisible && savedFolderRuleTags.length === 2 && savedFolderRuleTags.includes('Folder Beta') && savedFolderRuleTags.includes('Folder Gamma');
           const nestedLocationId = nestedFolderNode?.dataset.locationId, nestedTaggedAssets = state.library.assets.filter((asset) => asset.locationId === nestedLocationId && asset.path.replace(/\\\\/g, '/').includes('/nested/')), outsideNestedAsset = state.library.assets.find((asset) => asset.locationId === nestedLocationId && !asset.path.replace(/\\\\/g, '/').includes('/nested/')); const recursiveFolderAutoTags = Boolean(folderAutoTagMenu && folderAutoTagDialog && nestedTaggedAssets.length >= 1 && nestedTaggedAssets.every((asset) => ['Folder Alpha','Folder Beta'].every((tag) => asset.tags.includes(tag))) && outsideNestedAsset && !outsideNestedAsset.tags.includes('Folder Alpha'));
           document.querySelector('.location-folder-item[data-subfolder="nested"] [data-collapse-key]')?.click(); const physicalFolderCollapsed = ![...document.querySelectorAll('.location-folder-item')].some((button) => decodeURIComponent(button.dataset.subfolder) === 'nested/level-two') && JSON.parse(localStorage.getItem('pigeon.collapsedFolders.' + state.library.activePortfolioId) || '[]').some((key) => key.includes(':nested')); document.querySelector('.location-folder-item[data-subfolder="nested"] [data-collapse-key]')?.click(); physicalFolderNodes = [...document.querySelectorAll('.location-folder-item')]; const physicalFolderExpanded = physicalFolderNodes.some((button) => decodeURIComponent(button.dataset.subfolder) === 'nested/level-two');
           physicalFolderNodes.find((button) => decodeURIComponent(button.dataset.subfolder) === 'nested/level-two')?.click();
@@ -1419,6 +1620,7 @@ function createWindow() {
           document.dispatchEvent(new KeyboardEvent('keydown', { key: '4', bubbles: true }));
           await new Promise((resolve) => setTimeout(resolve, 100));
           const numericRating = document.querySelectorAll('#rating-row .star.active[data-rating]').length === 4;
+          smokeUiStage='preferences';console.log('[smoke-ui] preferences');
           document.querySelector('#settings-button').click();
           const shortcutInput = document.querySelector('#favorite-shortcut');
           shortcutInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', ctrlKey: true, bubbles: true }));
@@ -1521,20 +1723,22 @@ function createWindow() {
             let inlineUpdated = null; if (inlineInput) { inlineInput.value = inlineStem; inlineUpdated = await renameAssetFile(renameAsset.id, inlineInput.value); }
             fileRenameWorkflows = Boolean(f2Focus && panelRenamed && inlineExtensionHidden && inlineUpdated?.name === inlineStem && inlineUpdated?.filename === inlineStem + renameExtension);
           }
+          smokeUiStage='portfolios';console.log('[smoke-ui] portfolios');
           const originalPortfolio = (await window.pigeon.getLibrary()).activePortfolioId;
           document.querySelector('.brand-menu').click(); document.querySelector('#quick-create-portfolio').click(); document.querySelector('#text-entry-input').value = 'Smoke second portfolio'; document.querySelector('#confirm-text-entry').click(); await new Promise((resolve) => setTimeout(resolve, 300));
           const secondPortfolio = (await window.pigeon.getLibrary()).portfolios.find((portfolio) => portfolio.name === 'Smoke second portfolio');
           const renamedPortfolio = await window.pigeon.renamePortfolio(secondPortfolio.id, 'Smoke renamed portfolio');
           document.querySelector('.brand-menu').click();
           const portfolioSwitcherModal = !document.querySelector('#portfolio-switcher').classList.contains('hidden') && document.querySelectorAll('.portfolio-switcher-item').length >= 2 && !document.querySelector('#portfolio-switcher').textContent.includes('Library');
-          await switchPortfolioTo(secondPortfolio.id);
+          let switchHeartbeatAt=performance.now(),switchMaxHeartbeatGap=0,stalePortfolioFlash=false;const heartbeat=setInterval(()=>{const now=performance.now();switchMaxHeartbeatGap=Math.max(switchMaxHeartbeatGap,now-switchHeartbeatAt);switchHeartbeatAt=now;if(portfolioSwitchLoading&&document.querySelector('#asset-grid .asset-card'))stalePortfolioFlash=true;},25),scanDuringSwitch=${JSON.stringify(smokeSwitchLocationId)}?window.pigeon.rescan(${JSON.stringify(smokeSwitchLocationId)}).catch(()=>null):Promise.resolve();await new Promise((resolve)=>setTimeout(resolve,25));const switchPromise=switchPortfolioTo(secondPortfolio.id),immediatePortfolioLoading=portfolioSwitchLoading&&!document.querySelector('#portfolio-switch-loading').classList.contains('hidden')&&!document.querySelector('#asset-grid .asset-card');await switchPromise;for(let attempt=0;attempt<100&&portfolioSwitchLoading;attempt+=1)await new Promise((resolve)=>setTimeout(resolve,25));clearInterval(heartbeat);await scanDuringSwitch;
           const emptyPortfolio = await window.pigeon.getLibrary();
           await switchPortfolioTo(originalPortfolio);
           const returnedPortfolio = await window.pigeon.getLibrary();
           const removedPortfolio = await window.pigeon.removePortfolio(secondPortfolio.id);
-          const portfolioManagement = Boolean(renamedPortfolio.name === 'Smoke renamed portfolio' && emptyPortfolio.activePortfolioId === secondPortfolio.id && returnedPortfolio.activePortfolioId === originalPortfolio && removedPortfolio);
+          const responsivePortfolioSwitch=immediatePortfolioLoading&&!stalePortfolioFlash&&switchMaxHeartbeatGap<750&&!portfolioSwitchLoading&&state.library.activePortfolioId===originalPortfolio,portfolioManagement = Boolean(renamedPortfolio.name === 'Smoke renamed portfolio' && emptyPortfolio.activePortfolioId === secondPortfolio.id && returnedPortfolio.activePortfolioId === originalPortfolio && removedPortfolio && responsivePortfolioSwitch);console.log('[smoke] portfolio switch responsiveness '+JSON.stringify({responsivePortfolioSwitch,immediatePortfolioLoading,stalePortfolioFlash,switchMaxHeartbeatGap}));
           const coreApis = Boolean(collection.id && batchUpdated === 2 && collectionAddWithoutPrompt && collectionReferenceRemoval && recursiveCollectionAutoTags && passwordLockHidden && wrongPasswordRejected && correctPasswordAccepted && passwordRemoved && smartFolder.id && duplicateGroups.some((group) => group.length >= 2) && autoTagged === 2 && backupPath && Array.isArray(plugins));
           return { cards: cards.length, startupSplashHidden, creationDialogs, portfolioRowTrigger, customItemIcons, contextMenuLeftAligned, foldersCollapse: physicalFolderCollapsed && physicalFolderExpanded && collectionFolderCollapsed && collectionFolderExpanded, autoTagPillEditor, folderContextMenuPositioned, iconPickerOpened, recursiveFolderAutoTags, iconStateSaved, iconRendered, managedDropStorage, externalFileDrop, droppedInboxFound: Boolean(droppedInboxAsset), droppedInboxTagged: Boolean(droppedInboxAsset?.tags?.length), droppedInboxFiled: Boolean(droppedInboxAsset?.collectionIds?.length), managedDropWorkflow, ordinaryWheelScroll, sidebarSectionsCollapse, subfolderContentToggle, folderSubtreeFilter, folderRescanAction, missingSourceThumbnail, newFileDiscovered, resilientUnstableIndexing, navigationPersisted, navigationRestored, mapContextAction, mapModes, globeWheelZoom, globeToStreetZoom, addressAutocomplete, streetMapMode, mapManualLocation, justifiedRows, allTagInputsAutocomplete, modalTagAutocompleteAccessible: folderTagAutocomplete, duplicateImagesFit, duplicateControlsPinned, tagAutocomplete, viewerEditingToolbar, viewerInlineCrop, cropGridVisible, inlineCropApplied, inlineCropReset, portfolioManagement, selectedAfterClick, multiSelected, collectionAddWithoutPrompt, collectionReferenceRemoval, contextSelectionPreserved, facetOpened, appMenuOpened, mediaPreview, videoThumbnail, internalViewer, videosDoNotAutoplay, completeCompatibilityPlayback, videoPlayingMuted, inspectorVideoPreview, videoProxyPrepared, seekableVideoPlayback, videoProxy, fullViewToggled, viewerPositionRemembered, externalOpenOptions, portraitFitMinimap, duplicateCount, duplicateGrouping, sourceSimilarityView, scrollStable, tagNoRefresh, multiAssetTagging, thumbnailCropRemoved, multiImageRotation, viewerImagePreview, stackTagging, tagEditRoundTrip, thumbnailRotation, rotatedViewerFit, keyboardDuplicate, numericRating, favoriteShortcut, mapShortcut, thumbnailTitleSettings, fileRenameWorkflows, folderSecuritySettings, settingsDesign, preferencesPages, stackPreview, recursiveCollectionAutoTags, tagManager, tagDoubleClick, zoomRemembered, panelResize, contentZoom, coreApis };
+          }catch(error){throw new Error(smokeUiStage+': '+error.message);}
         })()`);
         console.log(`[smoke] ui verification ${JSON.stringify(verification)}`);
         if (verification.cards < 7 || !verification.startupSplashHidden || !verification.creationDialogs || !verification.portfolioRowTrigger || !verification.customItemIcons || !verification.contextMenuLeftAligned || !verification.foldersCollapse || !verification.autoTagPillEditor || !verification.recursiveFolderAutoTags || !verification.managedDropWorkflow || !verification.externalFileDrop || !verification.ordinaryWheelScroll || !verification.sidebarSectionsCollapse || !verification.subfolderContentToggle || !verification.folderSubtreeFilter || !verification.folderRescanAction || !verification.missingSourceThumbnail || !verification.newFileDiscovered || !verification.resilientUnstableIndexing || !verification.navigationPersisted || !verification.navigationRestored || !verification.mapContextAction || !verification.mapModes || !verification.globeWheelZoom || !verification.globeToStreetZoom || !verification.addressAutocomplete || !verification.streetMapMode || !verification.mapManualLocation || !verification.justifiedRows || !verification.duplicateImagesFit || !verification.duplicateControlsPinned || !verification.tagAutocomplete || !verification.allTagInputsAutocomplete || !verification.viewerEditingToolbar || !verification.viewerInlineCrop || !verification.portfolioManagement || verification.duplicateCount < 2 || !verification.duplicateGrouping || !verification.sourceSimilarityView || verification.selectedAfterClick !== 1 || verification.multiSelected < 2 || !verification.collectionAddWithoutPrompt || !verification.collectionReferenceRemoval || !verification.contextSelectionPreserved || !verification.facetOpened || !verification.appMenuOpened || !verification.mediaPreview || !verification.videoThumbnail || !verification.internalViewer || !verification.videosDoNotAutoplay || !verification.completeCompatibilityPlayback || !verification.videoPlayingMuted || !verification.inspectorVideoPreview || !verification.videoProxyPrepared || !verification.seekableVideoPlayback || !verification.videoProxy || !verification.fullViewToggled || !verification.viewerPositionRemembered || !verification.externalOpenOptions || !verification.portraitFitMinimap || !verification.scrollStable || !verification.tagNoRefresh || !verification.multiAssetTagging || !verification.thumbnailCropRemoved || !verification.multiImageRotation || !verification.viewerImagePreview || !verification.stackTagging || !verification.tagEditRoundTrip || !verification.thumbnailRotation || !verification.rotatedViewerFit || !verification.keyboardDuplicate || !verification.numericRating || !verification.favoriteShortcut || !verification.mapShortcut || !verification.thumbnailTitleSettings || !verification.fileRenameWorkflows || !verification.folderSecuritySettings || !verification.settingsDesign || !verification.preferencesPages || !verification.stackPreview || !verification.tagManager || !verification.tagDoubleClick || !verification.zoomRemembered || !verification.panelResize || !verification.contentZoom || !verification.coreApis) throw new Error(`UI verification failed: ${JSON.stringify(verification)}`);
@@ -1660,10 +1864,10 @@ ipcMain.handle('portfolio:switch', async (_event, id) => {
   if (id === activePortfolioId) return publicLibrarySummary();
   await cancelPortfolioBackground(`Paused while viewing ${portfolio.name}`);
   await saveLibraryNow();
-  if (databaseWorker) { await databaseWorker.terminate(); databaseWorker = null; }
+  await stopDatabaseWorker('Portfolio switched');
   for (const watcher of watchers.values()) watcher.close(); watchers.clear(); for (const timer of watcherRefreshTimers.values()) clearTimeout(timer); watcherRefreshTimers.clear(); unlockedCollections.clear(); unlockedFolders.clear();
   activePortfolioId = id; databaseFile = portfolio.database || portfolioDatabasePath(id); legacyJsonFile = portfolio.legacyFile || null; library = libraryCore.migrateLibrary({ loading: true });
-  await savePortfolioRegistry(); broadcast(); await loadLibraryInWorker(); broadcast(); resumePendingScans();refreshChangedIndexingPolicy();
+  await savePortfolioRegistry(); broadcast(); await loadLibraryInWorker();const autoImportLocation=activeAutoImportEnabled()?await ensureActivePortfolioAutoImportLocation({create:false,scan:false}):null;broadcast(); resumePendingScans();refreshChangedIndexingPolicy();if(autoImportLocation)schedulePortfolioBackground(()=>scanLocation(autoImportLocation.id),100);
   refreshSourcesInBackground().then(() => { schedulePortfolioBackground(warmThumbnailCache, 500); schedulePortfolioBackground(warmContentHashes, 300); }).catch((error) => recordDiagnostic('error', 'Portfolio background resume failed', error));
   return publicLibrarySummary();
 });
@@ -1671,7 +1875,7 @@ ipcMain.handle('portfolio:transfer', async (_event, { type, id, ids = [], subfol
   const destination = portfolios.find((item) => item.id === destinationId); if (!destination || destination.id === activePortfolioId) throw new Error('Choose another portfolio');
   await saveLibraryNow();
   const store = createLibraryStore(destination.database || portfolioDatabasePath(destination.id));
-  let stagedFolder = null, destinationSaved = false;
+  let stagedFolder = null, stagedPaths = [], destinationSaved = false;
   try {
     const target = store.load() || libraryCore.migrateLibrary({});
     let assetIds = new Set(), transferAssets = [], transferredName = '', applySourceMove = () => {};
@@ -1689,12 +1893,11 @@ ipcMain.handle('portfolio:transfer', async (_event, { type, id, ids = [], subfol
     } else if (type === 'assets') {
       const selectedIds = new Set(Array.isArray(ids) ? ids.map(String) : []), selectedAssets = library.assets.filter((asset) => selectedIds.has(asset.id) && !asset.deletedAt && !isAssetLocked(asset));
       if (!selectedAssets.length) throw new Error('Select one or more available thumbnails');
-      const sourcePortfolio = portfolios.find((item) => item.id === activePortfolioId), transferId = crypto.randomUUID(), timestamp = new Date().toISOString().replace('T', ' ').slice(0, 16), baseName = `Transferred from ${sourcePortfolio?.name || 'Portfolio'} · ${timestamp}`;
-      let collectionName = baseName, suffix = 2; while (target.collections.some((item) => item.parentId === null && item.name.toLowerCase() === collectionName.toLowerCase())) collectionName = `${baseName} ${suffix++}`;
-      const collection = libraryCore.createCollection(target, collectionName), locationId = makeId(`portfolio-transfer-location:${destination.id}:${transferId}`);
-      stagedFolder = path.join(app.getPath('userData'), 'portfolio-transfers', destination.id, transferId);
-      const staged = await stageAssetFiles(selectedAssets, stagedFolder), location = { id: locationId, name: collectionName, path: stagedFolder, type: 'folder', online: true, removable: false, unstable: false, scanning: false, checking: false, temporaryTransfer: true, transferredFrom: activePortfolioId, assetCount: staged.length, addedAt: Date.now(), lastScanned: Date.now() };
-      target.locations.push(location); transferredName = collectionName; assetIds = new Set(selectedAssets.map((asset) => asset.id));
+      const sourcePortfolio = portfolios.find((item) => item.id === activePortfolioId), transferId = crypto.randomUUID(), collectionName = `Transferred from ${sourcePortfolio?.name || 'Portfolio'}`;
+      const collection = target.collections.find((item) => item.parentId === null && item.name.toLowerCase() === collectionName.toLowerCase()) || libraryCore.createCollection(target, collectionName), locationId = makeId(`portfolio-transfer-location:${destination.id}:${activePortfolioId}`);
+      stagedFolder = path.join(app.getPath('userData'), 'portfolio-transfers', destination.id, safeTransferFilename(collectionName));
+      const staged = await stageAssetFiles(selectedAssets, stagedFolder);stagedPaths=staged.flatMap((item)=>[item.targetPath,item.thumbnailPath].filter(Boolean));let location=target.locations.find((item)=>item.id===locationId||item.temporaryTransfer&&item.transferredFrom===activePortfolioId&&path.resolve(item.path)===path.resolve(stagedFolder));
+      if(location){location.name=collectionName;location.path=stagedFolder;location.online=true;location.assetCount=(Number(location.assetCount)||0)+staged.length;location.lastScanned=Date.now();}else{location={ id: locationId, name: collectionName, path: stagedFolder, type: 'folder', online: true, removable: false, unstable: false, scanning: false, checking: false, temporaryTransfer: true, transferredFrom: activePortfolioId, assetCount: staged.length, addedAt: Date.now(), lastScanned: Date.now() };target.locations.push(location);}transferredName = collectionName; assetIds = new Set(selectedAssets.map((asset) => asset.id));
       transferAssets = staged.map(({ asset, filename, targetPath, thumbnailPath }) => ({ ...JSON.parse(JSON.stringify(asset)), id: makeId(`portfolio-transfer-asset:${destination.id}:${transferId}:${asset.id}`), locationId, path: targetPath, filename, name: path.basename(filename, path.extname(filename)), thumbnailPath, thumbnailFailedAt: thumbnailPath ? asset.thumbnailFailedAt : null, thumbnailFailedModified: thumbnailPath ? asset.thumbnailFailedModified : null, thumbnailError: thumbnailPath ? asset.thumbnailError : null, collectionIds: [collection.id], deletedAt: null, sourceMissing: false, sourcePending: false, missingSince: null, transferredFrom: { portfolioId: activePortfolioId, assetId: asset.id, path: asset.path, transferredAt: Date.now(), mode: move ? 'move' : 'copy' } }));
       applySourceMove = () => { const deletedAt = Date.now(); for (const asset of selectedAssets) asset.deletedAt = asset.deletedAt || deletedAt; };
     } else throw new Error('Unsupported transfer type');
@@ -1703,7 +1906,7 @@ ipcMain.handle('portfolio:transfer', async (_event, { type, id, ids = [], subfol
     if (move) { applySourceMove(); await saveLibraryNow(); }
     broadcast(); return { name: transferredName, assets: assetIds.size, moved: Boolean(move), destination: destination.name };
   } catch (error) {
-    if (stagedFolder && !destinationSaved) await fsp.rm(stagedFolder, { recursive: true, force: true }).catch(() => {});
+    if (stagedFolder && !destinationSaved) await Promise.all(stagedPaths.map((stagedPath)=>fsp.rm(stagedPath,{force:true}).catch(()=>{})));
     throw error;
   } finally { store.close(); }
 });
@@ -1715,6 +1918,7 @@ ipcMain.handle('portfolio:remove', async (_event, id) => {
   portfolios = portfolios.filter((item) => item.id !== id); await savePortfolioRegistry(); if(portfolio.managed!==false)await Promise.all([fsp.rm(portfolio.database || portfolioDatabasePath(id), { force: true }), fsp.rm(`${portfolio.database || portfolioDatabasePath(id)}-wal`, { force: true }), fsp.rm(`${portfolio.database || portfolioDatabasePath(id)}-shm`, { force: true })]); broadcastSidebar(); return true;
 });
 ipcMain.handle('library:get', () => publicLibrarySummary());
+ipcMain.handle('renderer:ready',()=>{resolveRendererSubscriptionsReady?.();resolveRendererSubscriptionsReady=null;return true;});
 ipcMain.handle('library:add-folder', async () => {
   const result = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory', 'multiSelections'], title: 'Index folders in Pigeon' });
   return result.canceled ? publicLibrarySummary() : addLocations(result.filePaths, 'folder');
@@ -1743,7 +1947,7 @@ ipcMain.handle('library:remove-location', async (_event, id) => {
 });
 ipcMain.handle('library:rescan', async (_event, id) => {
   if (id) await scanLocation(id);
-  else for (const location of library.locations) await scanLocation(location.id, { notify: false });
+  else for (const location of library.locations.filter((item)=>!item.autoImportLegacyRoot)) await scanLocation(location.id, { notify: false });
   broadcast();
   return publicLibrarySummary();
 });
@@ -1895,11 +2099,11 @@ ipcMain.handle('trash:empty', async (_event, request = {}) => {
     reportBackgroundProgress(progressId,{label:mode==='recycle'?'Moving Trash to Recycle Bin':'Clearing Trash',detail:`${(index+1).toLocaleString()} of ${total.toLocaleString()} files${failures.length?` · ${failures.length} failed`:''}`,completed:index+1,total});
     if(index%5===4)await new Promise((resolve)=>setImmediate(resolve));
   }
-  library.assets = library.assets.filter((asset) => !removed.has(asset.id));for(const id of removed)mainAssetIndex.delete(id);await sendDatabaseRequest('delete-assets',{ids:[...removed]});broadcast();reportBackgroundProgress(progressId,{label:failures.length?'Trash cleared with issues':'Trash cleared',detail:`${removed.size.toLocaleString()} files removed${failures.length?` · ${failures.length} failed`:''}`,completed:total,total,done:true,status:failures.length?'warning':'completed'}); return { deleted: removed.size, deletedIds: [...removed], failed: failures.length, failures };
+  library.assets = library.assets.filter((asset) => !removed.has(asset.id));for(const id of removed)mainAssetIndex.delete(id);for(const location of library.locations)location.assetCount=library.assets.filter((asset)=>asset.locationId===location.id).length;await sendDatabaseRequest('delete-assets',{ids:[...removed]});broadcastSidebar();reportBackgroundProgress(progressId,{label:failures.length?'Trash cleared with issues':'Trash cleared',detail:`${removed.size.toLocaleString()} files removed${failures.length?` · ${failures.length} failed`:''}`,completed:total,total,done:true,status:failures.length?'warning':'completed'}); return { deleted: removed.size, deletedIds: [...removed], failed: failures.length, failures };
 });
 ipcMain.handle('library:import-url', async (_event, url) => importUrl(url));
 ipcMain.handle('clipboard:write-text', (_event, value) => { clipboard.writeText(String(value || '').slice(0, 32768)); return true; });
-ipcMain.handle('clipboard:copy-assets',async(_event,ids=[])=>{const paths=[...new Set(ids.map((id)=>library.assets.find((asset)=>asset.id===id)).filter((asset)=>asset&&!asset.sourceMissing).map((asset)=>asset.path))];if(!paths.length)return{copied:0};if(process.platform==='win32'){const encoded=Buffer.from(JSON.stringify(paths),'utf8').toString('base64'),script=`Add-Type -AssemblyName System.Windows.Forms; $paths=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encoded}'))|ConvertFrom-Json; $files=New-Object System.Collections.Specialized.StringCollection; foreach($p in $paths){[void]$files.Add([string]$p)}; [Windows.Forms.Clipboard]::SetFileDropList($files)`;await withTimeout(new Promise((resolve,reject)=>execFile('powershell.exe',['-NoProfile','-STA','-NonInteractive','-Command',script],{windowsHide:true},(error)=>error?reject(error):resolve())),8000,'Clipboard copy timed out');}else{clipboard.writeText(paths.join('\n'));}return{copied:paths.length};});
+ipcMain.handle('clipboard:copy-assets',async(_event,ids=[])=>{const paths=[...new Set(ids.map((id)=>library.assets.find((asset)=>asset.id===id)).filter((asset)=>asset&&!asset.sourceMissing&&!asset.sourcePending).map((asset)=>asset.path))];if(!paths.length)return{copied:0};if(process.platform==='win32'){const encoded=Buffer.from(JSON.stringify(paths),'utf8').toString('base64'),script=`Add-Type -AssemblyName System.Windows.Forms; $paths=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encoded}'))|ConvertFrom-Json; $files=New-Object System.Collections.Specialized.StringCollection; foreach($p in $paths){[void]$files.Add([string]$p)}; [Windows.Forms.Clipboard]::SetFileDropList($files)`;await withTimeout(new Promise((resolve,reject)=>execFile('powershell.exe',['-NoProfile','-STA','-NonInteractive','-Command',script],{windowsHide:true},(error)=>error?reject(error):resolve())),8000,'Clipboard copy timed out');}else{clipboard.writeText(paths.join('\n'));}return{copied:paths.length};});
 ipcMain.handle('clipboard:paste-assets',async()=>{let paths=[];if(process.platform==='win32'){const script="Add-Type -AssemblyName System.Windows.Forms; if([Windows.Forms.Clipboard]::ContainsFileDropList()){[Windows.Forms.Clipboard]::GetFileDropList()|ConvertTo-Json -Compress}";const output=await execFileText('powershell.exe',['-NoProfile','-STA','-NonInteractive','-Command',script],8000);if(output)try{const parsed=JSON.parse(output);paths=Array.isArray(parsed)?parsed:[parsed];}catch{}}if(paths.length)return importDroppedFiles(paths);const image=clipboard.readImage();if(!image.isEmpty()){const temporary=path.join(app.getPath('temp'),`pigeon-clipboard-${Date.now()}.png`);await fsp.writeFile(temporary,image.toPNG());try{return await importDroppedFiles([temporary]);}finally{await fsp.rm(temporary,{force:true});}}return{imported:0,path:null};});
 ipcMain.handle('library:import-clipboard', async () => {
   const text = clipboard.readText().trim();
@@ -1946,9 +2150,9 @@ ipcMain.handle('library:sync-now', async () => {
   if(changedIds.size)scheduleAssetSave(library.assets.filter((asset)=>changedIds.has(asset.id)));
   scheduleSave(); broadcast(); return target;
 });
-async function moveAssetFiles(ids,destination){const moved=[],changed=[];await fsp.mkdir(destination,{recursive:true});for(const asset of library.assets.filter((item)=>ids.includes(item.id))){if(!(await pathAvailable(asset.path)))continue;const source=path.resolve(asset.path),target=path.join(destination,asset.filename);if(source.toLowerCase()===target.toLowerCase())continue;if(await pathAvailable(target))throw new Error(`${asset.filename} already exists in the destination`);watcherIgnoreUntil.set(asset.locationId,Date.now()+2500);try{await fsp.rename(source,target);}catch(error){if(error.code!=='EXDEV')throw error;await fsp.copyFile(source,target);try{await fsp.rm(source,{force:true});}catch(removeError){await fsp.rm(target,{force:true}).catch(()=>{});throw removeError;}}asset.path=target;const location=library.locations.find((item)=>{const relative=path.relative(item.path,target);return relative!==''&&!relative.startsWith('..')&&!path.isAbsolute(relative)||path.resolve(item.path)===path.resolve(destination);});if(location)asset.locationId=location.id;asset.sourceMissing=false;asset.metadataUpdatedAt=Date.now();changed.push(asset);moved.push({...asset,previewUrl:previewUrlFor(asset),mediaUrl:mediaUrlFor(asset)});}if(changed.length)scheduleAssetSave(changed);return{moved:moved.length,assets:moved};}
+async function moveAssetFiles(ids,destination,{locationId=null}={}){const moved=[],changed=[];let renamed=0,skipped=0;await fsp.mkdir(destination,{recursive:true});for(const asset of library.assets.filter((item)=>ids.includes(item.id))){if(!(await pathAvailable(asset.path)))continue;const source=path.resolve(asset.path),conflict=await resolveManagedFileConflict(source,path.join(destination,asset.filename));if(conflict.action==='same')continue;if(conflict.action==='skip'){skipped+=1;continue;}const target=conflict.target;watcherIgnoreUntil.set(asset.locationId,Date.now()+2500);await moveFileWithoutOverwrite(source,target);asset.path=target;asset.filename=path.basename(target);asset.name=path.basename(target,path.extname(target));const location=locationId?library.locations.find((item)=>item.id===locationId):library.locations.find((item)=>{const relative=path.relative(item.path,target);return relative!==''&&!relative.startsWith('..')&&!path.isAbsolute(relative)||path.resolve(item.path)===path.resolve(destination);});if(location)asset.locationId=location.id;asset.sourceMissing=false;asset.metadataUpdatedAt=Date.now();if(conflict.renamed)renamed+=1;changed.push(asset);moved.push({...asset,previewUrl:previewUrlFor(asset),mediaUrl:mediaUrlFor(asset)});}if(changed.length)scheduleAssetSave(changed);return{moved:moved.length,renamed,skipped,assets:moved};}
 ipcMain.handle('assets:move-to-path',async(_event,{ids=[],folderPath=''})=>{const requested=String(folderPath||'').trim();let destination=requested;if(!destination){const result=await dialog.showOpenDialog(mainWindow,{title:'Move selected files to folder',properties:['openDirectory','createDirectory']});if(result.canceled||!result.filePaths[0])return{moved:0,assets:[]};destination=result.filePaths[0];}return moveAssetFiles(ids,path.resolve(destination));});
-ipcMain.handle('assets:move-to-folder',async(_event,{ids=[],locationId,subfolder=''})=>{const location=library.locations.find((item)=>item.id===locationId);if(!location)throw new Error('Destination folder is no longer indexed');const safeSubfolder=normalizedSubfolder(subfolder);if(safeSubfolder==='..'||safeSubfolder.startsWith('../'))throw new Error('Invalid destination folder');const destination=path.join(location.path,safeSubfolder),moved=[],changed=[];await fsp.mkdir(destination,{recursive:true});for(const asset of library.assets.filter((item)=>ids.includes(item.id))){if(!(await pathAvailable(asset.path)))continue;const source=path.resolve(asset.path),target=path.join(destination,asset.filename);if(source.toLowerCase()===target.toLowerCase())continue;if(await pathAvailable(target))throw new Error(`${asset.filename} already exists in the destination`);watcherIgnoreUntil.set(asset.locationId,Date.now()+2500);try{await fsp.rename(source,target);}catch(error){if(error.code!=='EXDEV')throw error;await fsp.copyFile(source,target);try{await fsp.rm(source,{force:true});}catch(removeError){await fsp.rm(target,{force:true}).catch(()=>{});throw removeError;}}asset.path=target;asset.locationId=locationId;asset.sourceMissing=false;asset.metadataUpdatedAt=Date.now();changed.push(asset);moved.push({...asset,previewUrl:previewUrlFor(asset),mediaUrl:mediaUrlFor(asset)});}if(changed.length)scheduleAssetSave(changed);return{moved:moved.length,assets:moved};});
+ipcMain.handle('assets:move-to-folder',async(_event,{ids=[],locationId,subfolder=''})=>{const location=library.locations.find((item)=>item.id===locationId);if(!location)throw new Error('Destination folder is no longer indexed');const safeSubfolder=normalizedSubfolder(subfolder);if(safeSubfolder==='..'||safeSubfolder.startsWith('../'))throw new Error('Invalid destination folder');return moveAssetFiles(ids,path.join(location.path,safeSubfolder),{locationId});});
 ipcMain.handle('asset:apply-inline-crop', (_event, { id, crop }) => applyInlineCrop(id, crop));
 function formatRenameDate(value,format){const date=new Date(Number(value)||Date.now()),parts={YYYY:String(date.getFullYear()),YY:String(date.getFullYear()).slice(-2),MM:String(date.getMonth()+1).padStart(2,'0'),DD:String(date.getDate()).padStart(2,'0'),HH:String(date.getHours()).padStart(2,'0'),mm:String(date.getMinutes()).padStart(2,'0'),ss:String(date.getSeconds()).padStart(2,'0')};return String(format||'YYYYMMDD-HHmmss').replace(/YYYY|YY|MM|DD|HH|mm|ss/g,(token)=>parts[token]);}
 function autoRenameValue(asset,pattern,index){return String(pattern||'<name>').replace(/<created-date-time(?::([^>]+))?>/g,(_m,f)=>formatRenameDate(asset.created,f)).replace(/<modified-date-time(?::([^>]+))?>/g,(_m,f)=>formatRenameDate(asset.modified,f)).replace(/<indexed-date-time(?::([^>]+))?>/g,(_m,f)=>formatRenameDate(asset.indexedAt,f)).replace(/<name>/g,asset.name).replace(/<extension>/g,String(asset.extension||'').toLowerCase()).replace(/<counter(?::(\d+))?>/g,(_m,w)=>String(index+1).padStart(Math.min(12,Number(w)||1),'0')).replace(/[<>:"|?*]/g,'-').replace(/[\\/]+/g,'-').trim().slice(0,220);}
@@ -1956,7 +2160,7 @@ ipcMain.handle('assets:auto-rename',async(_event,{ids=[],pattern=''})=>{const se
 ipcMain.handle('asset:embedded-metadata',async(_event,id)=>{const asset=library.assets.find((item)=>item.id===id);if(!asset||asset.extension!=='PNG'||isAssetLocked(asset))return{embeddedMetadata:null};const result=await extractEmbeddedMetadata(asset);return{embeddedMetadata:result?.embeddedMetadata||null};});
 ipcMain.handle('asset:details',(_event,id)=>{const asset=mainAssetIndex.get(id);if(!asset||isAssetLocked(asset))return null;return publicAssetDetails(asset);});
 ipcMain.handle('assets:rebuild-thumbnails',async(_event,ids=[])=>{const selected=library.assets.filter((asset)=>ids.includes(asset.id)&&!asset.deletedAt&&!isAssetLocked(asset)),assets=[];for(const asset of selected){if(asset.thumbnailPath)await fsp.rm(asset.thumbnailPath,{force:true}).catch(()=>{});asset.thumbnailPath=null;asset.thumbnailFailedAt=null;asset.thumbnailFailedModified=null;asset.thumbnailError=null;thumbnailPreparationJobs.delete(`${asset.id}:${asset.modified||0}`);const thumbnail=asset.kind==='video'?await prepareVideoFiles(asset):await createThumbnail(asset);if(!thumbnail?.ok)continue;asset.thumbnailPath=thumbnail.target;asset.proxyPath=thumbnail.proxyPath||asset.proxyPath||null;asset.proxyVersion=thumbnail.proxyVersion||asset.proxyVersion||null;asset.width=thumbnail.width||asset.width;asset.height=thumbnail.height||asset.height;asset.dominantColor=thumbnail.dominantColor||asset.dominantColor;asset.histogram=thumbnail.histogram||asset.histogram;asset.palette=thumbnail.palette||asset.palette;asset.perceptualHash=thumbnail.perceptualHash||asset.perceptualHash;asset.exif=thumbnail.exif||asset.exif;asset.hasEmbeddedWorkflow=Boolean(thumbnail.embeddedMetadata);asset.embeddedMetadata=null;asset.technicalMetadata=thumbnail.technicalMetadata||asset.technicalMetadata;assets.push({...asset,previewUrl:previewUrlFor(asset),mediaUrl:mediaUrlFor(asset)});}if(selected.length)scheduleAssetSave(selected);return{rebuilt:assets.length,assets};});
-ipcMain.on('assets:start-drag',(event,ids=[])=>{const selected=new Set(ids),assets=library.assets.filter((asset)=>selected.has(asset.id)&&!asset.deletedAt&&!asset.sourceMissing&&!isAssetLocked(asset)),files=assets.map((asset)=>asset.path);if(!files.length)return;const iconPath=assets.find((asset)=>asset.thumbnailPath)?.thumbnailPath||path.join(__dirname,'..','pigeon-logo.png');let icon=nativeImage.createFromPath(iconPath);if(icon.isEmpty())icon=nativeImage.createFromPath(path.join(__dirname,'..','pigeon-logo.png'));if(!icon.isEmpty()){icon=icon.resize({width:96,height:96,quality:'good'});const size=icon.getSize(),bitmap=icon.toBitmap();for(let index=3;index<bitmap.length;index+=4)bitmap[index]=Math.round(bitmap[index]*.34);icon=nativeImage.createFromBitmap(bitmap,{width:size.width,height:size.height,scaleFactor:1});}try{event.sender.startDrag({files,icon});}catch(error){recordDiagnostic('error','Native asset drag failed',{message:error.message,count:files.length});}});
+ipcMain.handle('assets:start-drag',async(event,ids=[])=>{const selection=orderedNativeDragSelection(library.assets,ids,{isLocked:isAssetLocked,pathExists:(filePath)=>fs.existsSync(filePath)}),{assets,excluded}=selection;if(!selection.files.length)return{started:false,count:0,excluded:excluded.length,renamed:0};let prepared;try{prepared=await prepareCollisionSafeDragFiles(selection.files,{stagingRoot:path.join(app.getPath('temp'),'Pigeon','drag-export')});}catch(error){recordDiagnostic('error','Native asset drag preparation failed',{message:error.message,count:selection.files.length});return{started:false,count:0,excluded:excluded.length+selection.files.length,renamed:0,error:error.message};}const files=prepared.files,totalExcluded=excluded.length+prepared.failed.length;if(!files.length)return{started:false,count:0,excluded:totalExcluded,renamed:0};const iconPath=assets.find((asset)=>asset.thumbnailPath)?.thumbnailPath||path.join(__dirname,'..','pigeon-logo.png');let icon=nativeImage.createFromPath(iconPath);if(icon.isEmpty())icon=nativeImage.createFromPath(path.join(__dirname,'..','pigeon-logo.png'));if(!icon.isEmpty()){icon=icon.resize({width:96,height:96,quality:'good'});const size=icon.getSize(),bitmap=icon.toBitmap();for(let index=3;index<bitmap.length;index+=4)bitmap[index]=Math.round(bitmap[index]*.34);icon=nativeImage.createFromBitmap(bitmap,{width:size.width,height:size.height,scaleFactor:1});}try{event.sender.startDrag({files,icon});if(prepared.stagingDirectory){const cleanup=setTimeout(()=>fsp.rm(prepared.stagingDirectory,{recursive:true,force:true}).catch(()=>{}),60000);cleanup.unref?.();}return{started:true,count:files.length,excluded:totalExcluded,renamed:prepared.renamed.length};}catch(error){recordDiagnostic('error','Native asset drag failed',{message:error.message,count:files.length});return{started:false,count:0,excluded:totalExcluded,renamed:prepared.renamed.length,error:error.message};}});
 ipcMain.handle('asset:rename-file', async (_event, { id, name }) => {
   const asset = library.assets.find((item) => item.id === id);
   if (!asset) throw new Error('The selected file is no longer indexed');
@@ -1988,7 +2192,7 @@ ipcMain.handle('asset:reset-inline-edits', (_event, id) => resetInlineEdits(id))
 ipcMain.handle('asset:duplicate', (_event, id) => duplicateAsset(id));
 ipcMain.handle('asset:export-annotated', (_event, { id, annotations, edits }) => exportAnnotatedAsset(id, annotations, edits));
 ipcMain.handle('library:export-group', (_event, { type, id }) => exportLibraryGroup(type, id));
-ipcMain.handle('asset:export',async(_event,id)=>{const asset=library.assets.find((item)=>item.id===id&&!item.deletedAt);if(!asset||!(await pathAvailable(asset.path)))return null;const result=await dialog.showSaveDialog(mainWindow,{title:'Export file',defaultPath:asset.filename});if(result.canceled||!result.filePath)return null;await fsp.copyFile(asset.path,result.filePath);return result.filePath;});
+ipcMain.handle('asset:export',async(_event,id)=>{const asset=library.assets.find((item)=>item.id===id&&!item.deletedAt);if(!asset||!(await pathAvailable(asset.path)))return null;const result=await dialog.showSaveDialog(mainWindow,{title:'Export file',defaultPath:asset.filename});if(result.canceled||!result.filePath)return null;const outcome=await copyExportAsset(asset,result.filePath);return outcome.copied?outcome.target:null;});
 ipcMain.handle('asset:read-text',async(_event,id)=>{const asset=library.assets.find((item)=>item.id===id&&!item.deletedAt),allowed=TEXT_PREVIEW_DOCUMENT_EXTENSIONS;if(!asset||!allowed.has(String(asset.extension).toUpperCase())||!(await pathAvailable(asset.path)))return null;const stat=await fsp.stat(asset.path);if(stat.size>8*1024*1024)throw new Error('Text reader supports files up to 8 MB');return{content:await fsp.readFile(asset.path,'utf8'),extension:String(asset.extension).toLowerCase(),filename:asset.filename};});
 ipcMain.handle('contact-sheet:export',async(event,payload)=>{const format=typeof payload==='string'?payload:payload?.format,extension=['pdf','jpeg','png','webp'].includes(String(format).toLowerCase())?String(format).toLowerCase():'pdf',result=await dialog.showSaveDialog(mainWindow,{title:'Export contact sheet',defaultPath:`contact-sheet.${extension}`,filters:[{name:extension.toUpperCase(),extensions:[extension]}]});if(result.canceled||!result.filePath)return null;if(extension==='pdf'){const pdf=await event.sender.printToPDF({printBackground:true,pageSize:'A4'});await fsp.writeFile(result.filePath,pdf);}else{const rect=payload?.rect&&Number.isFinite(payload.rect.width)?payload.rect:undefined,image=await event.sender.capturePage(rect),png=image.toPNG();if(extension==='png')await fsp.writeFile(result.filePath,png);else await sharp(png)[extension==='jpeg'?'jpeg':'webp']({quality:92}).toFile(result.filePath);}return result.filePath;});
 ipcMain.handle('extension:open-folder', () => shell.openPath(app.isPackaged ? path.join(process.resourcesPath, 'browser-extension') : path.join(process.cwd(), 'browser-extension')));
@@ -2065,16 +2269,15 @@ ipcMain.handle('window:center-display',(_event,index)=>centerWindowOnDisplay(Mat
 ipcMain.handle('preferences:update', async (_event, preferences = {}) => {
   library.settings = library.settings || {};const previousPreferences=library.settings.preferences||{},previousPolicy=indexingPolicySignature(previousPreferences); library.settings.preferences = { ...previousPreferences, ...preferences };
   const nextPolicy=indexingPolicySignature(library.settings.preferences);
-  await fsp.writeFile(runtimePreferencesFile, JSON.stringify({ hardwareAcceleration: preferences.hardwareAcceleration !== false }), 'utf8');
+  await saveRuntimePreferences({hardwareAcceleration:preferences.hardwareAcceleration!==false,autoImportRoot:preferences.autoImportFolder||runtimePreferences.autoImportRoot||'',autoImportEnabled:Boolean(preferences.autoImport)});
   app.setLoginItemSettings({ openAtLogin: Boolean(preferences.launchOnLogin), path: process.execPath });
-  const folder = library.settings.preferences.autoImportFolder;
-  if (preferences.autoImport && folder && !library.locations.some((location) => path.resolve(location.path) === path.resolve(folder))) await addLocations([folder], 'folder');
-  if(previousPolicy!==nextPolicy)for(const location of library.locations)schedulePortfolioBackground(()=>scanLocation(location.id),100);
+  if(preferences.autoImport)await ensureActivePortfolioAutoImportLocation({create:false,scan:false});else stopActiveAutoImportWatchers();
+  if(previousPolicy!==nextPolicy)for(const location of library.locations.filter((item)=>!item.autoImportLegacyRoot))schedulePortfolioBackground(()=>scanLocation(location.id),100);
   scheduleSave(); return library.settings.preferences;
 });
 ipcMain.handle('preferences:auto-import-folder', async () => {
   const result = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory', 'createDirectory'], title: 'Select an Auto-Import folder' }); if (result.canceled) return null;
-  library.settings = library.settings || {}; library.settings.preferences = { ...(library.settings.preferences || {}), autoImportFolder: result.filePaths[0] }; scheduleSave(); return result.filePaths[0];
+  library.settings = library.settings || {}; library.settings.preferences = { ...(library.settings.preferences || {}), autoImportFolder: result.filePaths[0] };await saveRuntimePreferences({autoImportRoot:result.filePaths[0]});stopActiveAutoImportWatchers();if(library.settings.preferences.autoImport)await ensureActivePortfolioAutoImportLocation({create:false,scan:false});scheduleSave(); return result.filePaths[0];
 });
 ipcMain.handle('window:toggle-always-on-top', () => {
   if (!mainWindow) return false;
@@ -2085,12 +2288,21 @@ ipcMain.handle('window:toggle-always-on-top', () => {
 ipcMain.handle('window:close', () => mainWindow?.close());
 
 async function handleProtocolUrl(value) {
+  if (!protocolImportsReady) {
+    if (!pendingProtocolUrls.includes(value)) pendingProtocolUrls.push(value);
+    return;
+  }
   try {
     const parsed = new URL(value);
-    if (parsed.protocol === 'pigeon:' && parsed.hostname === 'import' && parsed.searchParams.get('url')) await importUrl(parsed.searchParams.get('url'));
+    if (parsed.protocol === 'pigeon:' && parsed.hostname === 'import' && parsed.searchParams.get('url')) {
+      await importUrl(parsed.searchParams.get('url'), { collection: parsed.searchParams.get('collection') || '' });
+    }
   } catch (error) {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('app:error', error.message);
   }
+}
+function flushPendingProtocolUrls() {
+  for (const value of pendingProtocolUrls.splice(0)) handleProtocolUrl(value);
 }
 app.on('second-instance', (_event, argv) => {
   const value = argv.find((argument) => argument.startsWith('pigeon://'));
@@ -2102,6 +2314,7 @@ app.on('open-url', (event, value) => { event.preventDefault(); pendingProtocolUr
 app.whenReady().then(async () => {
   initializeStoragePaths();
   if (!smokeTest) await loadPortfolioRegistry();
+  if(await startupPortfolioChooserProbe){const selectedId=await showStartupPortfolioChooser();if(!selectedId){app.isQuitting=true;app.quit();return;}const selected=portfolios.find((portfolio)=>portfolio.id===selectedId);if(selected){activePortfolioId=selected.id;databaseFile=selected.database||portfolioDatabasePath(selected.id);legacyJsonFile=selected.legacyFile||null;await savePortfolioRegistry();}}
   app.setAsDefaultProtocolClient('pigeon');
   await registerProtocol();
   await startMediaServer();
@@ -2121,16 +2334,22 @@ app.whenReady().then(async () => {
   }
   app.on('child-process-gone',(_event,details)=>{writeFatalDiagnostic('electron:child-process-gone',details.reason,details);recordDiagnostic('error','Electron child process stopped',details);});
   createWindow();
-  for (const value of pendingProtocolUrls.splice(0)) handleProtocolUrl(value);
   const startupUrl = process.argv.find((argument) => argument.startsWith('pigeon://'));
-  if (startupUrl) handleProtocolUrl(startupUrl);
-  if (smokeSeeded || smokeLarge) mainWindow.webContents.once('did-finish-load', broadcast);
+  if (startupUrl && !pendingProtocolUrls.includes(startupUrl)) pendingProtocolUrls.push(startupUrl);
+  if (smokeSeeded || smokeLarge) {
+    protocolImportsReady = true;
+    flushPendingProtocolUrls();
+    mainWindow.webContents.once('did-finish-load', broadcast);
+  }
   if (!smokeSeeded && !smokeLarge) {
     mainWindow.webContents.once('did-finish-load', () => {
       setTimeout(async () => {
-        await loadLibraryInWorker();
+        await rendererSubscriptionsReady;
+        await loadLibraryInWorker();const autoImportLocation=activeAutoImportEnabled()?await ensureActivePortfolioAutoImportLocation({create:false,scan:false}):null;
+        protocolImportsReady = true;
+        flushPendingProtocolUrls();
         broadcast();
-        refreshChangedIndexingPolicy();schedulePortfolioBackground(warmThumbnailCache,1000);
+        refreshChangedIndexingPolicy();if(autoImportLocation)schedulePortfolioBackground(()=>scanLocation(autoImportLocation.id),100);schedulePortfolioBackground(warmThumbnailCache,1000);
         refreshSourcesInBackground().then(() => { schedulePortfolioBackground(warmThumbnailCache, 5000); schedulePortfolioBackground(warmContentHashes, 1500); }).catch((error) => recordDiagnostic('error', 'Startup background processing failed', error));
       }, 0);
     });

@@ -8,6 +8,7 @@ window.addEventListener('DOMContentLoaded',()=>{const target=document.getElement
 
 contextBridge.exposeInMainWorld('pigeon', {
   getLibrary: () => ipcRenderer.invoke('library:get'),
+  rendererReady: () => ipcRenderer.invoke('renderer:ready'),
   getAppInfo: () => ipcRenderer.invoke('app:info'),
   getLegalDocuments: () => ipcRenderer.invoke('app:legal-documents'),
   getDiagnostics: () => ipcRenderer.invoke('diagnostics:get'),
@@ -38,7 +39,7 @@ contextBridge.exposeInMainWorld('pigeon', {
   moveAssetsToFolder: (ids, locationId, subfolder = '') => ipcRenderer.invoke('assets:move-to-folder', { ids, locationId, subfolder }),
   moveAssetsToPath: (ids, folderPath) => ipcRenderer.invoke('assets:move-to-path', { ids, folderPath }),
   autoRenameAssets: (ids, pattern) => ipcRenderer.invoke('assets:auto-rename', { ids, pattern }),
-  startAssetDrag: (ids) => ipcRenderer.send('assets:start-drag', ids),
+  startAssetDrag: (ids) => ipcRenderer.invoke('assets:start-drag', ids),
   rebuildThumbnails: (ids) => ipcRenderer.invoke('assets:rebuild-thumbnails', ids),
   getEmbeddedMetadata: (id) => ipcRenderer.invoke('asset:embedded-metadata', id),
   getAssetDetails: (id) => ipcRenderer.invoke('asset:details', id),
