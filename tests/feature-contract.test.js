@@ -55,7 +55,7 @@ test('media resource errors do not become fatal UI errors',()=>{
 });
 
 test('all file types support location, complete EXIF inspection, and native cross-application drag handoff',()=>{
-  assert.match(renderer,/const assetIds=\[\.\.\.new Set\(ids\|\|\[\]\)\]/);assert.match(renderer,/Select one or more files first/);assert.match(renderer,/<button data-context-action="location">/);assert.match(html,/id="exif-metadata"/);assert.match(renderer,/function flattenedMetadata/);assert.match(renderer,/image\?flattenedMetadata\(asset\.exif\)/);assert.match(renderer,/addEventListener\('dragstart',[^\n]*nativeDrag=event\.altKey\|\|!event\.shiftKey/);assert.match(renderer,/application\/x-pigeon-assets/);assert.match(renderer,/setDragImage\(ghost,36,36\)/);assert.match(renderer,/effectAllowed='copyMove'/);assert.match(styles,/\.asset-drag-ghost[^}]*opacity:\.28/);assert.match(preload,/startAssetDrag: \(ids\) => ipcRenderer\.invoke\('assets:start-drag', ids\)/);assert.match(main,/prepareCollisionSafeDragFiles/);assert.match(main,/nativeImage\.createFromPath/);assert.match(main,/toBitmap\(\)/);assert.match(main,/bitmap\[index\]\*\.34/);assert.match(main,/startDrag\(\{files,icon\}\)/);assert.match(renderer,/collision-safe rename/);
+  assert.match(renderer,/const assetIds=\[\.\.\.new Set\(ids\|\|\[\]\)\]/);assert.match(renderer,/Select one or more files first/);assert.match(renderer,/<button data-context-action="location">/);assert.match(html,/id="exif-metadata"/);assert.match(renderer,/function flattenedMetadata/);assert.match(renderer,/image\?flattenedMetadata\(asset\.exif\)/);assert.match(renderer,/addEventListener\('dragstart',[^\n]*nativeDrag=event\.altKey/);assert.match(renderer,/application\/x-pigeon-assets/);assert.match(renderer,/setDragImage\(ghost,36,36\)/);assert.match(renderer,/effectAllowed='copyMove'/);assert.match(styles,/\.asset-drag-ghost[^}]*opacity:\.28/);assert.match(preload,/startAssetDrag: \(ids\) => ipcRenderer\.invoke\('assets:start-drag', ids\)/);assert.match(main,/prepareCollisionSafeDragFiles/);assert.match(main,/nativeImage\.createFromPath/);assert.match(main,/toBitmap\(\)/);assert.match(main,/bitmap\[index\]\*\.34/);assert.match(main,/startDrag\(\{files,icon\}\)/);assert.match(renderer,/collision-safe rename/);
 });
 
 test('Snagit SNAGX files receive safe archive thumbnails and full image previews',()=>{
@@ -713,9 +713,9 @@ test('asset duplication copies its preview and incrementally inserts and resorts
   assert.match(main,/async function copyDuplicatePreview/);assert.match(main,/fsp\.copyFile\(source\.thumbnailPath,thumbnailTarget\)/);assert.match(duplicateSource,/watcherIgnoreUntil\.set/);assert.match(duplicateSource,/broadcastLocations\(\)/);assert.doesNotMatch(duplicateSource,/\bbroadcast\(\)/);assert.match(renderer,/function stageDuplicatedAssetCard/);assert.match(renderer,/cloneNode\(true\)/);assert.match(renderer,/async function duplicateAssetsWithoutGridRefresh/);assert.match(renderer,/reconcileThumbnailCards\(added,\{sidebar:false\}\)/);assert.match(renderer,/duplicateAssetsWithoutGridRefresh\(selectedIds\)/);
 });
 
-test('internal and external native drags both target collections and physical folders',()=>{
+test('ordinary thumbnail drags are internal moves, while Alt-drag exports to other applications',()=>{
   assert.match(renderer,/application\/x-pigeon-origin/);
-  assert.match(renderer,/nativeDrag=event\.altKey\|\|!event\.shiftKey/);
+  assert.match(renderer,/nativeDrag=event\.altKey/);
   assert.match(renderer,/setDragImage\(ghost,36,36\)/);
   assert.match(renderer,/effectAllowed='copyMove'/);
   assert.match(renderer,/function libraryAssetIdsForPaths/);
@@ -978,7 +978,7 @@ test('SQLite persistence replaces library.json with automatic migration', () => 
 });
 
 test('tree rows retain readable labels and diagnostics dock inline', () => {
-  assert.match(styles, /grid-template-columns:14px 20px minmax\(110px,1fr\) 34px/);
+  assert.match(styles, /grid-template-columns:14px 20px minmax\(0,1fr\) 40px/);
   assert.match(styles, /text-overflow:ellipsis/);
   assert.match(styles, /font-variant-numeric:tabular-nums/);
   assert.match(styles, /\.diagnostics-console \{ grid-row:4; position:relative/);
@@ -1267,6 +1267,14 @@ test('virtual geometry is result-scoped, exact, dense, and shares one responsive
 
 test('virtual scroll diagnostics attribute result bounds, extent, restoration and decode state',()=>{
   for(const field of ['layoutGeneration','layoutWidth','cardWidth','layoutDensity','windowStart','windowEnd','resultCount','estimatedExtentPx','fullVirtualExtentPx','actualScrollHeight','scrollTop','userScrollEpoch','pendingRestore','domCards','decodedCards','layout'])assert.match(renderer,new RegExp(`${field}:`));assert.match(renderer,/recordVirtualScrollState\('thumbnail-ready'\)/);assert.match(renderer,/gridScrollRestore\.cancel\(\);suppressGridScroll=false;if\(virtualScrollFrame!==null\)\{cancelAnimationFrame\(virtualScrollFrame\)/);
+});
+
+test('removing an empty indexed folder uses a non-recursive disk check',()=>{
+  assert.match(main,/if\(location\.type==='folder'&&!library\.assets\.some\(\(asset\)=>asset\.locationId===id\)\)/);assert.match(main,/await fsp\.readdir\(target\)/);assert.match(main,/await fsp\.rmdir\(target\)/);assert.match(main,/target!==root/);assert.doesNotMatch(main.slice(main.indexOf("ipcMain.handle('library:remove-location'"),main.indexOf("ipcMain.handle('library:rescan'")),/rm\(target,\{recursive:true\}/);
+});
+
+test('nested sidebar folders retain a fixed aligned count column',()=>{
+  assert.match(styles,/\.collection-item, \.smart-folder-item, \.location-folder-item \{[^}]*minmax\(0,1fr\) 40px !important/);assert.match(styles,/\.collection-item small, \.smart-folder-item small, \.location-folder-item small \{ width:40px; min-width:40px;[^}]*text-align:right/);
 });
 
 test('collection navigation applies its saved thumbnail size before revealing new cards',()=>{

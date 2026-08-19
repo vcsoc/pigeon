@@ -62,6 +62,10 @@ test('renderer long tasks carry phase ownership and bounded live-card context',(
   assert.match(renderer,/function measureRendererPhase/);assert.match(renderer,/owner=\[\.\.\.recentRendererPhases\]/);assert.match(renderer,/domCards:elements\.grid\.querySelectorAll/);assert.match(renderer,/MAX_THUMBNAIL_LOADS=4/);assert.match(renderer,/VIRTUAL_ASSET_WINDOW=120/);
 });
 
+test('performance diagnostics are backoff-limited and diagnostic files have bounded retention',()=>{
+  assert.match(main,/DIAGNOSTICS_MAX_BYTES = 4 \* 1024 \* 1024/);assert.match(main,/DIAGNOSTICS_RETAIN_BYTES = 2 \* 1024 \* 1024/);assert.match(main,/function boundedDiagnosticLine/);assert.match(main,/function diagnosticLinesWithinLimit/);assert.match(main,/function persistDiagnosticEntry/);assert.match(main,/function recordPerformanceDiagnostic/);assert.match(main,/delay:30000/);assert.match(main,/Math\.min\(5\*60\*1000,state\.delay\*2\)/);assert.match(main,/suppressedCount:state\.suppressed/);
+});
+
 test('large-folder preview and final render retain order, keyed cards, selection and scroll across every layout',()=>{
   const cooperative=fs.readFileSync(path.join(root,'src','cooperative-view.js'),'utf8');
   assert.match(cooperative,/const stablePreview=/);assert.doesNotMatch(cooperative,/matched>=previewLimit/);assert.match(cooperative,/onPreview\(stablePreview\(\)/);

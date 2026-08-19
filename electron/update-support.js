@@ -18,6 +18,14 @@ function isMissingUpdateMetadataError(error) {
   return namesUpdateMetadata && (/cannot find/i.test(message) || /(?:http|status)[^\n]*404|\b404\b/i.test(message));
 }
 
+function isTransientUpdateDownloadError(error) {
+  const message = errorMessages(error);
+  // GitHub can briefly expose release metadata before every CDN-backed asset is
+  // readable. Retrying only these temporary delivery errors avoids repeating a
+  // failed download for a corrupt package or an invalid signature.
+  return /releases\/download\//i.test(message) && /(?:http|status)[^\n]*404|\b404\b/i.test(message);
+}
+
 function versionParts(value) {
   const match = String(value || '').trim().replace(/^v/i, '').match(/^(\d+)\.(\d+)\.(\d+)(?:[-+]([0-9A-Za-z.-]+))?$/);
   if (!match) return null;
@@ -46,4 +54,4 @@ function requiresForcedUpdate(policy, current) {
   return Boolean(policy?.force && versionParts(policy.minimumVersion) && compareVersions(current, policy.minimumVersion) === -1);
 }
 
-module.exports = { compareVersions, isMissingUpdateMetadataError, isNewerVersion, requiresForcedUpdate, versionParts };
+module.exports = { compareVersions, isMissingUpdateMetadataError, isNewerVersion, isTransientUpdateDownloadError, requiresForcedUpdate, versionParts };

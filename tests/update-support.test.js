@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { compareVersions, isMissingUpdateMetadataError, isNewerVersion, requiresForcedUpdate } = require('../electron/update-support');
+const { compareVersions, isMissingUpdateMetadataError, isNewerVersion, isTransientUpdateDownloadError, requiresForcedUpdate } = require('../electron/update-support');
 
 test('semantic update comparisons reject older releases and handle multi-digit segments',()=>{
   assert.equal(compareVersions('0.1.100','0.1.101'),-1);
@@ -40,10 +40,20 @@ test('unrelated updater and authentication errors still surface', () => {
   assert.equal(isMissingUpdateMetadataError(new Error('latest-mac.yml signature is invalid')), false);
 });
 
+test('only a release-asset 404 is treated as a temporary update delivery error', () => {
+  assert.equal(isTransientUpdateDownloadError(new Error('Cannot download "https://github.com/vcsoc/pigeon/releases/download/v0.2.10/Pigeon-Setup-0.2.10-x64.exe", status 404')), true);
+  assert.equal(isTransientUpdateDownloadError(new Error('Cannot find latest.yml, status 404')), false);
+  assert.equal(isTransientUpdateDownloadError(new Error('latest.yml signature is invalid')), false);
+  assert.equal(isTransientUpdateDownloadError(new Error('Cannot download release asset, status 500')), false);
+});
+
 test('the update IPC handler returns a nonfatal unavailable result for missing metadata', () => {
   const main = fs.readFileSync(path.join(__dirname, '..', 'electron', 'main.js'), 'utf8');
   assert.match(main, /if\(!isMissingUpdateMetadataError\(error\)\)throw error/);
   assert.match(main, /status:'unavailable'.*reason:'missing-update-metadata'/);
   assert.match(main,/isNewerVersion\(version,currentVersion\)/);
   assert.match(main,/autoUpdater\.allowDowngrade = false/);
+  assert.match(main,/UPDATE_DOWNLOAD_RETRY_DELAYS_MS/);
+  assert.match(main,/isTransientUpdateDownloadError\(error\)/);
+  assert.match(main,/Update asset not ready; retrying/);
 });
