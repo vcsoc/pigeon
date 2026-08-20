@@ -1130,6 +1130,8 @@ test('availability refresh and inline About Pigeon view are wired', () => {
   assert.match(main, /app:open-external/);
   assert.match(main, /url\.hostname !== 'github\.com'/);
   assert.match(renderer, /openAboutDialog/);
+  assert.doesNotMatch(html,/<button data-menu-action="about"><span>About Pigeon<\/span><\/button>/);
+  assert.match(renderer,/help: \[\['Tutorials'[\s\S]{0,240}\['About Pigeon', 'about', ''\]\]/);
   assert.match(renderer,/closeAboutView/);
   assert.match(renderer,/event\.key==='Escape'/);
   assert.match(renderer,/\$\('#about-dialog'\)\.addEventListener\('click',closeAboutView\)/);
