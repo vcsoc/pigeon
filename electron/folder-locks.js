@@ -5,7 +5,13 @@ function normalizeSubfolder(value = '') {
 }
 
 function isPathInside(root, candidate) {
-  const relative = path.relative(path.resolve(root), path.resolve(candidate));
+  let resolvedRoot = path.resolve(root), resolvedCandidate = path.resolve(candidate);
+  const windowsStyle = /(?:^|[\\/])[a-z]:[\\/]/i.test(String(root)) || /(?:^|[\\/])[a-z]:[\\/]/i.test(String(candidate));
+  if (process.platform === 'win32' || process.platform === 'darwin' || windowsStyle) {
+    resolvedRoot = resolvedRoot.toLowerCase();
+    resolvedCandidate = resolvedCandidate.toLowerCase();
+  }
+  const relative = path.relative(resolvedRoot, resolvedCandidate);
   return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
 }
 
