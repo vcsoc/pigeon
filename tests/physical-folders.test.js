@@ -40,10 +40,11 @@ test('rejects missing parents and parents that escape through a symlink', async 
 test('deletes empty folders immediately and recycles non-empty folders', async (context) => {
   const root = await temporaryDirectory(); context.after(() => fsp.rm(root, { recursive: true, force: true }));
   await fsp.mkdir(path.join(root, 'empty')); await fsp.mkdir(path.join(root, 'full')); await fsp.writeFile(path.join(root, 'full', 'asset.txt'), 'asset');
+  const canonicalFull = await fsp.realpath(path.join(root, 'full'));
   let recycled = null; const empty = await deletePhysicalFolder(root, 'empty', { trashItem: async () => assert.fail('empty folders must not use trash') });
   assert.equal(empty.empty, true); await assert.rejects(fsp.access(path.join(root, 'empty')));
   const full = await deletePhysicalFolder(root, 'full', { trashItem: async (target) => { recycled = target; await fsp.rm(target, { recursive: true }); } });
-  assert.equal(full.recycled, true); assert.equal(recycled, path.join(root, 'full')); await assert.rejects(fsp.access(path.join(root, 'full')));
+  assert.equal(full.recycled, true); assert.equal(recycled, canonicalFull); await assert.rejects(fsp.access(path.join(root, 'full')));
 });
 
 test('renames and moves physical folders while preserving their contents', async (context) => {
