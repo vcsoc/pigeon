@@ -24,6 +24,12 @@ test('stream indexes remain correct across chunks, scan additions, and patches',
   assert.equal(stream.indexes.get('d'),3);assert.equal(stream.library.assets[1].rating,1);assert.equal(stream.library.assets[2].rating,5);
 });
 
+test('different asset IDs for the same physical path collapse into one thumbnail reference',()=>{
+  const stream=create();stream.begin({streamGeneration:4,assetStreamPending:true,totalAssets:2});
+  const result=stream.upsertMany([{id:'legacy',path:'C:\\Media\\Photo.JPG',rating:1},{id:'regenerated',path:'c:/media/photo.jpg',rating:4}]);
+  assert.equal(result.added,1);assert.equal(result.updated,1);assert.equal(stream.library.assets.length,1);assert.equal(stream.library.assets[0].id,'legacy');assert.equal(stream.library.assets[0].rating,4);assert.equal(stream.indexes.has('regenerated'),false);
+});
+
 test('successful permanent deletions remove only returned assets and compact stream indexes',()=>{
   const removed=[];const stream=create({onRemove:(asset)=>removed.push(asset.id)});stream.begin({streamGeneration:3,assetStreamPending:false});stream.upsertMany([{id:'a'},{id:'b'},{id:'c'}]);
   assert.equal(stream.removeMany(['b','missing']).removed,1);

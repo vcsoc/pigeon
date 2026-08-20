@@ -3,5 +3,9 @@ release/
 release-rebuild/
 .gitnexus/
 .pi/history/
+.pi-build/
+.obsidian/
+NUL
 pigeon-smoke.png
+pigeon-tree-smoke.png
 *.log

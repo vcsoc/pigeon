@@ -32,6 +32,25 @@ async function uniqueConflictPath(destination, { exists = pathExists, pathApi = 
   return candidate;
 }
 
+async function replaceFileSafely(source, target, { removeSource = false, fsApi = fsp, pathApi = path, randomId = crypto.randomUUID } = {}) {
+  const token = randomId(), extension = pathApi.extname(target), directory = pathApi.dirname(target), temporary = pathApi.join(directory, `.pigeon-overwrite-${token}${extension}`), backup = pathApi.join(directory, `.pigeon-replaced-${token}${extension}`);
+  let backupCreated = false, installed = false;
+  try {
+    await fsApi.copyFile(source, temporary, fs.constants.COPYFILE_EXCL);
+    try { await fsApi.rename(target, backup); backupCreated = true; }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+    await fsApi.rename(temporary, target); installed = true;
+    if (removeSource) await fsApi.rm(source, { force: false });
+    if (backupCreated) await fsApi.rm(backup, { force: true }).catch(() => {});
+    return target;
+  } catch (error) {
+    if (installed) await fsApi.rm(target, { force: true }).catch(() => {});
+    if (backupCreated) await fsApi.rename(backup, target).catch(() => {});
+    await fsApi.rm(temporary, { force: true }).catch(() => {});
+    throw error;
+  }
+}
+
 async function resolveFileConflict(source, destination, {
   autoRename = true,
   exists = pathExists,
@@ -45,6 +64,7 @@ async function resolveFileConflict(source, destination, {
   const sameContent = await identical(source, destination);
   if (sameContent) {
     const decision = await decideIdentical({ source, destination });
+    if (decision === 'overwrite') return { action: 'overwrite', target: destination, renamed: false, identical: true };
     if (decision !== 'keep-both') return { action: 'skip', target: destination, renamed: false, identical: true };
   } else if (!autoRename) {
     const error = new Error(`${pathApi.basename(destination)} already exists in the destination`);
@@ -53,4 +73,4 @@ async function resolveFileConflict(source, destination, {
   return { action: 'write', target: await uniquePath(destination), renamed: true, identical: sameContent };
 }
 
-module.exports = { pathExists, hashFile, filesAreIdentical, uniqueConflictPath, resolveFileConflict };
+module.exports = { pathExists, hashFile, filesAreIdentical, uniqueConflictPath, replaceFileSafely, resolveFileConflict };

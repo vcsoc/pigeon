@@ -69,7 +69,7 @@ test('performance diagnostics are backoff-limited and diagnostic files have boun
 test('large-folder preview and final render retain order, keyed cards, selection and scroll across every layout',()=>{
   const cooperative=fs.readFileSync(path.join(root,'src','cooperative-view.js'),'utf8');
   assert.match(cooperative,/const stablePreview=/);assert.doesNotMatch(cooperative,/matched>=previewLimit/);assert.match(cooperative,/onPreview\(stablePreview\(\)/);
-  assert.match(renderer,/preserveCards:view\.previewPainted\|\|Boolean\(view\.preserveCards\)/);assert.match(renderer,/freshCard\.replaceWith\(existing\)/);assert.match(renderer,/gridScrollRestore\.commit/);assert.match(renderer,/noteDirectGridScrollInput/);assert.match(renderer,/state\.selectedIds\.has\(asset\.id\)/);assert.match(renderer,/layout-list/);assert.match(renderer,/layout-justified/);assert.match(renderer,/scheduleMasonry\(\)/);
+  assert.match(renderer,/preserveCards:!view\.forceFreshCards&&\(view\.previewPainted\|\|Boolean\(view\.preserveCards\)\)/);assert.match(renderer,/freshCard\.replaceWith\(existing\)/);assert.match(renderer,/gridScrollRestore\.commit/);assert.match(renderer,/noteDirectGridScrollInput/);assert.match(renderer,/state\.selectedIds\.has\(asset\.id\)/);assert.match(renderer,/layout-list/);assert.match(renderer,/layout-justified/);assert.match(renderer,/scheduleMasonry\(\)/);
 });
 
 test('virtual scrolling keeps a result-scoped exact extent and makes restoration user-cancellable',()=>{

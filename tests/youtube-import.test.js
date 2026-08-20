@@ -34,6 +34,18 @@ test('720p is downloaded as one bounded local playable file', async () => {
   } finally { await fsp.rm(directory, { recursive: true, force: true }); }
 });
 
+test('720p falls back to an available lower MP4 quality instead of failing format selection', async () => {
+  const directory = await fsp.mkdtemp(path.join(os.tmpdir(), 'pigeon-youtube-'));
+  const calls=[];
+  const info={basic_info:{title:'Fallback Test',is_live:false},download:async(options)=>{calls.push(options);if(options.quality==='720p')throw new Error('No matching formats found');return bytes('fallback-video');}};
+  try{
+    const result=await downloadYouTubeVideo('https://youtu.be/dQw4w9WgXcQ',{outputDir:directory,createClient:async()=>({getBasicInfo:async()=>info})});
+    assert.equal(result.quality,'360');
+    assert.deepEqual(calls,[{type:'video+audio',quality:'720p',format:'mp4'},{type:'video+audio',quality:'360p',format:'mp4'}]);
+    assert.equal(fs.readFileSync(result.target,'utf8'),'fallback-video');
+  }finally{await fsp.rm(directory,{recursive:true,force:true});}
+});
+
 test('1080p downloads separate streams, merges them, and removes temporary parts', async () => {
   const directory = await fsp.mkdtemp(path.join(os.tmpdir(), 'pigeon-youtube-'));
   const calls = [];

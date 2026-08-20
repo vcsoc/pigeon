@@ -29,9 +29,12 @@ test('preserves custom collection icons through migrations', () => {
 
 test('creates nested collections and rejects invalid or duplicate parents', () => {
   const data = library();
-  const parent = core.createCollection(data, 'Moodboard');
+  const requestedId = '12345678-abcd-4abc-8abc-1234567890ab';
+  const parent = core.createCollection(data, 'Moodboard', null, requestedId);
   const child = core.createCollection(data, 'Winter', parent.id);
+  assert.equal(parent.id, requestedId);
   assert.equal(child.parentId, parent.id);
+  assert.throws(() => core.createCollection(data, 'Duplicate ID', null, requestedId), /identifier/);
   assert.throws(() => core.createCollection(data, 'Winter', parent.id), /already exists/);
   assert.throws(() => core.createCollection(data, 'Orphan', 'missing'), /does not exist/);
   core.renameCollection(data, child.id, 'Spring');

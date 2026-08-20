@@ -18,12 +18,15 @@ const cooperativeView=fs.readFileSync(path.join(root,'src','cooperative-view.js'
 const folderTreeWorker = fs.readFileSync(path.join(root, 'electron', 'folder-tree-worker.js'), 'utf8');
 const database = fs.readFileSync(path.join(root, 'electron', 'database.js'), 'utf8');
 const assetTransport = fs.readFileSync(path.join(root, 'electron', 'asset-transport.js'), 'utf8');
+const assetStreamState = fs.readFileSync(path.join(root,'src','asset-stream-state.js'),'utf8');
 const renderer = fs.readFileSync(path.join(root, 'src', 'renderer.js'), 'utf8');
 const styles = fs.readFileSync(path.join(root, 'src', 'styles.css'), 'utf8');
 const worldLand = fs.readFileSync(path.join(root, 'src', 'world-land.js'), 'utf8');
 const icons = fs.readFileSync(path.join(root, 'src', 'icons.js'), 'utf8');
 const packageJson = fs.readFileSync(path.join(root, 'package.json'), 'utf8');
 const systemResources = fs.readFileSync(path.join(root, 'electron', 'system-resources.js'), 'utf8');
+const youtubeImport = fs.readFileSync(path.join(root, 'electron', 'youtube-import.js'), 'utf8');
+const ytDlpImport = fs.readFileSync(path.join(root, 'electron', 'yt-dlp-import.js'), 'utf8');
 const affinityPreview = fs.readFileSync(path.join(root, 'electron', 'affinity-preview.js'), 'utf8');
 const snagxPreview = fs.readFileSync(path.join(root, 'electron', 'snagx-preview.js'), 'utf8');
 const lightroomPreview=fs.readFileSync(path.join(root,'electron','lightroom-preview.js'),'utf8');
@@ -48,7 +51,7 @@ test('huge portfolio views cooperatively sort and keep an adaptive bounded virtu
 });
 
 test('inspector folder paths, bidirectional read-ahead and compact thumbnail spacing are wired',()=>{
-  assert.match(html,/id="meta-folder"/);assert.match(renderer,/metaFolder: \$\('#meta-folder'\)/);assert.match(renderer,/function assetFolderPath/);assert.match(renderer,/elements\.metaFolder\.textContent=folderPath/);assert.match(renderer,/function nextThumbnailCard/);assert.match(renderer,/thumbnailScrollDirection/);assert.match(renderer,/thumbnailScrollUntil=Date\.now\(\)\+320/);assert.match(styles,/padding: 6px; background: #191a1c/);assert.match(styles,/column-gap: 4px/);assert.match(styles,/\.asset-grid\.placeholder-grid\{grid-auto-rows:auto;row-gap:4px\}/);assert.match(styles,/border-radius: 5px; padding: 1px/);
+  assert.match(html,/id="meta-folder"/);assert.match(html,/id="meta-source-url"/);assert.match(html,/id="copy-source-url"/);assert.match(renderer,/metaFolder: \$\('#meta-folder'\)/);assert.match(renderer,/metaSourceUrl: \$\('#meta-source-url'\)/);assert.match(renderer,/asset\.sourceUrl/);assert.match(renderer,/Source URL copied/);assert.match(styles,/\.source-url-field/);assert.match(renderer,/function assetFolderPath/);assert.match(renderer,/elements\.metaFolder\.textContent=folderPath/);assert.match(renderer,/function nextThumbnailCard/);assert.match(renderer,/thumbnailScrollDirection/);assert.match(renderer,/thumbnailScrollUntil=Date\.now\(\)\+320/);assert.match(styles,/padding: 6px; background: #191a1c/);assert.match(styles,/column-gap: 4px/);assert.match(styles,/\.asset-grid\.placeholder-grid\{grid-auto-rows:auto;row-gap:4px\}/);assert.match(styles,/border-radius: 5px; padding: 1px/);
 });
 
 test('media resource errors do not become fatal UI errors',()=>{
@@ -95,7 +98,7 @@ test('text and PDF documents generate thumbnails and open in inspector, preview 
 });
 
 test('privacy shortcuts paint before persistence and do not animate behind key input',()=>{
-  assert.match(renderer,/paintThumbnailEffectImmediately\(assets,enabled\);showToast/);assert.ok(renderer.indexOf('paintThumbnailEffectImmediately(assets,enabled);showToast')<renderer.indexOf('await window.pigeon.batchUpdateAssets(ids,{thumbnailEffect:enabled}'));assert.match(renderer,/requestAnimationFrame\(draw\)/);assert.match(styles,/\.privacy-effect-view img\{transition:none\}/);assert.match(styles,/thumbnail-effect-applied \.asset-preview>img[^}]*transition:none/);
+  assert.match(renderer,/paintThumbnailEffectImmediately\(assets,enabled\);showToast/);assert.ok(renderer.indexOf('paintThumbnailEffectImmediately(assets,enabled);showToast')<renderer.indexOf('await window.pigeon.batchUpdateAssets(ids,{thumbnailEffect:enabled}'));assert.match(renderer,/requestAnimationFrame\(draw\)/);assert.match(styles,/\.privacy-effect-view :is\(img,video,iframe\)\{transition:none\}/);assert.match(styles,/thumbnail-effect-applied \.asset-preview>img[^}]*transition:none/);
 });
 
 test('targeted thumbnail rebuild, virtual full scroll, cover previews, metadata copy and native drag are wired',()=>{
@@ -111,11 +114,11 @@ test('Smart Folders filter privacy effects, hotkey is editable, and level sortin
 });
 
 test('privacy ranges extend into previews/viewer, modifier wheel scrolls, submenu and parent trunks work',()=>{
-  assert.match(renderer,/minimum=mode==='pixelate'\?6:8/);assert.match(renderer,/maximum=mode==='pixelate'\?60:40/);assert.match(html,/id="sidebar-order-submenu"/);assert.match(renderer,/privacy-effect-view/);assert.match(styles,/\.thumbnail-effect-reveal \.privacy-effect-view img/);assert.match(renderer,/event\.ctrlKey\|\|event\.shiftKey/);assert.match(renderer,/sidebar-order-submenu/);assert.match(styles,/location-subfolder-list::before/);assert.match(folderTreeWorker,/updatedAt/);
+  assert.match(renderer,/minimum=mode==='pixelate'\?6:8/);assert.match(renderer,/maximum=mode==='pixelate'\?60:40/);assert.match(html,/id="sidebar-order-submenu"/);assert.match(renderer,/privacy-effect-view/);assert.match(styles,/\.thumbnail-effect-reveal \.privacy-effect-view :is\(img,video,iframe\)/);assert.match(renderer,/event\.ctrlKey\|\|event\.shiftKey/);assert.match(renderer,/sidebar-order-submenu/);assert.match(styles,/location-subfolder-list::before/);assert.match(folderTreeWorker,/updatedAt/);
 });
 
 test('unfocused hover audio, complete menus, tree trunks, preference spacing and branch ordering are wired',()=>{
-  assert.match(main,/GetAsyncKeyState/);assert.match(main,/startHoverControlMonitor/);assert.match(preload,/onHoverControl/);assert.match(renderer,/monitorHoverControl\(true\)/);assert.match(renderer,/asset-context-menu-expanded/);assert.match(styles,/overflow:visible/);assert.match(styles,/\.location-subfolder-list::before/);assert.match(styles,/preferences-nav nav button[^}]*gap:9px/);assert.match(renderer,/showBranchOrderMenu/);assert.match(main,/sidebar:set-branch-sort/);assert.match(renderer,/created-desc/);
+  assert.match(main,/GetAsyncKeyState/);assert.match(main,/startHoverControlMonitor/);assert.match(preload,/onHoverControl/);assert.match(renderer,/monitorHoverControl\(true\)/);assert.match(renderer,/asset-context-menu-expanded/);assert.match(styles,/overflow:visible/);assert.match(styles,/\.location-subfolder-list::before\{[^}]*left:13px/);assert.match(styles,/preferences-nav nav button[^}]*gap:9px/);assert.match(renderer,/showBranchOrderMenu/);assert.match(main,/sidebar:set-branch-sort/);assert.match(renderer,/created-desc/);
 });
 
 test('actions support topbar editing, reordered clearing/move/rename steps and larger fields',()=>{
@@ -125,8 +128,8 @@ test('SVG, Sketch and Lunacy files plus embedded workflow metadata and drag expo
   assert.match(fileTypesSource,/\.svg/);assert.match(fileTypesSource,/\.sketch/);assert.match(fileTypesSource,/\.free/);assert.match(main,/extractZipPreview/);assert.match(thumbnailWorker,/pngTextMetadata/);assert.match(thumbnailWorker,/metadataOnly/);assert.match(main,/extractEmbeddedMetadata\(asset\)/);assert.match(main,/return\{embeddedMetadata:result\?\.embeddedMetadata\|\|null\}/);assert.doesNotMatch(main,/persistAssetBatch\(\[asset\]\).*embeddedMetadata/);assert.match(renderer,/embeddedMetadataCache\.size>8/);assert.match(database,/removePersistedEmbeddedMetadata/);assert.match(renderer,/comfy\.classList\.toggle\('hidden',!hasComfyWorkflow\)/);assert.match(html,/id="comfyui-metadata" class="additional-metadata comfyui-metadata/);assert.match(html,/showAdditionalMetadata/);assert.match(renderer,/nativeDrag=event\.altKey/);assert.match(styles,/\.folder-tree-toggle \{ width: 18px/);assert.match(renderer,/addEventListener\('dragenter',showCollectionDrop\)/);
 });
 
-test('privacy-affected motion previews require the temporary reveal shortcut',()=>{
-  assert.match(renderer,/protectedMotion=Boolean\(asset\.thumbnailEffect/);assert.match(renderer,/protectedMotion&&!state\.thumbnailEffectRevealPressed/);assert.match(renderer,/revealShortcutPressed\(event\)\)\{clearTimeout\(startTimer\);startTimer=null;start\(event,true\);\}/);assert.match(renderer,/revealShortcutPressed\(event\)\)stop\(\)/);assert.match(renderer,/thumbnailEffectRevealKey:'Alt'/);assert.match(renderer,/wireShortcutInput\('#thumbnail-effect-reveal-shortcut'/);
+test('privacy-affected motion previews and opened videos retain every privacy mode',()=>{
+  assert.match(renderer,/protectedMotion=Boolean\(asset\.thumbnailEffect/);assert.match(renderer,/mediaViewer\.classList\.toggle\('privacy-effect-view',Boolean\(asset\.thumbnailEffect\)\)/);assert.match(renderer,/video\?elements\.inspectorVideo:elements\.inspectorImage/);assert.match(renderer,/renderViewerPrivacySurface\(asset\)/);assert.match(renderer,/requestVideoFrameCallback\(draw\)/);assert.match(styles,/privacy-effect-view :is\(img,video,iframe\)/);assert.match(renderer,/protectedMotion&&!state\.thumbnailEffectRevealPressed/);assert.match(renderer,/revealShortcutPressed\(event\)\)\{clearTimeout\(startTimer\);startTimer=null;start\(event,true\);\}/);assert.match(renderer,/revealShortcutPressed\(event\)\)stop\(\)/);assert.match(renderer,/thumbnailEffectRevealKey:'Alt'/);assert.match(renderer,/wireShortcutInput\('#thumbnail-effect-reveal-shortcut'/);
 });
 
 test('hovered video uses hold-Control or Alt sound and tree screenshots have terminal branches',()=>{
@@ -175,7 +178,7 @@ test('trash isolation, analytics actions, text reader, contact export, window re
 test('preloaded magnifier, true viewer scale, scoped thumbnail sizes and matching folder counts are wired',()=>{
   assert.match(renderer,/image\.onload=/);assert.match(renderer,/asset\.previewUrl\|\|asset\.mediaUrl/);assert.match(renderer,/function viewerFitScale/);assert.match(renderer,/sourceX=\(cursorX-viewerPan\.x\)\/oldScale/);assert.match(renderer,/viewerPan\.x=cursorX-sourceX\*next/);assert.match(renderer,/Math\.min\(VIEWER_MAX_ZOOM,oldScale\*factor\)/);const wheelHandler=renderer.match(/\$\('\.viewer-stage'\)\.addEventListener\('wheel',[^\n]+/)?.[0]||'';assert.doesNotMatch(wheelHandler,/clampViewerPan/);assert.doesNotMatch(styles,/min-width: max-content/);
   assert.match(renderer,/function thumbnailSizeScopeKey/);assert.match(renderer,/function thumbnailSizeStorage/);assert.match(renderer,/restoreScopedThumbnailSize/);assert.match(html,/id="zoom-set-default"/);assert.match(renderer,/Portfolio thumbnail default updated/);assert.match(styles,/aspect-ratio:var\(--preview-ratio\)/);assert.match(styles,/object-fit:contain/);
-  assert.match(fs.readFileSync(path.join(root,'electron','folder-tree-worker.js'),'utf8'),/directCount/);assert.match(renderer,/state\.includeSubfolderContent\?folder\.count:folder\.directCount/);assert.match(html,/data-pref="coloredTreeLevels"/);assert.match(renderer,/colored-tree-levels/);assert.match(styles,/--tree-level-0/);assert.match(styles,/var\(--tree-color\)/);
+  assert.match(fs.readFileSync(path.join(root,'electron','folder-tree-worker.js'),'utf8'),/directCount/);assert.match(renderer,/state\.includeSubfolderContent\?folder\.count:folder\.directCount/);assert.match(renderer,/--depth:\$\{folder\.depth\+1\};--tree-color:\$\{treeLevelColor\(folder\.depth\+1\)\}/);assert.match(html,/data-pref="coloredTreeLevels"/);assert.match(renderer,/colored-tree-levels/);assert.match(styles,/--tree-level-0/);assert.match(styles,/var\(--tree-color\)/);
 });
 
 test('startup restores scoped layout before reveal and automatic updates use actionable in-app prompts',()=>{
@@ -221,8 +224,9 @@ test('destructive sidebar confirmations identify the exact collection, Smart Fol
   assert.match(renderer,/title: `Remove “\$\{location\.name\}”\?`/);assert.match(renderer,/\$\{location\.path\}/);
 });
 
-test('sidebar-only creation, universal worker progress, and immediate inspector tag suggestions are wired',()=>{
-  assert.match(main,/function broadcastSidebar/);assert.match(main,/collection:create[\s\S]{0,180}broadcastSidebar\(\)/);assert.match(main,/smart-folder:create[\s\S]{0,180}broadcastSidebar\(\)/);assert.match(preload,/onSidebarChanged/);assert.match(renderer,/window\.pigeon\.onSidebarChanged/);
+test('sidebar-only creation, optimistic folders, universal worker progress, and immediate inspector tag suggestions are wired',()=>{
+  assert.match(main,/function broadcastSidebar/);assert.match(main,/collection:create[\s\S]{0,220}createCollection\(library, name, parentId, id\)[\s\S]{0,120}broadcastSidebar\(\)/);assert.match(main,/smart-folder:create[\s\S]{0,180}broadcastSidebar\(\)/);assert.match(preload,/createCollection: \(name, parentId, id = null\)/);assert.match(preload,/onSidebarChanged/);assert.match(renderer,/window\.pigeon\.onSidebarChanged/);
+  const createPrompt=renderer.slice(renderer.indexOf('async function createCollectionPrompt'),renderer.indexOf("$('#add-collection')"));assert.match(createPrompt,/crypto\.randomUUID\(\)/);assert.ok(createPrompt.indexOf('renderSidebar(false)')<createPrompt.indexOf('await window.pigeon.createCollection'));
   assert.match(main,/showProgress=!\['database','thumbnail','index-scan','fingerprint'\]\.includes\(type\)/);assert.match(main,/if\(showProgress\)reportBackgroundProgress/);assert.match(main,/worker complete/);
   assert.match(renderer,/if\(input===elements\.tags\)/);assert.match(renderer,/addTagsToAssets\(targets,\[tag\]\)/);assert.match(renderer,/event\.key === 'Enter'.*applyTagSuggestion/);
 });
@@ -602,7 +606,7 @@ test('collection drag updates smart-folder thumbnails without a full grid refres
 });
 
 test('collection and folder drops preserve scroll while incrementally re-sorting cards',()=>{
-  assert.match(renderer,/function captureGridViewport/);assert.match(renderer,/function restoreGridViewport/);assert.match(renderer,/view\.viewportRestore=viewport/);assert.match(renderer,/view\.preserveCards=true/);assert.match(renderer,/renderGrid\(\{preserveCards:view\.previewPainted\|\|Boolean\(view\.preserveCards\)\}\)/);assert.match(renderer,/viewport\.interaction!==gridScrollInteractionVersion/);assert.match(renderer,/selectSuccessorWithoutScrolling/);assert.match(renderer,/reconcileThumbnailCards\(ids,\{viewport\}\)/);assert.doesNotMatch(renderer.match(/async function addAssetsToCollectionWithoutGridRefresh[\s\S]*?\n\}/)?.[0]||'',/selectAndRevealSuccessor/);
+  assert.match(renderer,/function captureGridViewport/);assert.match(renderer,/function restoreGridViewport/);assert.match(renderer,/view\.viewportRestore=viewport/);assert.match(renderer,/view\.preserveCards=true/);assert.match(renderer,/renderGrid\(\{preserveCards:!view\.forceFreshCards&&\(view\.previewPainted\|\|Boolean\(view\.preserveCards\)\)\}\)/);assert.match(renderer,/viewport\.interaction!==gridScrollInteractionVersion/);assert.match(renderer,/selectSuccessorWithoutScrolling/);assert.match(renderer,/reconcileThumbnailCards\(ids,\{viewport\}\)/);assert.doesNotMatch(renderer.match(/async function addAssetsToCollectionWithoutGridRefresh[\s\S]*?\n\}/)?.[0]||'',/selectAndRevealSuccessor/);
 });
 
 test('previewable text extensions work for legacy file-kind assets',()=>{
@@ -749,7 +753,13 @@ test('ordinary thumbnail drags are internal moves, while Alt-drag exports to oth
   const collectionMove=renderer.match(/async function addAssetsToCollectionWithoutGridRefresh[\s\S]*?\n\}/)?.[0]||'';
   assert.doesNotMatch(collectionMove,/renderGrid\(/);
   const physicalDrop=renderer.match(/const enablePhysicalFolderDrop[\s\S]*?\n    \};/)?.[0]||'';
-  assert.doesNotMatch(physicalDrop,/renderGrid\(/);
+  assert.match(physicalDrop,/moveCollectionToFolder/);
+});
+
+test('collection drops replicate hierarchy and move files into indexed physical folders',()=>{
+  assert.match(renderer,/application\/x-pigeon-collection/);assert.match(renderer,/Creating \$\{source\.name\} folder hierarchy/);assert.match(renderer,/window\.pigeon\.moveCollectionToFolder\(collectionId,row\.dataset\.locationId,subfolder\)/);
+  assert.match(preload,/moveCollectionToFolder:/);assert.match(main,/collection:move-to-folder/);assert.match(main,/planCollectionFolderTransfer/);assert.match(main,/for\(const directory of plan\.directories\)await fsp\.mkdir/);assert.match(main,/moveAssetFiles\(\[entry\.assetId\],entry\.directory,\{locationId,decisionScope\}\)/);assert.match(main,/settings\.emptyFolders/);assert.match(main,/Unlock every protected collection/);
+  assert.equal(fs.existsSync(path.join(root,'electron','collection-folder-transfer.js')),true);
 });
 
 test('refresh, robust facets, folder drops, media hover scrubbing, and expanded formats are wired', () => {
@@ -812,6 +822,8 @@ test('all catchable unhandled exceptions are persisted across Electron processes
   assert.match(main,/preload-error/);
   assert.match(main,/did-fail-load/);
   assert.match(main,/window-unresponsive/);
+  assert.match(main,/webContents\.on\('console-message', \(event\)/);
+  assert.doesNotMatch(main,/console-message', \(_event, details\)/);
   assert.match(preload,/preload:uncaughtException/);
   assert.match(preload,/preload:unhandledRejection/);
   assert.match(preload,/reportFatal:/);
@@ -860,6 +872,8 @@ test('indexing keeps main and renderer interaction paths responsive', () => {
   assert.match(renderer,/lastUserInteractionAt/);
   assert.match(renderer,/if\(done\).*scheduleScanGridRender/);
   assert.match(renderer,/else if\(wasEmpty&&result\.added\)scheduleScanGridRender/);
+  assert.match(renderer,/view\.forceFreshCards=true/);
+  assert.match(renderer,/!view\.forceFreshCards&&/);
   assert.match(renderer,/rendererAssetIndexes/);
   assert.match(renderer,/onScanAssets/);
   assert.match(preload,/onScanAssets/);
@@ -1021,7 +1035,8 @@ test('portfolio-scoped threaded background work and diagnostics are wired', () =
   assert.match(preload, /getDiagnostics/);
   assert.match(preload, /onDiagnostic/);
   assert.match(renderer, /openDiagnosticsConsole/);
-  assert.match(renderer, /task\.completed >= task\.total/);
+  assert.match(renderer, /task\.completed>=task\.total/);
+  assert.match(main,/background-threads:set-paused/);assert.match(main,/waitForBackgroundThread/);assert.match(preload,/setAllBackgroundThreadsPaused/);
   for (const id of ['diagnostics-console','diagnostics-list','diagnostics-clear','diagnostics-open-file']) assert.match(html, new RegExp(`id="${id}"`));
   assert.match(styles, /\.diagnostics-console/);
   assert.equal(fs.existsSync(path.join(root, 'electron', 'hash-worker.js')), true);
@@ -1046,18 +1061,39 @@ test('password protection immediately hides collection and physical-folder desce
   assert.match(renderer,/folderLocked/);
 });
 
-test('nested collection trees, smart subfolders, and inline unlocking are wired', () => {
+test('folder and collection context menus expose consistent hierarchy and destructive actions',()=>{
+  const locationMenu=renderer.match(/function showLocationContextMenu[\s\S]*?function activateSidebarTreeRow/)?.[0]||'',collectionMenu=renderer.match(/function showCollectionContextMenu[\s\S]*?const mapTiles/)?.[0]||'',assetMenu=renderer.match(/function showAssetContextMenu[\s\S]*?function setSidebarSectionExpanded/)?.[0]||'';
+  assert.ok(locationMenu.indexOf('data-location-action="new-subfolder"')<locationMenu.indexOf('data-location-action="contact-sheet"'));assert.match(locationMenu,/createPhysicalSubfolder/);assert.match(preload,/createPhysicalSubfolder/);assert.match(main,/folder:create-physical/);assert.match(locationMenu,/View Analytics/);assert.match(collectionMenu,/View Analytics/);assert.doesNotMatch(`${locationMenu}${collectionMenu}`,/View (?:Folder|Collection) Analytics/);assert.ok(assetMenu.indexOf('remove-from-collection')<assetMenu.indexOf('Move reference to trash'));assert.doesNotMatch(assetMenu,/remove-from-collection[\s\S]{0,180}<hr/);
+});
+
+test('folder, collection, and Smart Folder collapse paints immediately before reconciliation',()=>{
+  assert.match(renderer,/function paintFolderCollapseImmediately/);assert.match(renderer,/paintFolderCollapseImmediately\(key,collapsed\)/);assert.match(renderer,/toggle\.textContent=collapsed\?'▸':'▾'/);assert.match(renderer,/sibling\.hidden=collapsed/);assert.match(renderer,/requestAnimationFrame\(\(\)=>requestAnimationFrame/);assert.match(renderer,/key\.startsWith\('location:'\)\|\|key\.startsWith\('subfolder:'\)/);
+});
+
+test('show content from subfolders includes nested physical folders and collections but defaults off',()=>{
+  assert.match(renderer,/includeSubfolderContent: localStorage\.getItem\('pigeon\.includeSubfolderContent'\) === 'true'/);assert.match(renderer,/collectionBranchIds\(state\.collectionId\)/);assert.match(renderer,/collectionIds\.has\(id\)/);assert.match(renderer,/collectionRecursiveCounts/);assert.match(renderer,/state\.includeSubfolderContent\?metrics\?\.collectionRecursiveCounts/);
+});
+
+test('nested collection trees, smart subfolders, and inline password forms are wired', () => {
   assert.match(libraryCore, /function createSmartFolder\(library, name, filters = \{\}, parentId = null\)/);
   assert.match(libraryCore, /function moveSmartFolder/);
   assert.match(main, /smart-folder:move/);
   assert.match(preload, /moveSmartFolder/);
   assert.match(renderer, /appendSmartFolders/);
   assert.match(renderer, /New Smart Subfolder/);
-  assert.match(renderer, /New Subfolder/);
   assert.match(renderer, /inline-unlock-form/);
-  assert.doesNotMatch(renderer, /async function selectCollection\(id\)[\s\S]{0,180}ensureCollectionUnlocked/);
-  for (const id of ['locked-content','inline-unlock-form','inline-unlock-password','inline-unlock-error']) assert.match(html, new RegExp(`id="${id}"`));
+  assert.match(renderer, /activeInlinePasswordRequest/);
+  assert.match(renderer, /setCollectionPassword\(request\.collectionId,input\.value/);
+  assert.match(renderer, /setFolderPassword\(request\.locationId,request\.subfolder,input\.value/);
+  assert.doesNotMatch(renderer, /title:\s*['`]Protect (?:Collection|Folder)/);
+  for (const id of ['locked-content','inline-unlock-form','inline-unlock-password','inline-unlock-confirmation','inline-password-submit','inline-password-cancel','inline-unlock-error']) assert.match(html, new RegExp(`id="${id}"`));
   assert.match(styles, /\.locked-content/);
+  assert.match(styles, /#inline-unlock-form \{ width:min\(220px,80vw\);/);
+  assert.match(styles, /#inline-unlock-form\.protecting #inline-unlock-password,#inline-unlock-form\.protecting #inline-unlock-confirmation \{ grid-column:1\/-1; \}/);
+  assert.match(renderer,/form\.classList\.toggle\('protecting',protecting\)/);
+  assert.match(renderer, /#inline-unlock-password'\)\.addEventListener\('keydown'/);
+  assert.match(renderer, /#inline-unlock-confirmation'\)\.addEventListener\('keydown'/);
+  assert.match(renderer, /#inline-unlock-form'\)\.requestSubmit\(\)/);
   assert.match(styles, /\.collection-item::before/);
 });
 
@@ -1115,7 +1151,7 @@ test('privacy supports true pixel mosaics and fully hidden thumbnails with revea
 
 test('inspector privacy, Quick Check, aligned shortcuts, and developer telemetry overlay are wired',()=>{
   for(const id of ['meta-extension','developer-overlay','developer-overlay-metrics','developer-overlay-opacity','favorite-shortcut','location-shortcut'])assert.match(html,new RegExp(`id="${id}"`));
-  assert.match(styles,/#meta-folder,#meta-file\{white-space:normal/);assert.match(styles,/\.asset-card\.quick-checked::before/);assert.match(styles,/\.preview-card\.privacy-effect-view|\.privacy-effect-view img/);assert.match(styles,/body\.privacy-effects-disabled \.privacy-effect-view img/);assert.match(styles,/\.shortcut-key-input\{width:150px/);assert.match(styles,/\.developer-overlay\{[^}]*right:calc\(var\(--inspector-width\) \+ 7px\)/);assert.match(styles,/\.developer-metric i\{[^}]*right:0/);assert.match(styles,/\.developer-opacity-control/);
+  assert.match(styles,/#meta-folder,#meta-file\{white-space:normal/);assert.match(styles,/\.asset-card\.quick-checked::before/);assert.match(styles,/\.preview-card\.privacy-effect-view|\.privacy-effect-view :is\(img,video,iframe\)/);assert.match(styles,/body\.privacy-effects-disabled \.privacy-effect-view :is\(img,video,iframe\)/);assert.match(styles,/\.shortcut-key-input\{width:150px/);assert.match(styles,/\.developer-overlay\{[^}]*right:calc\(var\(--inspector-width\) \+ 7px\)/);assert.match(styles,/\.developer-metric i\{[^}]*right:0/);assert.match(styles,/\.developer-opacity-control/);
   assert.match(renderer,/state\.showCheckedOnly/);assert.match(renderer,/asset\.quickChecked/);assert.match(renderer,/toggleQuickCheck/);assert.match(renderer,/toggleCheckedOnly/);assert.match(renderer,/toggleAllPrivacyEffects/);assert.match(renderer,/Ctrl\+Alt\+D/);assert.match(renderer,/toggleDeveloperOverlay/);assert.match(renderer,/setDeveloperOverlayOpacity/);assert.match(renderer,/pigeon\.developerOverlayOpacity/);assert.match(renderer,/queuedItems/);assert.match(renderer,/appearance:'palette'/);assert.match(renderer,/addEventListener\('dragenter',showCollectionDrop\)/);
   assert.match(libraryCore,/quickChecked: Boolean\(asset\.quickChecked\)/);assert.match(main,/'quickChecked'/);assert.match(main,/queuedItems/);
 });
@@ -1174,8 +1210,8 @@ test('Analytics and All Tags preserve the previous library position for back and
   assert.match(renderer,/close-analytics'\)\.addEventListener\('click',\(\)=>\{if\(!returnFromTemporaryView\(\)\)/);
 });
 
-test('global background progress and scoped analytics are wired', () => {
-  for (const id of ['background-progress', 'background-progress-fill', 'analytics-view', 'analytics-tabs', 'analytics-content', 'analytics-title']) assert.match(html, new RegExp(`id="${id}"`));
+test('right-panel threads and scoped analytics are wired', () => {
+  for (const id of ['threads-panel', 'threads-panel-list', 'threads-live-count', 'threads-toggle-all', 'analytics-view', 'analytics-tabs', 'analytics-content', 'analytics-title']) assert.match(html, new RegExp(`id="${id}"`));
   assert.match(html, /data-view="analytics"/);
   assert.match(preload, /onBackgroundProgress/);
   assert.match(main, /background:progress/);
@@ -1188,16 +1224,17 @@ test('global background progress and scoped analytics are wired', () => {
   assert.match(renderer, /function renderAnalytics/);
   assert.match(renderer, /analyticsHeatmap/);
   assert.match(renderer, /conic-gradient/);
-  assert.match(renderer, /View Folder Analytics/);
+  assert.match(renderer, /View Analytics/);assert.doesNotMatch(renderer,/View (?:Folder|Collection) Analytics/);
   assert.match(renderer, /type: 'location'/);
   assert.match(renderer, /type: 'collection'/);
-  assert.match(styles, /\.background-progress/);
+  assert.match(styles, /\.thread-progress-row/);
+  assert.doesNotMatch(html,/id="background-progress"/);
   assert.match(styles, /\.analytics-heatmap/);
   assert.match(styles, /\.analytics-pie/);
 });
 
-test('animated pecking pigeon replaces opening art and accompanies visible footer progress',async()=>{
-  const peckPath=path.join(root,'pigeon-peck.gif'),metadata=await sharp(peckPath,{animated:true}).metadata();assert.equal(metadata.format,'gif');assert.ok(metadata.pages>1);assert.equal(metadata.loop,0);assert.match(html,/id="opening-location-animation"[^>]*src="\.\.\/pigeon-peck\.gif"/);assert.match(html,/id="status-progress-pigeon"[^>]*src="\.\.\/pigeon-peck\.gif"/);assert.match(renderer,/emptyFolderArt\.classList\.toggle\('hidden',loading\)/);assert.match(renderer,/statusProgressPigeon\.classList\.toggle\('hidden',!tasks\.length\)/);assert.match(styles,/\.opening-location-animation\{[^}]*object-fit:cover/);assert.match(styles,/\.status-progress-pigeon\{[^}]*margin-left:auto/);assert.match(packageJson,/"pigeon-peck\.gif"/);
+test('animated pecking pigeon remains opening art while footer progress is removed',async()=>{
+  const peckPath=path.join(root,'pigeon-peck.gif'),metadata=await sharp(peckPath,{animated:true}).metadata();assert.equal(metadata.format,'gif');assert.ok(metadata.pages>1);assert.equal(metadata.loop,0);assert.match(html,/id="opening-location-animation"[^>]*src="\.\.\/pigeon-peck\.gif"/);assert.doesNotMatch(html,/status-progress-pigeon/);assert.match(renderer,/emptyFolderArt\.classList\.toggle\('hidden',loading\)/);assert.match(styles,/\.opening-location-animation\{[^}]*object-fit:cover/);assert.doesNotMatch(styles,/\.status-progress-pigeon\{/);assert.match(packageJson,/"pigeon-peck\.gif"/);
 });
 
 test('Chrome and Edge Manifest V3 extension is installable and local-only', () => {
@@ -1370,16 +1407,45 @@ test('YouTube drops switch between linked inline playback and saved-quality down
   assert.match(main,/youtubeDownloadQuality \|\| '720'/);
   assert.match(main,/youtubeAutoDownload !== false/);
   assert.match(main,/createLinkedYouTubeAsset/);
+  assert.match(main,/YouTube download formats unavailable; saved a playable link instead/);
+  assert.match(main,/no matching formats\|no playable\.\*format/);
+  assert.match(main,/no valid url to decipher/);
+  assert.match(main,/non 2xx/);
+  assert.match(youtubeImport,/downloadYouTubeWithYtDlp/);
+  assert.match(ytDlpImport,/youtube:player_client=web_embedded/);
+  assert.match(ytDlpImport,/--http-chunk-size','1M/);
+  assert.match(ytDlpImport,/--js-runtimes/);
+  assert.match(youtubeImport,/Platform\.shim\.eval/);
+  assert.match(youtubeImport,/contextCodeGeneration: \{ strings: false, wasm: false \}/);
+  assert.match(packageJson,/"youtubei\.js": "\^18\.0\.0"/);
+  assert.match(styles,/\.preference-page input\[type="checkbox"\][^{]*\{[^}]*appearance:none/);
+  assert.match(styles,/input\[type="checkbox"\]:checked::before/);
+  assert.match(styles,/input\[type="checkbox"\]:focus-visible/);
   assert.match(main,/mode:asset\.linkedYouTube\?'linked':'downloaded'/);
+  assert.match(main,/broadcastScanAssets\(autoImportLocation,\[asset\],true\)/);
+  assert.match(renderer,/startsWith\('extension-import:'\)/);
+  assert.match(renderer,/Browser download failed/);
   assert.match(main,/mediaOnly:true/);
 });
 
-test('Pigeon-managed conflicts persist safe rename behavior and prompt for identical files',()=>{
+test('Pigeon-managed conflicts use a themed batch-aware Skip, Keep both, or Overwrite prompt',()=>{
   const conflicts=fs.readFileSync(path.join(root,'electron','file-conflicts.js'),'utf8');
-  assert.match(renderer,/data-pref="autoRenameFileConflicts"/);assert.match(renderer,/Identical files always ask whether to Skip or Keep both/);assert.match(renderer,/safely renamed/);assert.match(main,/resolveManagedFileConflict/);assert.match(main,/decideIdenticalFileConflict/);assert.match(main,/buttons:\['Skip','Keep both'\]/);assert.match(main,/moveAssetFiles\(ids,path\.join\(location\.path,safeSubfolder\),\{locationId\}\)/);assert.match(main,/moveFileWithoutOverwrite/);assert.match(main,/COPYFILE_EXCL/);assert.match(main,/copyExportAsset\(asset,result\.filePath\)/);assert.match(conflicts,/filesAreIdentical/);assert.match(conflicts,/FILE_NAME_CONFLICT/);assert.match(conflicts,/uniqueConflictPath/);
+  assert.match(renderer,/data-pref="autoRenameFileConflicts"/);assert.match(renderer,/Identical files always ask whether to Skip or Keep both/);assert.match(renderer,/safely renamed/);assert.match(main,/resolveManagedFileConflict/);assert.match(main,/decideIdenticalFileConflict/);assert.match(main,/file-conflict:prompt/);assert.match(preload,/onFileConflictPrompt/);assert.match(html,/id="file-conflict-dialog"/);assert.match(html,/Apply to all files/);assert.match(html,/id="file-conflict-overwrite"/);assert.match(renderer,/finishFileConflictPrompt\('overwrite'\)/);assert.match(main,/decisionScope\.decision/);assert.match(main,/replaceFileSafely/);assert.match(conflicts,/async function replaceFileSafely/);assert.match(main,/COPYFILE_EXCL/);assert.match(conflicts,/decision === 'overwrite'/);assert.match(conflicts,/filesAreIdentical/);assert.match(conflicts,/FILE_NAME_CONFLICT/);assert.match(conflicts,/uniqueConflictPath/);
 });
 
 test('inspector rename remains asset-bound and patches one card without repainting the grid',()=>{
   const renameSource=renderer.slice(renderer.indexOf('async function renameAssetFile'),renderer.indexOf('const IMAGE_PREVIEW_DOCUMENT_EXTENSIONS'));
   assert.match(html,/rename-session\.js/);assert.match(renderer,/inspectorRenameSession\.begin\(asset\.id/);assert.match(renderer,/renameAssetFile\(rename\.assetId,rename\.value\)/);assert.match(renderer,/The original file is no longer available/);assert.match(renameSource,/patchCardMetadata\(current/);assert.doesNotMatch(renameSource,/renderGrid\(/);assert.doesNotMatch(renameSource,/reconcileThumbnailCards\(/);
+});
+
+test('live imports refresh clean cards, context menus clear the footer, and persistent Threads uses bottom inspector tabs',()=>{
+  for(const id of ['inspector-details-panel','threads-panel','threads-panel-list','right-panel-details-tab','right-panel-threads-tab','active-thread-count','threads-toggle-all'])assert.match(html,new RegExp(`id="${id}"`));assert.match(html,/data-section-toggle="indexed-locations"[^>]*>[\s\S]*?<span>Folders<\/span>/);assert.doesNotMatch(html,/>Indexed Locations?<\//i);
+  assert.match(renderer,/renderGrid\(\{preserveCards:!view\.forceFreshCards\}\)/);assert.match(renderer,/view\.forceFreshCards=true/);
+  assert.match(renderer,/footerTop=document\.querySelector\('\.statusbar'\)/);assert.match(renderer,/positionMenu\(elements\.contextMenu,event\.clientX,event\.clientY\)/);assert.match(styles,/\.context-menu \{ z-index:120/);
+  assert.match(renderer,/function activeBackgroundThreads/);assert.match(renderer,/function renderThreadsPanel/);assert.match(renderer,/terminal=Boolean\(task\.done\)/);assert.match(renderer,/--thread-progress:\$\{percent\.toFixed\(1\)\}%/);assert.match(renderer,/setAllBackgroundThreadsPaused/);assert.match(renderer,/reorderBackgroundThreads/);assert.match(styles,/\.right-panel-tabs[^}]*border-top/);assert.match(styles,/\.thread-progress-row::before/);
+  assert.match(main,/readDownloadResponse/);assert.match(main,/onProgress:\(percent\)=>reportDownload/);assert.match(youtubeImport,/ffmpegPath,onProgress/);assert.match(youtubeImport,/downloadYouTubeWithYtDlp[^\n]+onProgress/);
+});
+
+test('overlapping folder roots and exact file paths are presented once and repaired without source deletion',()=>{
+  const deduplication=fs.readFileSync(path.join(root,'electron','library-deduplication.js'),'utf8'),folderWorker=fs.readFileSync(path.join(root,'electron','folder-tree-worker.js'),'utf8');assert.match(main,/findLocationOverlap\(planned,resolved,type\)/);assert.match(main,/Pigeon allows one reference to each physical file/);assert.match(main,/deduplicateAssetsByPath\(library\)/);assert.match(main,/await persistLibrary\(library\)/);assert.match(main,/globalByPath\.get\(normalizedPathKey\(resolvedFile\)\)/);assert.match(main,/id: existing\?\.id \|\| makeId\(path\.resolve\(filePath\)\.toLowerCase\(\)\)/);assert.match(assetStreamState,/pathIndexes=new Map\(\)/);assert.match(main,/owner\.id!==location\.id/);assert.match(main,/locations:visibleLocations\(library\.locations\)/);assert.match(deduplication,/function owningLocation/);assert.match(deduplication,/merged\.collectionIds/);assert.match(deduplication,/merged\.tags/);assert.doesNotMatch(deduplication,/\brmSync\b|unlinkSync|trashItem/);assert.match(folderWorker,/excludedRoots/);assert.match(folderWorker,/if\s*\(isExcluded\(relativeSource\)\)\s*continue/);
 });

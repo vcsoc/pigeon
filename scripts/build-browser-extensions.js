@@ -6,6 +6,7 @@ const source = path.join(root, 'browser-extension');
 const output = path.join(root, 'release', 'browser-extensions');
 const chromiumBrowsers = ['chrome', 'edge', 'brave', 'opera', 'vivaldi'];
 const targets = [...chromiumBrowsers, 'firefox', 'safari'];
+const browserNames = { chrome: 'Chrome', edge: 'Edge', brave: 'Brave', opera: 'Opera', vivaldi: 'Vivaldi', firefox: 'Firefox', safari: 'Safari' };
 
 function copySharedFiles(destination) {
   fs.mkdirSync(destination, { recursive: true });
@@ -20,7 +21,9 @@ for (const browser of targets) {
   const destination = path.join(output, browser);
   copySharedFiles(destination);
   const manifestSource = browser === 'firefox' ? 'manifest.firefox.json' : 'manifest.json';
-  fs.copyFileSync(path.join(source, manifestSource), path.join(destination, 'manifest.json'));
+  const manifest = JSON.parse(fs.readFileSync(path.join(source, manifestSource), 'utf8'));
+  manifest.name = `Pigeon for ${browserNames[browser]}`;
+  fs.writeFileSync(path.join(destination, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 }
 
 console.log(`Built ${targets.length} browser packages in ${path.relative(root, output)}`);

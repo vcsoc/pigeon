@@ -8,6 +8,7 @@ const sharp = require('sharp');
 const libraryCore = require('./library-core');
 const { createLibraryStore } = require('./database');
 const { safeTransferFilename, stageAssetFiles } = require('./portfolio-transfer');
+const { planCollectionFolderTransfer } = require('./collection-folder-transfer');
 const ffmpegExecutable = require('ffmpeg-static').replace('app.asar', 'app.asar.unpacked');
 const os = require('node:os');
 const { availableMemoryBytes } = require('./system-resources');
@@ -30,8 +31,10 @@ const { inspectCloudFiles, isCloudStoragePath } = require('./cloud-files');
 const { portfolioChooserHtml, startupModifierPowerShell } = require('./startup-portfolio-chooser');
 const { portfolioAutoImportPath, samePath } = require('./auto-import');
 const { orderedNativeDragSelection, prepareCollisionSafeDragFiles } = require('./native-drag');
-const { resolveFileConflict } = require('./file-conflicts');
+const { resolveFileConflict, replaceFileSafely } = require('./file-conflicts');
 const { createPhysicalSubfolder, movePhysicalSubfolder, rebasePhysicalPath, rebaseSubfolder } = require('./physical-folders');
+const { normalizedPathKey, findLocationOverlap, visibleLocations, owningLocation, deduplicateAssetsByPath } = require('./library-deduplication');
+const { createBackgroundThreadManager } = require('./background-thread-manager');
 autoUpdater.disableWebInstaller = true;
 autoUpdater.allowDowngrade = false;
 
@@ -51,6 +54,7 @@ const thumbnailPreparationJobs = new Map();
 const unlockedCollections = new Map();
 const unlockedFolders = new Map();
 let mainWindow,hoverControlProcess=null,hoverControlPressed=false,rendererIpcReady=false;
+const pendingFileConflictPrompts=new Map();
 function startHoverControlMonitor(){if(process.platform!=='win32'||hoverControlProcess)return;const script=`Add-Type -Name K -Namespace P -MemberDefinition '[DllImport("user32.dll")] public static extern short GetAsyncKeyState(int vKey);';$last=-1;while($true){$v=if(([P.K]::GetAsyncKeyState(0x11)-band 0x8000)-ne 0){1}else{0};if($v-ne $last){[Console]::Out.WriteLine($v);[Console]::Out.Flush();$last=$v};Start-Sleep -Milliseconds 70}`;const child=spawn('powershell.exe',['-NoProfile','-NonInteractive','-Command',script],{windowsHide:true,stdio:['ignore','pipe','ignore']});hoverControlProcess=child;let pending='';child.stdout.on('data',(chunk)=>{pending+=chunk;const lines=pending.split(/\r?\n/);pending=lines.pop();for(const line of lines){const pressed=line.trim()==='1';if(pressed!==hoverControlPressed){hoverControlPressed=pressed;mainWindow?.webContents.send('hover-control:changed',pressed);}}});child.once('exit',()=>{if(hoverControlProcess===child)hoverControlProcess=null;});}
 function stopHoverControlMonitor(){const child=hoverControlProcess;hoverControlProcess=null;if(child)child.kill();hoverControlPressed=false;mainWindow?.webContents.send('hover-control:changed',false);}
 let mediaServer = null, mediaServerPort = 0;
@@ -83,6 +87,7 @@ const activeScanJobs = new Set();
 let activeLibraryLoadJob = null;
 const workerTelemetry = new Map();
 let backgroundEpoch = 0;
+const backgroundThreadManager=createBackgroundThreadManager({emit:(task)=>{if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('background:progress',task);}});
 let thumbnailGenerationScheduler=null,mainAssetIndex=new Map();
 const INDEX_CPU_LIMIT = 20;
 const INDEX_BATCH_SIZE = 24;
@@ -164,10 +169,10 @@ function makeId(value) {
 }
 function trackWorker(worker, type, detail = {}) {
   const id = `${type}:${worker.threadId}:${Date.now()}`,progressId=`${activePortfolioId}:worker:${id}`,label=String(type).split('-').map((part)=>part[0]?.toUpperCase()+part.slice(1)).join(' '),showProgress=!['database','thumbnail','index-scan','fingerprint'].includes(type); workerTelemetry.set(id, { id, worker, threadId: worker.threadId, type, portfolioId: detail.portfolioId || activePortfolioId, status: 'running', startedAt: Date.now(), filesTotal: detail.filesTotal || 0, filesCompleted: 0, currentFile: '', batch: detail.batch || 0,progressId });
-  if(showProgress)reportBackgroundProgress(progressId,{label:`${label} worker`,detail:detail.filesTotal?`${Number(detail.filesTotal).toLocaleString()} items`:'Running in background',total:detail.filesTotal||0});
-  worker.on('error',(error)=>{writeFatalDiagnostic(`worker:${type}:error`,error,{id,threadId:worker.threadId});recordDiagnostic('error',`${type} worker exception`,error);if(showProgress)reportBackgroundProgress(progressId,{label:`${label} worker failed`,detail:error.message,done:true,status:'failed'});});
+  if(showProgress)reportBackgroundProgress(progressId,{label:`${label} worker`,detail:detail.filesTotal?`${Number(detail.filesTotal).toLocaleString()} items`:'Running in background',total:detail.filesTotal||0,pauseSupported:false});
+  worker.on('error',(error)=>{writeFatalDiagnostic(`worker:${type}:error`,error,{id,threadId:worker.threadId});recordDiagnostic('error',`${type} worker exception`,error);if(showProgress)reportBackgroundProgress(progressId,{label:`${label} worker failed`,detail:error.message,done:true,status:'failed',pauseSupported:false});});
   worker.on('messageerror',(error)=>{writeFatalDiagnostic(`worker:${type}:messageerror`,error,{id,threadId:worker.threadId});recordDiagnostic('error',`${type} worker message could not be deserialized`,error);});
-  worker.once('exit', (code) => {const entry=workerTelemetry.get(id),successful=code===0||Boolean(entry?.filesTotal&&entry.filesCompleted>=entry.filesTotal);workerTelemetry.delete(id);if(showProgress)reportBackgroundProgress(progressId,{label:successful?`${label} worker complete`:`${label} worker stopped`,detail:successful?'Background work finished':`Exit code ${code}`,completed:entry?.filesTotal||0,total:entry?.filesTotal||0,done:true,status:successful?'completed':'failed'});if(code!==0&&!successful&&!entry?.expectedExit&&!app.isQuitting)recordDiagnostic('error',`${type} worker exited unexpectedly`,{id,code});}); return workerTelemetry.get(id);
+  worker.once('exit', (code) => {const entry=workerTelemetry.get(id),successful=code===0||Boolean(entry?.filesTotal&&entry.filesCompleted>=entry.filesTotal);workerTelemetry.delete(id);if(showProgress)reportBackgroundProgress(progressId,{label:successful?`${label} worker complete`:`${label} worker stopped`,detail:successful?'Background work finished':`Exit code ${code}`,completed:entry?.filesTotal||0,total:entry?.filesTotal||0,done:true,status:successful?'completed':'failed',pauseSupported:false});if(code!==0&&!successful&&!entry?.expectedExit&&!app.isQuitting)recordDiagnostic('error',`${type} worker exited unexpectedly`,{id,code});}); return workerTelemetry.get(id);
 }
 async function workerResourceTelemetry(entry) { try { const [cpuUsage, heap] = await Promise.all([typeof entry.worker.cpuUsage === 'function' ? entry.worker.cpuUsage(entry.lastCpuUsage).catch(() => null) : null, typeof entry.worker.getHeapStatistics === 'function' ? entry.worker.getHeapStatistics().catch(() => null) : null]); const elapsed = Math.max(1, Date.now() - (entry.lastSampleAt || entry.startedAt)); entry.lastSampleAt = Date.now(); if (cpuUsage) entry.lastCpuUsage = cpuUsage; return { cpu: cpuUsage ? Math.min(100, ((cpuUsage.user + cpuUsage.system) / 1000 / elapsed) * 100) : (entry.worker.performance?.eventLoopUtilization()?.utilization || 0) * 100, memoryBytes: heap?.usedHeapSize || entry.memoryBytes || 0 }; } catch { return { cpu: 0, memoryBytes: entry.memoryBytes || 0 }; } }
 async function telemetrySnapshot() {
@@ -176,7 +181,7 @@ async function telemetrySnapshot() {
   const workerQueued=threads.reduce((sum,item)=>sum+Math.max(0,(Number(item.filesTotal)||0)-(Number(item.filesCompleted)||0)),0),rendererQueued=[...scanBroadcastQueues.values()].reduce((sum,queue)=>sum+queue.items.reduce((count,item)=>count+(item.assets?.length||0),0),0),queuedItems=workerQueued+rendererQueued+pdfWorkerWaiters.length+pendingProtocolUrls.length;
   return { timestamp: Date.now(), collective: { cpu, memoryBytes, gpuCpu: gpuProcesses.reduce((sum, item) => sum + (item.cpu?.percentCPUUsage || 0), 0), gpuMemoryBytes: gpuProcesses.reduce((sum, item) => sum + (item.memory?.workingSetSize || 0) * 1024, 0), filesCompleted: threads.reduce((sum, item) => sum + item.filesCompleted, 0), filesTotal: threads.reduce((sum, item) => sum + item.filesTotal, 0), queuedItems, activeRuns: [...backgroundRuns.values()].filter(backgroundRunActive).length, activeThreads: threads.length, logicalCpus: os.cpus().length, totalMemoryBytes: os.totalmem(), maxBackgroundThreads: MAX_BACKGROUND_THREADS, cpuLimit: INDEX_CPU_LIMIT, uptimeSeconds: process.uptime(), diagnosticErrors: diagnosticEntries.filter((entry)=>entry.level==='error').length }, threads, processes: metrics.map((item) => ({ pid: item.pid, type: item.type, cpu: item.cpu?.percentCPUUsage || 0, memoryBytes: (item.memory?.workingSetSize || 0) * 1024 })),thumbnailScheduler:thumbnailGenerationScheduler?.stats()||null,performanceSpans:performanceRecorder.snapshot() };
 }
-async function waitForIndexCpuBudget(run) { while (backgroundRunActive(run)) { const [snapshot,freeMemory]=await Promise.all([telemetrySnapshot(),availableMemoryBytes()]); if (snapshot.collective.cpu < INDEX_CPU_LIMIT && freeMemory>=MIN_FREE_MEMORY_BYTES) return true; if(run.reportPauses!==false)reportBackgroundProgress(run.progressId,{label:freeMemory<MIN_FREE_MEMORY_BYTES?'Background work paused for memory':'Background work yielding to your laptop',detail:freeMemory<MIN_FREE_MEMORY_BYTES?`Waiting for available memory · ${Math.round(freeMemory/1024/1024)} MB available`:`CPU ${Math.round(snapshot.collective.cpu)}% · limit ${INDEX_CPU_LIMIT}%`,status:'paused'}); await new Promise((resolve) => setTimeout(resolve, freeMemory<MIN_FREE_MEMORY_BYTES?1200:500)); } return false; }
+async function waitForIndexCpuBudget(run) { while (backgroundRunActive(run)) { if(!(await waitForBackgroundThread(run.progressId)))return false;const [snapshot,freeMemory]=await Promise.all([telemetrySnapshot(),availableMemoryBytes()]); if (snapshot.collective.cpu < INDEX_CPU_LIMIT && freeMemory>=MIN_FREE_MEMORY_BYTES) return true; if(run.reportPauses!==false)reportBackgroundProgress(run.progressId,{label:freeMemory<MIN_FREE_MEMORY_BYTES?'Background work paused for memory':'Background work yielding to your laptop',detail:freeMemory<MIN_FREE_MEMORY_BYTES?`Waiting for available memory · ${Math.round(freeMemory/1024/1024)} MB available`:`CPU ${Math.round(snapshot.collective.cpu)}% · limit ${INDEX_CPU_LIMIT}%`,status:'paused'}); await new Promise((resolve) => setTimeout(resolve, freeMemory<MIN_FREE_MEMORY_BYTES?1200:500)); } return false; }
 function scanWorkActive(){return [...backgroundRuns.values()].some((run)=>run.type==='scan'&&backgroundRunActive(run));}
 async function waitForScanIdle(run){while(backgroundRunActive(run)&&scanWorkActive())await backgroundDelay(500,run);return backgroundRunActive(run);}
 
@@ -199,8 +204,8 @@ function isAssetLocked(asset) { return (asset.collectionIds || []).some(isCollec
 function publicCollections() {return library.collections.map((collection)=>{const lockSource=collectionAncestors(collection.id).find((item)=>item.lock&&!unlockedCollections.has(item.id));return{...collection,lock:collection.lock?{enabled:true,encrypted:Boolean(collection.lock.encrypted)}:lockSource?{enabled:true,inherited:true}:null,lockSourceId:lockSource?.id||null,locked:Boolean(lockSource)};});}
 function publicFolderLocks(){return Object.fromEntries(folderLocks().map((rule)=>[folderLockKey(rule.locationId,rule.subfolder),{locationId:rule.locationId,subfolder:rule.subfolder,locked:!unlockedFolders.has(folderLockKey(rule.locationId,rule.subfolder))}]));}
 function publicLibrarySummary() {
-  const { assets, collections, settings={}, ...metadata } = library;
-  return { ...metadata,settings:{...settings,folderLocks:publicFolderLocks()},collections:publicCollections(),portfolios:portfolios.map(({ id, name })=>({ id, name })),activePortfolioId,totalAssets:assets.length,assetStreamPending:!library.loading };
+  const { assets, collections, locations=[], settings={}, ...metadata } = library;
+  return { ...metadata,locations:visibleLocations(locations),settings:{...settings,folderLocks:publicFolderLocks()},collections:publicCollections(),portfolios:portfolios.map(({ id, name })=>({ id, name })),activePortfolioId,totalAssets:assets.length,assetStreamPending:!library.loading };
 }
 function passwordKey(password, salt) { return crypto.pbkdf2Sync(String(password), salt, 120000, 32, 'sha256'); }
 function passwordDigest(key) { return crypto.createHash('sha256').update(key).digest('hex'); }
@@ -232,17 +237,19 @@ function previewUrlFor(asset, location = library.locations.find((item) => item.i
   return `pigeon-asset://asset/${asset.id}?v=${asset.editedAt || asset.modified || 0}&s=${sourceState}&t=${asset.thumbnailPath || asset.editedPath ? 1 : 0}&edited=${asset.editedPath ? 1 : 0}`;
 }
 function mediaUrlFor(asset) { const query = `proxy=${asset.proxyPath && asset.proxyVersion === 3 ? 1 : 0}&edited=${asset.editedPath ? 1 : 0}&v=${asset.editedAt || asset.modified || 0}`, streamable = asset.kind === 'video' || asset.kind === 'audio'; return mediaServerPort && streamable ? `http://127.0.0.1:${mediaServerPort}/asset/${asset.id}?token=${mediaServerToken}&${query}` : `pigeon-asset://asset/${asset.id}?original=1&${query}`; }
+const extensionImportJobs=new Map();
+function importUrlFromExtension(payload,{progressId=null}={}){const collection=payload.collection||'downloads',normalizedUrl=new URL(payload.url).href,key=`${activePortfolioId}:${collection}:${normalizedUrl}`,existing=extensionImportJobs.get(key);if(existing)return existing;const job=importUrl(normalizedUrl,{collection,mediaOnly:true,progressId,displayName:payload.title||''});extensionImportJobs.set(key,job);job.then(()=>{const timer=setTimeout(()=>{if(extensionImportJobs.get(key)===job)extensionImportJobs.delete(key);},5000);timer.unref?.();},()=>extensionImportJobs.delete(key));return job;}
 async function startMediaServer() {
   if (mediaServer) return; mediaServer = http.createServer(async (request, response) => {
-    let captureHeaders=null;
+    let captureHeaders=null,extensionProgressId=null;
     try {
       const url = new URL(request.url, 'http://127.0.0.1'),origin=String(request.headers.origin||''),extensionOrigin=/^(chrome-extension|moz-extension|safari-web-extension):\/\//.test(origin);if(url.pathname==='/extension/import')captureHeaders={ 'Access-Control-Allow-Origin': extensionOrigin?origin:'*', 'Access-Control-Allow-Headers':'Content-Type, X-Pigeon-Extension', 'Access-Control-Allow-Methods':'POST, OPTIONS', 'Access-Control-Allow-Private-Network':'true', 'Cache-Control':'no-store' };
       if(url.pathname==='/extension/import'&&request.method==='OPTIONS'){response.writeHead(204,captureHeaders).end();return;}
       if(url.pathname==='/extension/import'&&request.method==='POST'){
         if(request.headers['x-pigeon-extension']!=='2'||!protocolImportsReady){response.writeHead(protocolImportsReady?403:503,{...captureHeaders,'Content-Type':'application/json'}).end(JSON.stringify({ok:false,message:protocolImportsReady?'Extension request rejected':'Pigeon is still opening'}));return;}
         let size=0,body='';for await(const chunk of request){size+=chunk.length;if(size>16384)throw new Error('Capture request is too large');body+=chunk;}
-        const payload=JSON.parse(body||'{}'),asset=await importUrl(payload.url,{collection:payload.collection||'downloads',mediaOnly:true});if(!asset?.id||!(await pathAvailable(asset.path)))throw new Error('Pigeon did not finish receiving and indexing the item');
-        response.writeHead(200,{...captureHeaders,'Content-Type':'application/json'}).end(JSON.stringify({ok:true,id:asset.id,path:asset.path,portfolioId:activePortfolioId,portfolioName:portfolios.find((item)=>item.id===activePortfolioId)?.name||'',mode:asset.linkedYouTube?'linked':'downloaded'}));return;
+        const payload=JSON.parse(body||'{}'),requestKey=String(payload.requestId||crypto.createHash('sha1').update(String(payload.url||'')).digest('hex').slice(0,12));extensionProgressId=`extension-import:${requestKey}`;const incomingName=String(payload.title||path.basename(new URL(payload.url).pathname)||'Browser download').replace(/\s+-\s+YouTube$/i,'').slice(0,180);reportBackgroundProgress(extensionProgressId,{label:`Downloading ${incomingName}`,detail:'Preparing download…'});const asset=await importUrlFromExtension(payload,{progressId:extensionProgressId});if(!asset?.id||!(await pathAvailable(asset.path)))throw new Error('Pigeon did not finish receiving and indexing the item');
+        reportBackgroundProgress(extensionProgressId,{label:'Browser download complete',detail:asset.filename||'Saved to Downloads',completed:1,total:1,done:true});response.writeHead(200,{...captureHeaders,'Content-Type':'application/json'}).end(JSON.stringify({ok:true,id:asset.id,path:asset.path,portfolioId:activePortfolioId,portfolioName:portfolios.find((item)=>item.id===activePortfolioId)?.name||'',mode:asset.linkedYouTube?'linked':'downloaded'}));return;
       }
       if (url.searchParams.get('token') !== mediaServerToken || !url.pathname.startsWith('/asset/')) { response.writeHead(403).end(); return; }
       const id = decodeURIComponent(url.pathname.slice('/asset/'.length)), asset = library.assets.find((item) => item.id === id); if (!asset || isAssetLocked(asset)) { response.writeHead(404).end(); return; }
@@ -251,7 +258,7 @@ async function startMediaServer() {
       const stat = await fsp.stat(source), extension = path.extname(source).toLowerCase(), mime = ({ '.mp4':'video/mp4', '.m4v':'video/mp4', '.mov':'video/quicktime', '.webm':'video/webm', '.ogv':'video/ogg', '.mp3':'audio/mpeg', '.wav':'audio/wav', '.m4a':'audio/mp4', '.aac':'audio/aac', '.flac':'audio/flac', '.ogg':'audio/ogg', '.oga':'audio/ogg', '.opus':'audio/ogg' })[extension] || 'application/octet-stream', match = request.headers.range?.match(/bytes=(\d+)-(\d*)/), headers = { 'Content-Type': mime, 'Accept-Ranges': 'bytes', 'Cache-Control': 'private, max-age=3600', 'Access-Control-Allow-Origin': '*' };
       let start = 0, end = stat.size - 1, status = 200; if (match) { start = Number(match[1]); end = match[2] ? Math.min(Number(match[2]), end) : end; if (start > end) { response.writeHead(416, { ...headers, 'Content-Range': `bytes */${stat.size}` }).end(); return; } status = 206; headers['Content-Range'] = `bytes ${start}-${end}/${stat.size}`; }
       headers['Content-Length'] = String(end - start + 1); response.writeHead(status, headers); const stream = fs.createReadStream(source, { start, end }); stream.on('error', () => response.destroy()); request.on('close', () => stream.destroy()); stream.pipe(response);
-    } catch(error) { if (!response.headersSent){const extensionRequest=Boolean(captureHeaders);response.writeHead(extensionRequest?500:404,{...(captureHeaders||{}),...(extensionRequest?{'Content-Type':'application/json'}:{})});response.end(extensionRequest?JSON.stringify({ok:false,message:error.message||'Pigeon could not save this item'}):'');}else response.end(); }
+    } catch(error) { if (!response.headersSent){const extensionRequest=Boolean(captureHeaders);if(extensionRequest){recordDiagnostic('error','Browser extension download failed',{error:error.message});reportBackgroundProgress(extensionProgressId||`extension-import:failed:${Date.now()}`,{label:'Browser download failed',detail:error.message||'Pigeon could not save this item',done:true,status:'failed'});}response.writeHead(extensionRequest?500:404,{...(captureHeaders||{}),...(extensionRequest?{'Content-Type':'application/json'}:{})});response.end(extensionRequest?JSON.stringify({ok:false,message:error.message||'Pigeon could not save this item'}):'');}else response.end(); }
   });
   await new Promise((resolve, reject) => {
     const listening=()=>{mediaServer.removeListener('error',fixedPortError);mediaServerPort=mediaServer.address().port;resolve();};
@@ -265,7 +272,7 @@ function publicAssetForRenderer(asset,location,locked=isAssetLocked(asset)){retu
 function publicAssetDetails(asset){return asset?assetDetails(asset):null;}
 const scanBroadcastQueues=new Map();
 function broadcastScanAssets(location,assets,done=false){if(!mainWindow||mainWindow.isDestroyed()||!assets.length&&!done)return;const portfolioId=activePortfolioId,visibleAssets=assets.filter((asset)=>!isAssetLocked(asset)),key=`${portfolioId}:${location.id}`,queue=scanBroadcastQueues.get(key)||{portfolioId,items:[],running:false,timer:null,cancelled:false};for(let offset=0;offset<visibleAssets.length;offset+=100)queue.items.push({portfolioId,locationId:location.id,assets:visibleAssets.slice(offset,offset+100).map((asset)=>publicAssetForRenderer(asset,location)),done:false});if(done){if(queue.items.length)queue.items.at(-1).done=true;else queue.items.push({portfolioId,locationId:location.id,assets:[],done:true});}scanBroadcastQueues.set(key,queue);if(queue.running)return;queue.running=true;const drain=()=>{queue.timer=null;if(queue.cancelled||queue.portfolioId!==activePortfolioId){queue.items.length=0;queue.running=false;scanBroadcastQueues.delete(key);return;}const message=queue.items.shift();if(!message){queue.running=false;scanBroadcastQueues.delete(key);return;}if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('scan:assets',message);queue.timer=setTimeout(drain,16);};drain();}
-function broadcastSidebar(){if(!mainWindow||mainWindow.isDestroyed())return;mainWindow.webContents.send('sidebar:changed',{collections:publicCollections(),smartFolders:library.smartFolders,locations:library.locations,portfolios:portfolios.map(({id,name})=>({id,name})),settings:{sidebarSort:library.settings?.sidebarSort||{},sidebarBranchSort:library.settings?.sidebarBranchSort||{}},activePortfolioId});}
+function broadcastSidebar(){if(!mainWindow||mainWindow.isDestroyed())return;mainWindow.webContents.send('sidebar:changed',{collections:publicCollections(),smartFolders:library.smartFolders,locations:visibleLocations(library.locations),portfolios:portfolios.map(({id,name})=>({id,name})),settings:{sidebarSort:library.settings?.sidebarSort||{},sidebarBranchSort:library.settings?.sidebarBranchSort||{}},activePortfolioId});}
 const pendingAssetPatches=new Map();let assetPatchTimer=null;
 function broadcastAssetPatches(patches=[]){if(!patches.length)return;const portfolioId=activePortfolioId;for(const patch of patches){const key=`${portfolioId}:${patch.id}`;pendingAssetPatches.set(key,{portfolioId,patch:{...(pendingAssetPatches.get(key)?.patch||{}),...patch}});}if(assetPatchTimer)return;const drain=()=>{assetPatchTimer=null;if(!mainWindow||mainWindow.isDestroyed()){pendingAssetPatches.clear();return;}const batch=[];let batchPortfolioId=null;for(const[key,entry]of pendingAssetPatches){if(batchPortfolioId===null)batchPortfolioId=entry.portfolioId;if(entry.portfolioId!==batchPortfolioId||batch.length>=250)continue;batch.push(entry.patch);pendingAssetPatches.delete(key);}if(batch.length&&batchPortfolioId===activePortfolioId)mainWindow.webContents.send('assets:patched',{portfolioId:batchPortfolioId,patches:batch});if(pendingAssetPatches.size)assetPatchTimer=setTimeout(drain,16);};assetPatchTimer=setTimeout(drain,0);}
 function broadcast() {
@@ -311,7 +318,7 @@ function broadcastUnlockVisibilityDelta(generationReason){
 function broadcastLocations() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   mainWindow.webContents.send('locations:changed', {
-    locations: library.locations,
+    locations: visibleLocations(library.locations),
     loading: library.loading,
     totalAssets: library.assets.length
   });
@@ -321,17 +328,19 @@ function scheduleBroadcast(delay = 80) {
   clearTimeout(broadcastTimer);
   broadcastTimer = setTimeout(broadcastLocations, delay);
 }
-function reportBackgroundProgress(id, { label, detail = '', completed = 0, total = 0, done = false, status = done ? 'completed' : 'running' } = {}) {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  mainWindow.webContents.send('background:progress', { id, portfolioId: activePortfolioId, label: String(label || 'Working…'), detail: String(detail || ''), completed: Math.max(0, Number(completed) || 0), total: Math.max(0, Number(total) || 0), done: Boolean(done), status, updatedAt: Date.now() });
+function reportBackgroundProgress(id, { label, detail = '', completed = 0, total = 0, done = false, status = done ? 'completed' : 'running', pauseSupported = true } = {}) {
+  return backgroundThreadManager.report(id,activePortfolioId,{label:String(label||'Working…'),detail:String(detail||''),completed,total,done,status,pauseSupported});
 }
+function waitForBackgroundThread(progressId){return backgroundThreadManager.wait(progressId);}
+function setBackgroundChildPaused(child,paused){if(!child?.pid||child.exitCode!==null)return;if(process.platform!=='win32'){try{child.kill(paused?'SIGSTOP':'SIGCONT');}catch{}return;}const method=paused?'NtSuspendProcess':'NtResumeProcess',script=`$s='[DllImport("ntdll.dll")] public static extern int NtSuspendProcess(IntPtr h); [DllImport("ntdll.dll")] public static extern int NtResumeProcess(IntPtr h);';Add-Type -MemberDefinition $s -Name PigeonThreadControl -Namespace Native -ErrorAction SilentlyContinue;$p=Get-Process -Id ${Number(child.pid)} -ErrorAction SilentlyContinue;if($p){[Native.PigeonThreadControl]::${method}($p.Handle)|Out-Null}`;execFile('powershell.exe',['-NoProfile','-NonInteractive','-Command',script],{windowsHide:true,timeout:4000},()=>{});}
+function createBackgroundProcessControl(progressId){let child=null;const apply=(paused)=>setBackgroundChildPaused(child,paused),release=backgroundThreadManager.registerPauseHandler(progressId,apply);return{onProcess(value){child=value;if(child&&backgroundThreadManager.isPaused(progressId))apply(true);},dispose(){if(child&&backgroundThreadManager.isPaused(progressId))apply(false);release();child=null;}};}
 function beginBackgroundRun(type, suffix = '') {
   const key = `${activePortfolioId}:${type}:${suffix}`; const existing = backgroundRuns.get(key); if (existing && !existing.cancelled) return null;
   const run = { key, type, portfolioId: activePortfolioId, epoch: backgroundEpoch, library, cancelled: false, controller: new AbortController(), progressId: `${activePortfolioId}:${type}${suffix ? `:${suffix}` : ''}` }; backgroundRuns.set(key, run); return run;
 }
 function backgroundRunActive(run) { return Boolean(run && !run.cancelled && run.epoch === backgroundEpoch && run.portfolioId === activePortfolioId && run.library === library && !app.isQuitting); }
 function finishBackgroundRun(run) { if (run && backgroundRuns.get(run.key) === run) backgroundRuns.delete(run.key); }
-function backgroundDelay(ms, run) { return new Promise((resolve) => setTimeout(() => resolve(backgroundRunActive(run)), ms)); }
+async function backgroundDelay(ms, run) { if(!(await waitForBackgroundThread(run.progressId)))return false;return new Promise((resolve) => setTimeout(() => resolve(backgroundRunActive(run)), ms)); }
 async function retryBackground(operation, run, { attempts = 3, timeout = 10000, baseDelay = 100, label = 'Background operation' } = {}) {
   let lastError; for (let attempt = 0; attempt < attempts && backgroundRunActive(run); attempt += 1) { try { return await withTimeout(operation(attempt), timeout, `${label} timed out`); } catch (error) { lastError = error; recordDiagnostic(attempt + 1 < attempts ? 'warning' : 'error', `${label} failed`, { attempt: attempt + 1, error: error.message }); if (attempt + 1 < attempts && !(await backgroundDelay(baseDelay * 2 ** attempt, run))) break; } }
   return { ok: false, message: lastError?.message || `${label} cancelled` };
@@ -446,7 +455,7 @@ async function loadLibraryInWorker() {
       if (smokeTest) console.log('[smoke] library worker returned');
       if(activeLibraryLoadJob!==job||portfolioId!==activePortfolioId||targetDatabaseFile!==databaseFile||targetLibrary!==library){job.cancel();return;}
       if (result.library && Array.isArray(result.library.locations) && Array.isArray(result.library.assets)) {
-        const adoptStarted=performance.now();library={...result.library,loading:false};for(const location of library.locations){location.scanning=false;location.checking=false;location.rescanRequested=false;}performanceRecorder.record('main-library-adopt',{portfolioId:activePortfolioId,portfolioSize:library.assets.length,durationMs:performance.now()-adoptStarted});
+        const adoptStarted=performance.now();library={...result.library,loading:false};for(const location of library.locations){location.scanning=false;location.checking=false;location.rescanRequested=false;}const pathRepair=deduplicateAssetsByPath(library);if(pathRepair.changed){recordDiagnostic('warning','Collapsed duplicate file references from overlapping folders',{duplicatesRemoved:pathRepair.duplicatesRemoved});await persistLibrary(library);}performanceRecorder.record('main-library-adopt',{portfolioId:activePortfolioId,portfolioSize:library.assets.length,durationMs:performance.now()-adoptStarted});
         const indexStarted=performance.now();mainAssetIndex=new Map();for(let index=0;index<library.assets.length;index+=2000){for(const asset of library.assets.slice(index,index+2000))mainAssetIndex.set(asset.id,asset);if(index+2000<library.assets.length)await new Promise((next)=>setImmediate(next));if(activeLibraryLoadJob!==job||portfolioId!==activePortfolioId){job.cancel();return;}}performanceRecorder.record('main-asset-index',{portfolioId:activePortfolioId,portfolioSize:library.assets.length,durationMs:performance.now()-indexStarted});if(!(await reconcileConfiguredCollectionTagsCooperatively())){job.cancel();return;}
       } else if (!result.error) library = { ...libraryCore.migrateLibrary({}), loading: false };
       else {
@@ -666,7 +675,7 @@ async function inspectFile(filePath, location, existing, { deferHash = false, in
     const sourcePending = Boolean(inspection?.placeholder);
     const contentHash = sourcePending ? existing?.contentHash || null : inspection ? inspection.contentHash : unchanged && existing.contentHash ? existing.contentHash : deferHash ? existing?.contentHash || null : await hashFile(filePath, location.unstable ? 8000 : 30000);
     const asset = {
-      id: makeId(path.resolve(filePath).toLowerCase()),
+      id: existing?.id || makeId(path.resolve(filePath).toLowerCase()),
       locationId: location.id,
       path: path.resolve(filePath),
       name: path.basename(filePath, extension),
@@ -745,7 +754,7 @@ async function inspectScanBatch(batch, location, previous, run, batchNumber) {
   });
 }
 
-async function walkFolder(folderPath, callback, timeout = 8000) {
+async function walkFolder(folderPath, callback, timeout = 8000, progressId = '') {
   const queue = [folderPath]; let cursor=0,processedEntries=0, complete = true;
   while (cursor<queue.length) {
     const current = queue[cursor++];
@@ -760,7 +769,7 @@ async function walkFolder(folderPath, callback, timeout = 8000) {
       const fullPath = path.join(current, entry.name);
       if (entry.isDirectory()) queue.push(fullPath);
       else if (entry.isFile()) callback(fullPath);
-      processedEntries+=1; if(processedEntries%512===0)await new Promise((resolve)=>setImmediate(resolve));
+      processedEntries+=1; if(processedEntries%512===0){if(progressId)await waitForBackgroundThread(progressId);await new Promise((resolve)=>setImmediate(resolve));}
     }
   }
   return { complete };
@@ -778,12 +787,12 @@ async function scanLocation(locationId, { notify = true, resume = false } = {}) 
     location.online = await pathAvailable(location.path); location.checking = false;
     if (!backgroundRunActive(run)) return;
     if (!location.online) { reportBackgroundProgress(progressId, { label: `Scanning ${location.name}`, detail: 'Location is offline', done: true }); scheduleSave(); if (notify) broadcastLocations(); return; }
-    const indexingPreferences=jobLibrary.settings?.preferences||{},previousAssets = jobLibrary.assets.filter((asset) => asset.locationId === location.id), previous = new Map(previousAssets.map((asset) => [asset.path, asset])), assetIndexes=new Map(jobLibrary.assets.map((asset,index)=>[asset.id,index])); let locationAssetCount=previousAssets.length, scanComplete = checkpoint?.complete !== false;
+    const indexingPreferences=jobLibrary.settings?.preferences||{},previousAssets = jobLibrary.assets.filter((asset) => asset.locationId === location.id), previous = new Map(previousAssets.map((asset) => [asset.path, asset])), globalByPath=new Map(jobLibrary.assets.map((asset)=>[normalizedPathKey(asset.path),asset])),scanLocations=visibleLocations(jobLibrary.locations),assetIndexes=new Map(jobLibrary.assets.map((asset,index)=>[asset.id,index])); let locationAssetCount=previousAssets.length, scanComplete = checkpoint?.complete !== false;
     let filePaths = checkpoint ? await loadScanQueue(run.portfolioId,location.id) : null;
     if (!filePaths) {
       filePaths = [];
-      if (location.type === 'folder') { const walked = await walkFolder(location.path, (filePath) => { if (backgroundRunActive(run)&&shouldIndexFile(filePath,indexingPreferences)) { const relativeFolder = normalizedSubfolder(path.dirname(path.relative(location.path, filePath))); if (!folderExcluded(location.id, relativeFolder)) { filePaths.push(filePath); location.scanProgress.discovered += 1; } } }, location.unstable ? 3500 : 8000); scanComplete = walked.complete; }
-      else if(shouldIndexFile(location.path,indexingPreferences))filePaths.push(location.path);
+      if (location.type === 'folder') { const walked = await walkFolder(location.path, (filePath) => { if (backgroundRunActive(run)&&shouldIndexFile(filePath,indexingPreferences)&&owningLocation(scanLocations,filePath)?.id===location.id) { const relativeFolder = normalizedSubfolder(path.dirname(path.relative(location.path, filePath))); if (!folderExcluded(location.id, relativeFolder)) { filePaths.push(filePath); location.scanProgress.discovered += 1; } } }, location.unstable ? 3500 : 8000, progressId); scanComplete = walked.complete; }
+      else if(shouldIndexFile(location.path,indexingPreferences)&&owningLocation(scanLocations,location.path)?.id===location.id)filePaths.push(location.path);
       if (!backgroundRunActive(run)) return;
       await saveScanQueue(run.portfolioId,location.id,filePaths); location.scanCheckpoint = { root: location.path, nextIndex: 0, discovered:filePaths.length, complete: scanComplete, startedAt: Date.now() }; await persistScanBatch(location,[]);
     }
@@ -796,7 +805,7 @@ async function scanLocation(locationId, { notify = true, resume = false } = {}) 
       for (let slot = 0; slot < workerCount; slot += 1) { const start = waveStart + slot * INDEX_BATCH_SIZE; if (start >= filePaths.length) break; batches.push(filePaths.slice(start, start + INDEX_BATCH_SIZE)); }
       const inspectedBatches = await Promise.all(batches.map((batch, index) => inspectScanBatch(batch, location, previous, run, Math.floor(waveStart / INDEX_BATCH_SIZE) + index + 1)));
       if (!backgroundRunActive(run)) break;
-      const waveAssets=[]; for (const result of inspectedBatches.flat()) { if (result.error) continue; const existing = previous.get(path.resolve(result.filePath)), asset = await inspectFile(result.filePath, location, existing, { deferHash: location.unstable, inspection: result }); if (!asset) continue; const index=assetIndexes.get(asset.id); if(index!==undefined){const current=jobLibrary.assets[index];asset.tags=current.tags||[];asset.note=current.note||'';asset.rating=current.rating||0;asset.favorite=Boolean(current.favorite);asset.collectionIds=current.collectionIds||[];asset.deletedAt=current.deletedAt||null;asset.quickChecked=Boolean(current.quickChecked);asset.thumbnailEffect=Boolean(current.thumbnailEffect);jobLibrary.assets[index]=asset;}else{assetIndexes.set(asset.id,jobLibrary.assets.length);jobLibrary.assets.push(asset);locationAssetCount+=1;} mainAssetIndex.set(asset.id,asset);previous.set(asset.path, asset); assetsSinceCheckpoint.push(asset); waveAssets.push(asset); }
+      const waveAssets=[]; for (const result of inspectedBatches.flat()) { if (result.error) continue;const resolvedFile=path.resolve(result.filePath),owner=owningLocation(scanLocations,resolvedFile);if(owner&&owner.id!==location.id)continue; const existing = globalByPath.get(normalizedPathKey(resolvedFile))||previous.get(resolvedFile), asset = await inspectFile(result.filePath, location, existing, { deferHash: location.unstable, inspection: result }); if (!asset) continue; const index=assetIndexes.get(asset.id); if(index!==undefined){const current=jobLibrary.assets[index];if(current.locationId!==location.id)locationAssetCount+=1;asset.tags=current.tags||[];asset.note=current.note||'';asset.rating=current.rating||0;asset.favorite=Boolean(current.favorite);asset.collectionIds=current.collectionIds||[];asset.deletedAt=current.deletedAt||null;asset.quickChecked=Boolean(current.quickChecked);asset.thumbnailEffect=Boolean(current.thumbnailEffect);jobLibrary.assets[index]=asset;}else{assetIndexes.set(asset.id,jobLibrary.assets.length);jobLibrary.assets.push(asset);locationAssetCount+=1;} mainAssetIndex.set(asset.id,asset);previous.set(asset.path, asset);globalByPath.set(normalizedPathKey(asset.path),asset); assetsSinceCheckpoint.push(asset); waveAssets.push(asset); }
       location.scanCheckpoint.nextIndex = Math.min(filePaths.length, waveStart + batches.reduce((sum, batch) => sum + batch.length, 0)); location.scanProgress.inspected = location.scanCheckpoint.nextIndex; location.assetCount = locationAssetCount; if(notify)broadcastScanAssets(location,waveAssets);
       if (Date.now() - lastCheckpointAt >= 5000) { lastCheckpointAt = Date.now(); const checkpointAssets=assetsSinceCheckpoint.splice(0); await persistScanBatch(location,checkpointAssets); }
       reportBackgroundProgress(progressId, { label: `Adding files from ${location.name}`, detail: `${location.scanProgress.inspected.toLocaleString()} of ${filePaths.length.toLocaleString()} · ${workerCount} threads`, completed: location.scanProgress.inspected, total: filePaths.length }); if (notify) scheduleBroadcast(250); await new Promise((resolve) => setImmediate(resolve));
@@ -833,13 +842,13 @@ function watchLocation(location) {
 
 async function refreshSourcesInBackground({ rescan = false } = {}) {
   const run = beginBackgroundRun('source-refresh'); if (!run) return { online: library.locations.filter((location) => location.online).length, total: library.locations.length, alreadyRunning: true };
-  const jobLibrary = run.library, pending = jobLibrary.locations.filter((location)=>!location.autoImportLegacyRoot);
+  const jobLibrary = run.library, pending = jobLibrary.locations.filter((location)=>!location.autoImportLegacyRoot),progressId=run.progressId,total=pending.length;let checked=0;reportBackgroundProgress(progressId,{label:'Checking folders',detail:`0 of ${total.toLocaleString()} locations`,total});
   for (const location of pending) location.checking = true;
   broadcastLocations();
   const recovered = [], staleAssets = [];
   const workers = Array.from({ length: Math.min(3, pending.length) }, async () => {
     while (pending.length && backgroundRunActive(run)) {
-      const location = pending.shift();
+      if(!(await waitForBackgroundThread(progressId)))break;const location = pending.shift();
       location.online = await pathAvailable(location.path);
       location.checking = false;
       if (location.online) {
@@ -847,15 +856,15 @@ async function refreshSourcesInBackground({ rescan = false } = {}) {
         if (rescan) recovered.push(location.id);
         else staleAssets.push(...jobLibrary.assets.filter((asset) => asset.locationId === location.id && (asset.sourceMissing || asset.sourcePending)));
       }
-      scheduleBroadcast();
+      checked+=1;reportBackgroundProgress(progressId,{label:'Checking folders',detail:`${checked.toLocaleString()} of ${total.toLocaleString()} locations`,completed:checked,total});scheduleBroadcast();
     }
   });
   await Promise.allSettled(workers);
   let restored = 0,restoredAssets=[];
-  const staleWorkers = Array.from({ length: Math.min(4, staleAssets.length) }, async () => { while (staleAssets.length && backgroundRunActive(run)) { const asset = staleAssets.shift(); if (await pathAvailable(asset.path)) { asset.sourceMissing = false; asset.sourcePending = false; asset.missingSince = null; restored += 1;restoredAssets.push(asset); } } });
+  const staleWorkers = Array.from({ length: Math.min(4, staleAssets.length) }, async () => { while (staleAssets.length && backgroundRunActive(run)) { if(!(await waitForBackgroundThread(progressId)))break;const asset = staleAssets.shift(); if (await pathAvailable(asset.path)) { asset.sourceMissing = false; asset.sourcePending = false; asset.missingSince = null; restored += 1;restoredAssets.push(asset); } } });
   await Promise.allSettled(staleWorkers);
   if (!backgroundRunActive(run)) { finishBackgroundRun(run); return { cancelled: true, online: 0, total: pending.length }; }
-  scheduleMetadataSave();if(restoredAssets.length){scheduleAssetSave(restoredAssets);broadcastAssetPatches(restoredAssets.map((asset)=>({id:asset.id,sourceMissing:false,sourcePending:false,missingSince:null,previewUrl:previewUrlFor(asset)})));}broadcastLocations();finishBackgroundRun(run);
+  scheduleMetadataSave();if(restoredAssets.length){scheduleAssetSave(restoredAssets);broadcastAssetPatches(restoredAssets.map((asset)=>({id:asset.id,sourceMissing:false,sourcePending:false,missingSince:null,previewUrl:previewUrlFor(asset)})));}broadcastLocations();reportBackgroundProgress(progressId,{label:'Folder check complete',detail:`${checked.toLocaleString()} locations checked`,completed:total,total,done:true});finishBackgroundRun(run);
   for (const locationId of recovered) { if (run.portfolioId !== activePortfolioId) break; await scanLocation(locationId, { notify: true }); }
   return { online: jobLibrary.locations.filter((location) => location.online).length, total: jobLibrary.locations.length, rescanned: recovered.length, restored };
 }
@@ -927,12 +936,13 @@ async function warmThumbnailCache(){
 }
 
 async function addLocations(paths, type) {
-  for (const selectedPath of paths) {
-    const resolved = path.resolve(selectedPath);
-    let location = library.locations.find((item) => item.path.toLowerCase() === resolved.toLowerCase());
+  const candidates=[...new Set((paths||[]).map((selectedPath)=>path.resolve(selectedPath)))],planned=[...library.locations];
+  for(const resolved of candidates){const overlap=findLocationOverlap(planned,resolved,type);if(overlap?.relation==='exact')continue;if(overlap){const relation=overlap.relation==='covered'?'is already inside':'already contains';throw new Error(`This ${type} ${relation} the indexed folder “${overlap.location.name}”. Pigeon allows one reference to each physical file.`);}planned.push({id:`candidate:${resolved}`,name:path.basename(resolved)||resolved,path:resolved,type});}
+  for (const resolved of candidates) {
+    let location = library.locations.find((item) => normalizedPathKey(item.path) === normalizedPathKey(resolved));
     if (!location) {
       location = {
-        id: makeId(`location:${resolved.toLowerCase()}`),
+        id: makeId(`location:${normalizedPathKey(resolved)}`),
         name: type === 'folder' ? path.basename(resolved) || resolved : path.basename(resolved),
         path: resolved,
         type,
@@ -1143,10 +1153,17 @@ async function createLinkedYouTubeAsset(urlValue, destination, location, owner) 
   }
 }
 
-async function importUrl(urlValue, { collection = '', mediaOnly = false } = {}) {
+async function readDownloadResponse(response,{maxBytes,onProgress,progressId}={}){
+  const announced=Math.max(0,Number(response.headers.get('content-length'))||0),reader=response.body?.getReader();if(!reader){if(progressId)await waitForBackgroundThread(progressId);const bytes=Buffer.from(await response.arrayBuffer());if(bytes.length>maxBytes)throw new Error('Download exceeds the 250 MB safety limit');onProgress?.(bytes.length,announced||bytes.length);return bytes;}
+  const chunks=[];let received=0;for(;;){if(progressId&&!(await waitForBackgroundThread(progressId))){await reader.cancel().catch(()=>{});throw new Error('Download was cancelled');}const{done,value}=await reader.read();if(done)break;const chunk=Buffer.from(value);received+=chunk.length;if(received>maxBytes){await reader.cancel().catch(()=>{});throw new Error('Download exceeds the 250 MB safety limit');}chunks.push(chunk);onProgress?.(received,announced);}
+  return Buffer.concat(chunks,received);
+}
+
+async function importUrl(urlValue, { collection = '', mediaOnly = false, progressId = null, displayName = '' } = {}) {
   const url = new URL(urlValue);
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Only HTTP and HTTPS URLs are supported');
   const portfolioDrop=collection==='downloads',importOwner=portfolioDrop?autoImportOwner():null,autoImportLocation=portfolioDrop?await ensureActivePortfolioAutoImportLocation({create:true,scan:false}):null,destination=autoImportLocation?.path||importsDir;if(portfolioDrop&&!autoImportLocation)throw new Error('Could not prepare the active portfolio auto-import folder');
+  const guessedName=String(displayName||(youtubeVideoId(url)?`YouTube video ${youtubeVideoId(url)}`:decodeURIComponent(path.basename(url.pathname))||'download')).replace(/\s+-\s+YouTube$/i,'').slice(0,180);let downloadLabel=`Downloading ${guessedName}`;let reportedPercent=-1;const reportDownload=(completed,total,detail='Downloading into Pigeon…')=>{if(!progressId)return;const percent=total>0?Math.floor(Math.max(0,Math.min(100,completed/total*100))):-1;if(percent>=0&&percent<=reportedPercent)return;reportedPercent=percent;reportBackgroundProgress(progressId,{label:downloadLabel,detail,completed,total});};if(progressId){reportDownload(0,0,'Preparing download…');await waitForBackgroundThread(progressId);}
   const youtubeId = youtubeVideoId(url);
   if (youtubeId) {
     const downloadEnabled = library.settings?.preferences?.youtubeAutoDownload !== false;
@@ -1154,9 +1171,11 @@ async function importUrl(urlValue, { collection = '', mediaOnly = false } = {}) 
     let asset, target = '';
     if (portfolioDrop && !downloadEnabled) asset = await createLinkedYouTubeAsset(canonicalYouTubeUrl(url), destination, autoImportLocation, importOwner);
     else {
-      ({ target } = await downloadYouTubeVideo(url.toString(), { outputDir: destination, quality, ffmpegPath: ffmpegExecutable }));
-      if(portfolioDrop&&!autoImportOwnerActive(importOwner)){await fsp.rm(target,{force:true}).catch(()=>{});throw new Error('The active portfolio changed while YouTube was downloading');}
-      asset = portfolioDrop?await indexAutoImportFile(target,autoImportLocation,importOwner):(await addLocations([target], 'file'),library.assets.find((item)=>item.path===path.resolve(target)));
+      const processControl=progressId?createBackgroundProcessControl(progressId):null;try{
+        try{({ target } = await downloadYouTubeVideo(url.toString(), { outputDir: destination, quality, ffmpegPath: ffmpegExecutable, waitForResume:()=>waitForBackgroundThread(progressId),onProcess:(child)=>processControl?.onProcess(child),onTitle:(title)=>{downloadLabel=`Downloading ${String(title||guessedName).slice(0,180)}`;reportedPercent=-1;reportDownload(0,0,'Preparing video…');},onProgress:(percent)=>reportDownload(percent,100,`${Math.round(percent)}% received`) }));}
+        catch(error){if(!portfolioDrop||!/no matching formats|no playable.*format|no valid url to decipher|to decipher urls|non 2xx|fetch_failed|403 forbidden/i.test(error.message))throw error;recordDiagnostic('warning','YouTube download formats unavailable; saved a playable link instead',{videoId:youtubeId,error:error.message});asset=await createLinkedYouTubeAsset(canonicalYouTubeUrl(url),destination,autoImportLocation,importOwner);}
+      }finally{processControl?.dispose();}
+      if(target){if(portfolioDrop&&!autoImportOwnerActive(importOwner)){await fsp.rm(target,{force:true}).catch(()=>{});throw new Error('The active portfolio changed while YouTube was downloading');}asset = portfolioDrop?await indexAutoImportFile(target,autoImportLocation,importOwner):(await addLocations([target], 'file'),library.assets.find((item)=>item.path===path.resolve(target)));}
     }
     if(portfolioDrop&&!autoImportOwnerActive(importOwner))throw new Error('The active portfolio changed before the YouTube download was committed');
     if (asset) {
@@ -1170,15 +1189,14 @@ async function importUrl(urlValue, { collection = '', mediaOnly = false } = {}) 
       }
       scheduleAssetSave(asset);
     }
-    if(portfolioDrop){await saveLibraryNow();broadcastScanAssets(autoImportLocation,[asset]);broadcastSidebar();}else{scheduleSave();broadcast();}
-    return asset;
+    if(portfolioDrop){await saveLibraryNow();broadcastScanAssets(autoImportLocation,[asset],true);broadcastSidebar();}else{scheduleSave();broadcast();}
+    if(progressId)reportBackgroundProgress(progressId,{label:`Downloaded ${asset?.filename||guessedName}`,detail:'Saved to Downloads',completed:100,total:100,done:true});return asset;
   }
   const response = await fetch(url, { redirect: 'follow' });
   if (!response.ok) throw new Error(`Download failed with status ${response.status}`);
   const headerType = response.headers.get('content-type') || '';
   if (mediaOnly && headerType.includes('html')) throw new Error('This web page does not expose a downloadable image or video');
-  const bytes = Buffer.from(await response.arrayBuffer());
-  if (bytes.length > 250 * 1024 * 1024) throw new Error('Download exceeds the 250 MB safety limit');
+  const bytes = await readDownloadResponse(response,{maxBytes:250*1024*1024,progressId,onProgress:(completed,total)=>reportDownload(completed,total,total?`${formatUpdateBytes(completed)} of ${formatUpdateBytes(total)}`:`${formatUpdateBytes(completed)} received`)});
   await fsp.mkdir(destination, { recursive: true });
   const extensionByType = headerType.includes('png') ? '.png' : headerType.includes('jpeg') ? '.jpg' : headerType.includes('webp') ? '.webp' : headerType.includes('gif') ? '.gif' : headerType.includes('svg') ? '.svg' : headerType.includes('mp4') ? '.mp4' : headerType.includes('webm') ? '.webm' : headerType.includes('pdf') ? '.pdf' : headerType.includes('markdown') ? '.md' : headerType.includes('html') ? '.html' : headerType.includes('json') ? '.json' : headerType.includes('text/plain') ? '.txt' : '';
   const urlName = path.basename(decodeURIComponent(url.pathname)) || `download-${Date.now()}${extensionByType}`;
@@ -1197,9 +1215,11 @@ async function importUrl(urlValue, { collection = '', mediaOnly = false } = {}) 
     }
     scheduleAssetSave(asset);
   }
-  if(portfolioDrop){await saveLibraryNow();broadcastScanAssets(autoImportLocation,[asset]);broadcastSidebar();}else{scheduleSave();broadcast();}
-  return asset;
+  if(portfolioDrop){await saveLibraryNow();broadcastScanAssets(autoImportLocation,[asset],true);broadcastSidebar();}else{scheduleSave();broadcast();}
+  if(progressId)reportBackgroundProgress(progressId,{label:`Downloaded ${asset?.filename||safeName}`,detail:'Saved to Downloads',completed:bytes.length,total:bytes.length,done:true});return asset;
 }
+
+async function importUrlWithThread(url){const progressId=`${activePortfolioId}:url-import:${crypto.randomUUID()}`;try{return await importUrl(url,{progressId});}catch(error){reportBackgroundProgress(progressId,{label:'Download failed',detail:error.message,done:true,status:'failed'});throw error;}}
 
 async function captureScreenshot() {
   const sources = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 2560, height: 1440 }, fetchWindowIcons: false });
@@ -1312,10 +1332,15 @@ async function exportAnnotatedAsset(id, annotations = [], edits = {}) {
 
 function safeExportName(value, fallback = 'Export') { const cleaned = String(value || '').replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/[. ]+$/g, '').trim(); return cleaned || fallback; }
 function automaticConflictRenameEnabled(){return library.settings?.preferences?.autoRenameFileConflicts!==false;}
-async function decideIdenticalFileConflict({destination}){const result=await dialog.showMessageBox(mainWindow,{type:'question',title:'Identical file already exists',message:`${path.basename(destination)} already exists and is identical to the incoming file.`,detail:'Skip leaves the existing file unchanged. Keep both creates a collision-safe new filename.',buttons:['Skip','Keep both'],defaultId:0,cancelId:0,noLink:true});return result.response===1?'keep-both':'skip';}
-async function resolveManagedFileConflict(source,target){return resolveFileConflict(source,target,{autoRename:automaticConflictRenameEnabled(),decideIdentical:decideIdenticalFileConflict});}
-async function moveFileWithoutOverwrite(source,target){let targetCreated=false;try{try{await fsp.link(source,target);}catch(error){if(error.code==='EEXIST')throw error;await fsp.copyFile(source,target,fs.constants.COPYFILE_EXCL);}targetCreated=true;await fsp.rm(source,{force:false});}catch(error){if(targetCreated)await fsp.rm(target,{force:true}).catch(()=>{});throw error;}}
-async function copyExportAsset(asset,target){if(asset.sourceMissing||!(await pathAvailable(asset.path)))return{copied:false,skipped:true,renamed:false,target};await fsp.mkdir(path.dirname(target),{recursive:true});const conflict=await resolveManagedFileConflict(asset.path,target);if(conflict.action==='skip'||conflict.action==='same')return{copied:false,skipped:true,renamed:false,target:conflict.target,identical:true};await fsp.copyFile(asset.path,conflict.target,fs.constants.COPYFILE_EXCL);return{copied:true,skipped:false,renamed:conflict.renamed,target:conflict.target};}
+async function decideIdenticalFileConflict({destination,decisionScope=null}){
+  if(decisionScope?.decision)return decisionScope.decision;
+  if(!mainWindow||mainWindow.isDestroyed()||mainWindow.webContents.isDestroyed())return'skip';
+  const requestId=crypto.randomUUID();
+  return new Promise((resolve)=>{const finish=(decision='skip',applyToAll=false)=>{const pending=pendingFileConflictPrompts.get(requestId);if(!pending)return;clearTimeout(pending.timer);pendingFileConflictPrompts.delete(requestId);const normalized=['keep-both','overwrite'].includes(decision)?decision:'skip';if(applyToAll&&decisionScope)decisionScope.decision=normalized;resolve(normalized);},timer=setTimeout(()=>finish('skip',false),300000);timer.unref?.();pendingFileConflictPrompts.set(requestId,{finish,timer});mainWindow.webContents.send('file-conflict:prompt',{requestId,filename:path.basename(destination)});});
+}
+async function resolveManagedFileConflict(source,target,decisionScope=null){return resolveFileConflict(source,target,{autoRename:automaticConflictRenameEnabled(),decideIdentical:(details)=>decideIdenticalFileConflict({...details,decisionScope})});}
+async function moveFileWithoutOverwrite(source,target,{overwrite=false}={}){if(overwrite){await replaceFileSafely(source,target,{removeSource:true});return;}let targetCreated=false;try{try{await fsp.link(source,target);}catch(error){if(error.code==='EEXIST')throw error;await fsp.copyFile(source,target,fs.constants.COPYFILE_EXCL);}targetCreated=true;await fsp.rm(source,{force:false});}catch(error){if(targetCreated)await fsp.rm(target,{force:true}).catch(()=>{});throw error;}}
+async function copyExportAsset(asset,target,decisionScope=null){if(asset.sourceMissing||!(await pathAvailable(asset.path)))return{copied:false,skipped:true,renamed:false,target};await fsp.mkdir(path.dirname(target),{recursive:true});const conflict=await resolveManagedFileConflict(asset.path,target,decisionScope);if(conflict.action==='skip'||conflict.action==='same')return{copied:false,skipped:true,renamed:false,target:conflict.target,identical:true};if(conflict.action==='overwrite')await replaceFileSafely(asset.path,conflict.target);else await fsp.copyFile(asset.path,conflict.target,fs.constants.COPYFILE_EXCL);return{copied:true,skipped:false,renamed:conflict.renamed,overwritten:conflict.action==='overwrite',target:conflict.target};}
 async function exportLibraryGroup(type, id) {
   let name, assets, paths = new Map();
   if (type === 'collection') {
@@ -1326,7 +1351,7 @@ async function exportLibraryGroup(type, id) {
     for (const asset of assets) { const location = library.locations.find((item) => item.id === asset.locationId), relative = location?.type === 'folder' ? path.relative(location.path, path.dirname(asset.path)) : ''; paths.set(asset.id, relative && !relative.startsWith('..') ? relative.split(path.sep).map((part) => safeExportName(part)) : []); }
   } else throw new Error('Unsupported export type');
   const result = await dialog.showOpenDialog(mainWindow, { title: `Export ${name}`, properties: ['openDirectory', 'createDirectory'] }); if (result.canceled || !result.filePaths[0]) return null; const rootTarget = path.join(result.filePaths[0], safeExportName(name)); let copied = 0, skipped = 0,renamed=0;
-  for (const asset of assets) { const target=path.join(rootTarget,...(paths.get(asset.id)||[]),safeExportName(asset.filename,`${asset.id}.${String(asset.extension||'file').toLowerCase()}`)),outcome=await copyExportAsset(asset,target);if(outcome.copied)copied+=1;if(outcome.skipped)skipped+=1;if(outcome.renamed)renamed+=1; }
+  const decisionScope={};for (const asset of assets) { const target=path.join(rootTarget,...(paths.get(asset.id)||[]),safeExportName(asset.filename,`${asset.id}.${String(asset.extension||'file').toLowerCase()}`)),outcome=await copyExportAsset(asset,target,decisionScope);if(outcome.copied)copied+=1;if(outcome.skipped)skipped+=1;if(outcome.renamed)renamed+=1; }
   return { path: rootTarget, files: copied, skipped,renamed };
 }
 
@@ -1380,7 +1405,7 @@ function createWindow() {
   mainWindow.webContents.on('preload-error',(_event,preloadPath,error)=>{writeFatalDiagnostic('electron:preload-error',error,preloadPath);recordDiagnostic('error','Preload script failed',{preloadPath,error:diagnosticValue(error)});});
   mainWindow.webContents.on('did-fail-load',(_event,code,description,url,isMainFrame)=>{if(isMainFrame){rendererIpcReady=false;writeFatalDiagnostic('electron:did-fail-load',description,{code,url});recordDiagnostic('error','Renderer failed to load',{code,description,url});}});
   mainWindow.on('unresponsive',()=>{const memory=process.memoryUsage(),context={heapUsedMb:Math.round(memory.heapUsed/1024/1024),rssMb:Math.round(memory.rss/1024/1024),recentPerformance:performanceRecorder.snapshot().slice(-20)};writeFatalDiagnostic('electron:window-unresponsive','Main window stopped responding',context);recordDiagnostic('error','Application window is unresponsive',context);});
-  mainWindow.webContents.on('console-message', (_event, details) => { if (details.level === 'warning' || details.level === 'error') recordDiagnostic(details.level, details.message, `${details.sourceId}:${details.lineNumber}`); });
+  mainWindow.webContents.on('console-message', (event) => { if (event.level === 'warning' || event.level === 'error') recordDiagnostic(event.level, event.message, `${event.sourceId}:${event.lineNumber}`); });
   const revealFallback=setTimeout(revealMainWindow,2500);mainWindow.once('show',()=>clearTimeout(revealFallback));mainWindow.once('ready-to-show',revealMainWindow);mainWindow.webContents.on('did-finish-load',()=>{rendererIpcReady=true;revealMainWindow();});
   mainWindow.loadFile(path.join(__dirname, '..', 'src', 'index.html'));
   if (smokeTest) {
@@ -1807,15 +1832,20 @@ function createWindow() {
 const registerIpcHandler=ipcMain.handle.bind(ipcMain);
 ipcMain.handle=(channel,handler)=>registerIpcHandler(channel,async(event,...args)=>{try{return await handler(event,...args);}catch(error){const context={channel,senderId:event?.sender?.id,args:args.map((value)=>diagnosticValue(value).slice(0,2000))};writeFatalDiagnostic('ipc:handler',error,context);recordDiagnostic('error',`Unhandled IPC exception in ${channel}`,{error:diagnosticValue(error),...context});throw error;}});
 ipcMain.on('diagnostics:fatal',(_event,payload)=>{writeFatalDiagnostic(payload?.source||'preload',payload?.message||'Unknown fatal error',payload?.context||'');recordDiagnostic('error',payload?.message||'Preload exception',payload?.context||'');});
+ipcMain.on('file-conflict:resolve',(event,payload={})=>{if(event.sender!==mainWindow?.webContents)return;pendingFileConflictPrompts.get(String(payload.requestId||''))?.finish(payload.decision,Boolean(payload.applyToAll));});
 ipcMain.handle('app:info', () => ({ name: 'Pigeon', version: app.getVersion(), repository: 'https://github.com/vcsoc/pigeon' }));
 ipcMain.handle('app:legal-documents', async () => Object.fromEntries(await Promise.all(Object.entries({ community:'LICENSE.md', commercial:'COMMERCIAL-LICENSE.md', notices:'NOTICE.md', trademarks:'TRADEMARKS.md' }).map(async ([key,file]) => [key,await fsp.readFile(path.join(app.getAppPath(),file),'utf8')]))));
 ipcMain.handle('diagnostics:get', () => diagnosticEntries.slice(-1000));
 ipcMain.handle('telemetry:get', () => telemetrySnapshot());
+ipcMain.handle('background-threads:list',()=>backgroundThreadManager.snapshot(activePortfolioId));
+ipcMain.handle('background-threads:set-paused',(_event,{id,paused})=>backgroundThreadManager.setPaused(id,paused));
+ipcMain.handle('background-threads:set-all-paused',(_event,paused)=>backgroundThreadManager.setAllPaused(activePortfolioId,Boolean(paused)));
+ipcMain.handle('background-threads:reorder',(_event,ids)=>backgroundThreadManager.reorder(Array.isArray(ids)?ids:[]));
 ipcMain.on('performance:renderer-span',(_event,span={})=>performanceRecorder.record(`renderer:${String(span.name||'span').slice(0,80)}`,{...span,portfolioId:activePortfolioId,portfolioSize:library.assets.length}));
 ipcMain.on('library:assets-consumed',(event,{generation,sequence}={})=>{if(event.sender!==mainWindow?.webContents||Number(generation)!==activeLibraryStream?.generation)return;activeLibraryStream.acknowledge(Number(sequence));});
 ipcMain.on('thumbnails:prioritize',(_event,payload={})=>{if(payload.portfolioId!==activePortfolioId||Number(payload.generation)!==libraryStreamGeneration)return;ensureThumbnailGenerationScheduler().updatePriority({...payload,portfolioId:activePortfolioId,generation:libraryStreamGeneration});});
 function projectFolderTreeAssetsCooperatively(){const source=library.assets,result=new Array(source.length),span=performanceRecorder.start('folder-tree-projection',{portfolioId:activePortfolioId,portfolioSize:source.length});let cursor=0;return new Promise((resolve)=>{const step=()=>{const startedAt=performance.now();while(cursor<source.length&&performance.now()-startedAt<6){const{locationId,path,created,modified,indexedAt}=source[cursor];result[cursor++]={locationId,path,created,modified,indexedAt};}if(cursor<source.length){setImmediate(step);return;}performanceRecorder.end(span,{size:result.length});resolve(result);};setImmediate(step);});}
-ipcMain.handle('folder-tree:build', async(_event, { collapsedKeys = [], limits = {} }) => {const locations=library.locations.map(({id,path})=>({id,path})),assets=await projectFolderTreeAssetsCooperatively(),emptyFolders=library.settings?.emptyFolders||{};return new Promise((resolve)=>{const worker=new Worker(path.join(__dirname,'folder-tree-worker.js'),{workerData:{locations,assets,emptyFolders,collapsedKeys,limits}}),telemetry=trackWorker(worker,'folder-tree',{filesTotal:assets.length});let settled=false;const finish=(value)=>{if(settled)return;settled=true;telemetry.filesCompleted=assets.length;worker.terminate().catch(()=>{});resolve(value||[]);};worker.once('message',finish);worker.once('error',(error)=>{recordDiagnostic('error','Folder tree worker failed',error);finish([]);});worker.once('exit',()=>finish([]));});});
+ipcMain.handle('folder-tree:build', async(_event, { collapsedKeys = [], limits = {} }) => {const locations=visibleLocations(library.locations).map(({id,path,type})=>({id,path,type})),assets=await projectFolderTreeAssetsCooperatively(),emptyFolders=library.settings?.emptyFolders||{};return new Promise((resolve)=>{const worker=new Worker(path.join(__dirname,'folder-tree-worker.js'),{workerData:{locations,assets,emptyFolders,collapsedKeys,limits}}),telemetry=trackWorker(worker,'folder-tree',{filesTotal:assets.length});let settled=false;const finish=(value)=>{if(settled)return;settled=true;telemetry.filesCompleted=assets.length;worker.terminate().catch(()=>{});resolve(value||[]);};worker.once('message',finish);worker.once('error',(error)=>{recordDiagnostic('error','Folder tree worker failed',error);finish([]);});worker.once('exit',()=>finish([]));});});
 ipcMain.handle('diagnostics:log', (_event, { level = 'error', message, context }) => recordDiagnostic(['info','warning','error'].includes(level) ? level : 'error', message, context));
 ipcMain.handle('diagnostics:clear', async () => { diagnosticEntries = []; if (diagnosticsFile) await fsp.writeFile(diagnosticsFile, ''); return true; });
 ipcMain.handle('diagnostics:remove', async (_event, id) => { diagnosticEntries = diagnosticEntries.filter((entry) => entry.id !== id); if (diagnosticsFile) await fsp.writeFile(diagnosticsFile, diagnosticEntries.map((entry) => JSON.stringify(entry)).join('\n') + (diagnosticEntries.length ? '\n' : '')); return true; });
@@ -1835,7 +1865,7 @@ const UPDATE_DOWNLOAD_RETRY_DELAYS_MS=[1500,4000,9000];
 const pause=(milliseconds)=>new Promise((resolve)=>setTimeout(resolve,milliseconds));
 async function installAppUpdate(version){
   if(appUpdateInstallPromise)return appUpdateInstallPromise;
-  appUpdateInstallPromise=(async()=>{if(!isNewerVersion(version,app.getVersion()))return{status:'current',currentVersion:app.getVersion()};const available=pendingAppUpdate?.updateInfo?.version===version?{status:'available',version}:await checkForAppUpdate();if(!['available','required'].includes(available.status)||available.version!==version||available.installable===false)return available;const progressId=`application:update:${version}`;let latest={transferred:0,total:0};const onDownloadProgress=(progress)=>{latest={transferred:Math.max(0,Number(progress.transferred)||0),total:Math.max(0,Number(progress.total)||0)};const percent=Number.isFinite(progress.percent)?Math.max(0,Math.min(100,progress.percent)):latest.total?latest.transferred/latest.total*100:0,speed=Math.max(0,Number(progress.bytesPerSecond)||0),detail=[`${percent.toFixed(0)}%`,latest.total?`${formatUpdateBytes(latest.transferred)} of ${formatUpdateBytes(latest.total)}`:formatUpdateBytes(latest.transferred),speed?`${formatUpdateBytes(speed)}/s`:null].filter(Boolean).join(' · ');reportBackgroundProgress(progressId,{label:`Downloading Pigeon ${version}`,detail,completed:latest.transferred,total:latest.total});};autoUpdater.on('download-progress',onDownloadProgress);reportBackgroundProgress(progressId,{label:`Downloading Pigeon ${version}`,detail:'Preparing download…'});try{for(let attempt=0;;attempt+=1){try{await autoUpdater.downloadUpdate();break;}catch(error){const delay=UPDATE_DOWNLOAD_RETRY_DELAYS_MS[attempt];if(!isTransientUpdateDownloadError(error)||delay===undefined)throw error;recordDiagnostic('warning','Update asset not ready; retrying',{version,attempt:attempt+1,delay});reportBackgroundProgress(progressId,{label:`Downloading Pigeon ${version}`,detail:`Update files are still being published; retrying in ${Math.ceil(delay/1000)} seconds…`});await pause(delay);}}reportBackgroundProgress(progressId,{label:`Pigeon ${version} downloaded`,detail:'Restarting to install…',completed:latest.total||latest.transferred||1,total:latest.total||latest.transferred||1,done:true});setTimeout(()=>autoUpdater.quitAndInstall(false,true),350);return{status:'installing',version};}catch(error){const detail=isTransientUpdateDownloadError(error)?'The update files are not ready yet. Please try again shortly.':error.message;reportBackgroundProgress(progressId,{label:'Update download failed',detail,done:true,status:'failed'});throw error;}finally{autoUpdater.removeListener('download-progress',onDownloadProgress);appUpdateInstallPromise=null;}})();return appUpdateInstallPromise;
+  appUpdateInstallPromise=(async()=>{if(!isNewerVersion(version,app.getVersion()))return{status:'current',currentVersion:app.getVersion()};const available=pendingAppUpdate?.updateInfo?.version===version?{status:'available',version}:await checkForAppUpdate();if(!['available','required'].includes(available.status)||available.version!==version||available.installable===false)return available;const progressId=`application:update:${version}`;let latest={transferred:0,total:0};const onDownloadProgress=(progress)=>{latest={transferred:Math.max(0,Number(progress.transferred)||0),total:Math.max(0,Number(progress.total)||0)};const percent=Number.isFinite(progress.percent)?Math.max(0,Math.min(100,progress.percent)):latest.total?latest.transferred/latest.total*100:0,speed=Math.max(0,Number(progress.bytesPerSecond)||0),detail=[`${percent.toFixed(0)}%`,latest.total?`${formatUpdateBytes(latest.transferred)} of ${formatUpdateBytes(latest.total)}`:formatUpdateBytes(latest.transferred),speed?`${formatUpdateBytes(speed)}/s`:null].filter(Boolean).join(' · ');reportBackgroundProgress(progressId,{label:`Downloading Pigeon ${version}`,detail,completed:latest.transferred,total:latest.total,pauseSupported:false});};autoUpdater.on('download-progress',onDownloadProgress);reportBackgroundProgress(progressId,{label:`Downloading Pigeon ${version}`,detail:'Preparing download…',pauseSupported:false});try{for(let attempt=0;;attempt+=1){try{await autoUpdater.downloadUpdate();break;}catch(error){const delay=UPDATE_DOWNLOAD_RETRY_DELAYS_MS[attempt];if(!isTransientUpdateDownloadError(error)||delay===undefined)throw error;recordDiagnostic('warning','Update asset not ready; retrying',{version,attempt:attempt+1,delay});reportBackgroundProgress(progressId,{label:`Downloading Pigeon ${version}`,detail:`Update files are still being published; retrying in ${Math.ceil(delay/1000)} seconds…`,pauseSupported:false});await pause(delay);}}reportBackgroundProgress(progressId,{label:`Pigeon ${version} downloaded`,detail:'Restarting to install…',completed:latest.total||latest.transferred||1,total:latest.total||latest.transferred||1,done:true,pauseSupported:false});setTimeout(()=>autoUpdater.quitAndInstall(false,true),350);return{status:'installing',version};}catch(error){const detail=isTransientUpdateDownloadError(error)?'The update files are not ready yet. Please try again shortly.':error.message;reportBackgroundProgress(progressId,{label:'Update download failed',detail,done:true,status:'failed',pauseSupported:false});throw error;}finally{autoUpdater.removeListener('download-progress',onDownloadProgress);appUpdateInstallPromise=null;}})();return appUpdateInstallPromise;
 }
 ipcMain.handle('app:check-for-updates',()=>checkForAppUpdate());
 ipcMain.handle('app:install-update',(_event,version)=>installAppUpdate(String(version||'')));
@@ -2030,6 +2060,8 @@ ipcMain.handle('folder:create-physical', async (_event, { locationId, subfolder 
   const location = library.locations.find((item) => item.id === locationId && item.type === 'folder');
   if (!location) throw new Error('Physical folder does not exist.');
   if (!location.online) throw new Error('The physical folder must be online.');
+  const normalizedParent=normalizedSubfolder(subfolder).toLowerCase(),lock=folderLocks().filter((rule)=>rule.locationId===locationId&&(!rule.subfolder||normalizedParent===rule.subfolder||normalizedParent.startsWith(`${rule.subfolder}/`))).sort((first,second)=>second.subfolder.length-first.subfolder.length)[0];
+  if(lock&&!unlockedFolders.has(folderLockKey(lock.locationId,lock.subfolder)))throw new Error('Unlock this folder before creating a subfolder');
   const created = await createPhysicalSubfolder(location.path, subfolder, name);
   library.settings = library.settings || {};
   library.settings.emptyFolders = library.settings.emptyFolders || {};
@@ -2066,8 +2098,8 @@ ipcMain.handle('folder:move-physical', async (_event, { sourceLocationId, source
   scheduleSave(); broadcastSidebar();
   return { ...moved, sourceLocationId, destinationLocationId, assets: changedAssets.map((asset) => ({ ...asset, previewUrl: previewUrlFor(asset), mediaUrl: mediaUrlFor(asset) })), locations, settings: { folderAutoTags: library.settings.folderAutoTags || {}, folderLocks: publicFolderLocks(), itemIcons: library.settings.itemIcons || {}, excludedFolders: library.settings.excludedFolders || [], sidebarBranchSort: library.settings.sidebarBranchSort || {} } };
 });
-ipcMain.handle('collection:create', (_event, { name, parentId }) => {
-  const collection = libraryCore.createCollection(library, name, parentId);
+ipcMain.handle('collection:create', (_event, { name, parentId, id }) => {
+  const collection = libraryCore.createCollection(library, name, parentId, id);
   scheduleSave(); broadcastSidebar(); return collection;
 });
 ipcMain.handle('group:duplicate-structure',async(_event,{type,id,subfolder=''})=>{
@@ -2156,7 +2188,7 @@ ipcMain.handle('item:set-icon', (_event, { type, id, icon }) => {
   else return false;
   scheduleSave();broadcastSidebar();return true;
 });
-function applyTagsInBackground(predicate,tagFactory,label){let index=0,updated=0;const run=()=>{const changed=[];for(let count=0;index<library.assets.length&&count<300;index++,count++){const asset=library.assets[index];if(!predicate(asset))continue;const tags=tagFactory(asset),existing=new Set((asset.tags||[]).map((tag)=>tag.toLowerCase()));let dirty=false;for(const tag of tags)if(!existing.has(String(tag).toLowerCase())){asset.tags=[...(asset.tags||[]),tag];existing.add(String(tag).toLowerCase());dirty=true;}if(dirty){changed.push(asset);updated+=1;}}if(changed.length)scheduleAssetSave(changed);if(index<library.assets.length)setImmediate(run);else reportBackgroundProgress(`${activePortfolioId}:tags:${Date.now()}`,{label,detail:`${updated} items updated`,completed:updated,total:updated,done:true});};setImmediate(run);}
+function applyTagsInBackground(predicate,tagFactory,label){let index=0,updated=0;const portfolioId=activePortfolioId,progressId=`${portfolioId}:tags:${Date.now()}`,total=library.assets.length;reportBackgroundProgress(progressId,{label,detail:`0 of ${total.toLocaleString()} items`,total});const run=async()=>{if(portfolioId!==activePortfolioId||!(await waitForBackgroundThread(progressId)))return;const changed=[];for(let count=0;index<library.assets.length&&count<300;index++,count++){const asset=library.assets[index];if(!predicate(asset))continue;const tags=tagFactory(asset),existing=new Set((asset.tags||[]).map((tag)=>tag.toLowerCase()));let dirty=false;for(const tag of tags)if(!existing.has(String(tag).toLowerCase())){asset.tags=[...(asset.tags||[]),tag];existing.add(String(tag).toLowerCase());dirty=true;}if(dirty){changed.push(asset);updated+=1;}}if(changed.length)scheduleAssetSave(changed);reportBackgroundProgress(progressId,{label,detail:`${index.toLocaleString()} of ${total.toLocaleString()} · ${updated.toLocaleString()} updated`,completed:index,total});if(index<library.assets.length)setImmediate(run);else reportBackgroundProgress(progressId,{label,detail:`${updated} items updated`,completed:total,total,done:true});};setImmediate(run);}
 ipcMain.handle('collection:set-auto-tags', (_event, { collectionId, tags = [] }) => {
   const collection = library.collections.find((item) => item.id === collectionId); if (!collection) throw new Error('Collection does not exist');
   library.settings = library.settings || {}; library.settings.collectionAutoTags = library.settings.collectionAutoTags || {};
@@ -2207,7 +2239,7 @@ ipcMain.handle('tags:delete', async (_event, requestedTags) => {
 ipcMain.handle('trash:empty', async (_event, request = {}) => {
   const requestedMode=typeof request==='string'?request:request.mode,selectedIds=Array.isArray(request.ids)?new Set(request.ids):null,mode=requestedMode === 'recycle' ? 'recycle' : 'permanent', trashed = library.assets.filter((asset) => asset.deletedAt&&(!selectedIds||selectedIds.has(asset.id))), removed = new Set(), failures = [],progressId=`${activePortfolioId}:trash-empty:${Date.now()}`,total=trashed.length;
   reportBackgroundProgress(progressId,{label:mode==='recycle'?'Moving Trash to Recycle Bin':'Clearing Trash',detail:`0 of ${total.toLocaleString()} files`,completed:0,total});
-  for (let index=0;index<trashed.length;index+=1) {const asset=trashed[index];
+  for (let index=0;index<trashed.length;index+=1) {if(!(await waitForBackgroundThread(progressId)))break;const asset=trashed[index];
     try { if (await pathAvailable(asset.path)) { if (mode === 'recycle') await shell.trashItem(asset.path); else await fsp.rm(asset.path, { force: true }); } removed.add(asset.id); }
     catch (error) { failures.push({ id: asset.id, filename: asset.filename, error: error.message }); recordDiagnostic('error', 'Trash source deletion failed', { assetId: asset.id, path: asset.path, mode, error: error.message }); }
     reportBackgroundProgress(progressId,{label:mode==='recycle'?'Moving Trash to Recycle Bin':'Clearing Trash',detail:`${(index+1).toLocaleString()} of ${total.toLocaleString()} files${failures.length?` · ${failures.length} failed`:''}`,completed:index+1,total});
@@ -2215,14 +2247,14 @@ ipcMain.handle('trash:empty', async (_event, request = {}) => {
   }
   library.assets = library.assets.filter((asset) => !removed.has(asset.id));for(const id of removed)mainAssetIndex.delete(id);for(const location of library.locations)location.assetCount=library.assets.filter((asset)=>asset.locationId===location.id).length;await sendDatabaseRequest('delete-assets',{ids:[...removed]});broadcastSidebar();reportBackgroundProgress(progressId,{label:failures.length?'Trash cleared with issues':'Trash cleared',detail:`${removed.size.toLocaleString()} files removed${failures.length?` · ${failures.length} failed`:''}`,completed:total,total,done:true,status:failures.length?'warning':'completed'}); return { deleted: removed.size, deletedIds: [...removed], failed: failures.length, failures };
 });
-ipcMain.handle('library:import-url', async (_event, url) => importUrl(url));
+ipcMain.handle('library:import-url', async (_event, url) => importUrlWithThread(url));
 ipcMain.handle('clipboard:write-text', (_event, value) => { clipboard.writeText(String(value || '').slice(0, 32768)); return true; });
 ipcMain.handle('clipboard:copy-assets',async(_event,ids=[])=>{const paths=[...new Set(ids.map((id)=>library.assets.find((asset)=>asset.id===id)).filter((asset)=>asset&&!asset.sourceMissing&&!asset.sourcePending).map((asset)=>asset.path))];if(!paths.length)return{copied:0};if(process.platform==='win32'){const encoded=Buffer.from(JSON.stringify(paths),'utf8').toString('base64'),script=`Add-Type -AssemblyName System.Windows.Forms; $paths=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encoded}'))|ConvertFrom-Json; $files=New-Object System.Collections.Specialized.StringCollection; foreach($p in $paths){[void]$files.Add([string]$p)}; [Windows.Forms.Clipboard]::SetFileDropList($files)`;await withTimeout(new Promise((resolve,reject)=>execFile('powershell.exe',['-NoProfile','-STA','-NonInteractive','-Command',script],{windowsHide:true},(error)=>error?reject(error):resolve())),8000,'Clipboard copy timed out');}else{clipboard.writeText(paths.join('\n'));}return{copied:paths.length};});
 ipcMain.handle('clipboard:paste-assets',async()=>{let paths=[];if(process.platform==='win32'){const script="Add-Type -AssemblyName System.Windows.Forms; if([Windows.Forms.Clipboard]::ContainsFileDropList()){[Windows.Forms.Clipboard]::GetFileDropList()|ConvertTo-Json -Compress}";const output=await execFileText('powershell.exe',['-NoProfile','-STA','-NonInteractive','-Command',script],8000);if(output)try{const parsed=JSON.parse(output);paths=Array.isArray(parsed)?parsed:[parsed];}catch{}}if(paths.length)return importDroppedFiles(paths);const image=clipboard.readImage();if(!image.isEmpty()){const temporary=path.join(app.getPath('temp'),`pigeon-clipboard-${Date.now()}.png`);await fsp.writeFile(temporary,image.toPNG());try{return await importDroppedFiles([temporary]);}finally{await fsp.rm(temporary,{force:true});}}return{imported:0,path:null};});
 ipcMain.handle('library:import-clipboard', async () => {
   const text = clipboard.readText().trim();
   if (!/^https?:\/\//i.test(text)) throw new Error('Clipboard does not contain an HTTP URL');
-  return importUrl(text);
+  return importUrlWithThread(text);
 });
 ipcMain.handle('library:capture-screen', async () => captureScreenshot());
 ipcMain.handle('library:backup', async () => writeBackup('manual'));
@@ -2264,9 +2296,23 @@ ipcMain.handle('library:sync-now', async () => {
   if(changedIds.size)scheduleAssetSave(library.assets.filter((asset)=>changedIds.has(asset.id)));
   scheduleSave(); broadcast(); return target;
 });
-async function moveAssetFiles(ids,destination,{locationId=null}={}){const moved=[],changed=[],locationDeltas=new Map();let renamed=0,skipped=0;await fsp.mkdir(destination,{recursive:true});for(const asset of library.assets.filter((item)=>ids.includes(item.id))){if(!(await pathAvailable(asset.path)))continue;const source=path.resolve(asset.path),conflict=await resolveManagedFileConflict(source,path.join(destination,asset.filename));if(conflict.action==='same')continue;if(conflict.action==='skip'){skipped+=1;continue;}const sourceLocationId=asset.locationId,target=conflict.target;watcherIgnoreUntil.set(sourceLocationId,Date.now()+2500);await moveFileWithoutOverwrite(source,target);asset.path=target;asset.filename=path.basename(target);asset.name=path.basename(target,path.extname(target));const location=locationId?library.locations.find((item)=>item.id===locationId):library.locations.find((item)=>{const relative=path.relative(item.path,target);return relative!==''&&!relative.startsWith('..')&&!path.isAbsolute(relative)||path.resolve(item.path)===path.resolve(destination);});if(location)asset.locationId=location.id;if(sourceLocationId!==asset.locationId){locationDeltas.set(sourceLocationId,(locationDeltas.get(sourceLocationId)||0)-1);locationDeltas.set(asset.locationId,(locationDeltas.get(asset.locationId)||0)+1);}asset.sourceMissing=false;asset.metadataUpdatedAt=Date.now();if(conflict.renamed)renamed+=1;changed.push(asset);moved.push({...asset,previewUrl:previewUrlFor(asset),mediaUrl:mediaUrlFor(asset)});}const locations=[];for(const[id,delta]of locationDeltas){const location=library.locations.find((item)=>item.id===id);if(!location)continue;location.assetCount=Math.max(0,(Number(location.assetCount)||0)+delta);locations.push({id:location.id,assetCount:location.assetCount});}if(changed.length)scheduleAssetSave(changed);return{moved:moved.length,renamed,skipped,assets:moved,locations};}
+async function moveAssetFiles(ids,destination,{locationId=null,decisionScope={}}={}){const moved=[],changed=[],locationDeltas=new Map();let renamed=0,skipped=0;await fsp.mkdir(destination,{recursive:true});for(const asset of library.assets.filter((item)=>ids.includes(item.id))){if(!(await pathAvailable(asset.path)))continue;const source=path.resolve(asset.path),conflict=await resolveManagedFileConflict(source,path.join(destination,asset.filename),decisionScope);if(conflict.action==='same')continue;if(conflict.action==='skip'){skipped+=1;continue;}const sourceLocationId=asset.locationId,target=conflict.target;watcherIgnoreUntil.set(sourceLocationId,Date.now()+2500);await moveFileWithoutOverwrite(source,target,{overwrite:conflict.action==='overwrite'});asset.path=target;asset.filename=path.basename(target);asset.name=path.basename(target,path.extname(target));const location=locationId?library.locations.find((item)=>item.id===locationId):library.locations.find((item)=>{const relative=path.relative(item.path,target);return relative!==''&&!relative.startsWith('..')&&!path.isAbsolute(relative)||path.resolve(item.path)===path.resolve(destination);});if(location)asset.locationId=location.id;if(sourceLocationId!==asset.locationId){locationDeltas.set(sourceLocationId,(locationDeltas.get(sourceLocationId)||0)-1);locationDeltas.set(asset.locationId,(locationDeltas.get(asset.locationId)||0)+1);}asset.sourceMissing=false;asset.metadataUpdatedAt=Date.now();if(conflict.renamed)renamed+=1;changed.push(asset);moved.push({...asset,previewUrl:previewUrlFor(asset),mediaUrl:mediaUrlFor(asset)});}const locations=[];for(const[id,delta]of locationDeltas){const location=library.locations.find((item)=>item.id===id);if(!location)continue;location.assetCount=Math.max(0,(Number(location.assetCount)||0)+delta);locations.push({id:location.id,assetCount:location.assetCount});}if(changed.length)scheduleAssetSave(changed);return{moved:moved.length,renamed,skipped,assets:moved,locations};}
 ipcMain.handle('assets:move-to-path',async(_event,{ids=[],folderPath=''})=>{const requested=String(folderPath||'').trim();let destination=requested;if(!destination){const result=await dialog.showOpenDialog(mainWindow,{title:'Move selected files to folder',properties:['openDirectory','createDirectory']});if(result.canceled||!result.filePaths[0])return{moved:0,assets:[]};destination=result.filePaths[0];}return moveAssetFiles(ids,path.resolve(destination));});
 ipcMain.handle('assets:move-to-folder',async(_event,{ids=[],locationId,subfolder=''})=>{const location=library.locations.find((item)=>item.id===locationId);if(!location)throw new Error('Destination folder is no longer indexed');const safeSubfolder=normalizedSubfolder(subfolder);if(safeSubfolder==='..'||safeSubfolder.startsWith('../'))throw new Error('Invalid destination folder');return moveAssetFiles(ids,path.join(location.path,safeSubfolder),{locationId});});
+async function moveCollectionToFolder(collectionId,locationId,subfolder=''){
+  const collection=library.collections.find((item)=>item.id===collectionId),location=library.locations.find((item)=>item.id===locationId);if(!collection)throw new Error('Collection no longer exists');if(!location||location.type!=='folder')throw new Error('Destination folder is no longer indexed');
+  const safeSubfolder=normalizedSubfolder(subfolder);if(safeSubfolder==='..'||safeSubfolder.startsWith('../'))throw new Error('Invalid destination folder');
+  const subtreeIds=collectionDescendants(collectionId);if([...subtreeIds].some(isCollectionLocked))throw new Error('Unlock every protected collection in this hierarchy before moving its files');
+  const targetFolder=safeSubfolder.toLowerCase(),targetLock=folderLocks().filter((rule)=>rule.locationId===locationId&&(!rule.subfolder||targetFolder===rule.subfolder||targetFolder.startsWith(`${rule.subfolder}/`))).sort((first,second)=>second.subfolder.length-first.subfolder.length)[0];if(targetLock&&!unlockedFolders.has(folderLockKey(targetLock.locationId,targetLock.subfolder)))throw new Error('Unlock the destination folder before moving a collection into it');
+  const assets=library.assets.filter((asset)=>!asset.deletedAt&&(asset.collectionIds||[]).some((id)=>subtreeIds.has(id)));if(assets.some(isAssetLocked))throw new Error('Unlock protected source folders before moving this collection hierarchy');
+  const plan=planCollectionFolderTransfer({collections:library.collections,assets,rootId:collectionId,destination:path.join(location.path,safeSubfolder)});
+  for(const directory of plan.directories)await fsp.mkdir(directory,{recursive:true});
+  library.settings=library.settings||{};library.settings.emptyFolders=library.settings.emptyFolders||{};library.settings.emptyFolders[locationId]=[...new Set([...(library.settings.emptyFolders[locationId]||[]),...plan.directories])];
+  const movedAssets=[],locationUpdates=new Map(),decisionScope={};let moved=0,renamed=0,skipped=0,unavailable=0,failed=0;watcherIgnoreUntil.set(locationId,Date.now()+5000);
+  for(const entry of plan.files){const asset=library.assets.find((item)=>item.id===entry.assetId);if(!asset||asset.sourceMissing||!(await pathAvailable(asset.path))){unavailable+=1;continue;}try{const result=await moveAssetFiles([entry.assetId],entry.directory,{locationId,decisionScope});moved+=result.moved;renamed+=result.renamed;if(!result.moved&&!result.skipped)skipped+=1;else skipped+=result.skipped;movedAssets.push(...(result.assets||[]));for(const update of result.locations||[])locationUpdates.set(update.id,update);}catch(error){failed+=1;recordDiagnostic('warning','Collection hierarchy file move failed',{assetId:entry.assetId,error:error.message});}}
+  scheduleSave();broadcastSidebar();return{collectionId,name:collection.name,rootPath:plan.rootDirectory,folders:plan.collectionCount,requested:plan.files.length,moved,renamed,skipped,unavailable,failed,ambiguous:plan.ambiguous,assets:movedAssets,locations:[...locationUpdates.values()]};
+}
+ipcMain.handle('collection:move-to-folder',(_event,{collectionId,locationId,subfolder=''})=>moveCollectionToFolder(collectionId,locationId,subfolder));
 ipcMain.handle('asset:apply-inline-crop', (_event, { id, crop }) => applyInlineCrop(id, crop));
 function formatRenameDate(value,format){const date=new Date(Number(value)||Date.now()),parts={YYYY:String(date.getFullYear()),YY:String(date.getFullYear()).slice(-2),MM:String(date.getMonth()+1).padStart(2,'0'),DD:String(date.getDate()).padStart(2,'0'),HH:String(date.getHours()).padStart(2,'0'),mm:String(date.getMinutes()).padStart(2,'0'),ss:String(date.getSeconds()).padStart(2,'0')};return String(format||'YYYYMMDD-HHmmss').replace(/YYYY|YY|MM|DD|HH|mm|ss/g,(token)=>parts[token]);}
 function autoRenameValue(asset,pattern,index){return String(pattern||'<name>').replace(/<created-date-time(?::([^>]+))?>/g,(_m,f)=>formatRenameDate(asset.created,f)).replace(/<modified-date-time(?::([^>]+))?>/g,(_m,f)=>formatRenameDate(asset.modified,f)).replace(/<indexed-date-time(?::([^>]+))?>/g,(_m,f)=>formatRenameDate(asset.indexedAt,f)).replace(/<name>/g,asset.name).replace(/<extension>/g,String(asset.extension||'').toLowerCase()).replace(/<counter(?::(\d+))?>/g,(_m,w)=>String(index+1).padStart(Math.min(12,Number(w)||1),'0')).replace(/[<>:"|?*]/g,'-').replace(/[\\/]+/g,'-').trim().slice(0,220);}
@@ -2306,7 +2352,7 @@ ipcMain.handle('asset:reset-inline-edits', (_event, id) => resetInlineEdits(id))
 ipcMain.handle('asset:duplicate', (_event, id) => duplicateAsset(id));
 ipcMain.handle('asset:export-annotated', (_event, { id, annotations, edits }) => exportAnnotatedAsset(id, annotations, edits));
 ipcMain.handle('library:export-group', (_event, { type, id }) => exportLibraryGroup(type, id));
-ipcMain.handle('asset:export',async(_event,id)=>{const asset=library.assets.find((item)=>item.id===id&&!item.deletedAt);if(!asset||!(await pathAvailable(asset.path)))return null;const result=await dialog.showSaveDialog(mainWindow,{title:'Export file',defaultPath:asset.filename});if(result.canceled||!result.filePath)return null;const outcome=await copyExportAsset(asset,result.filePath);return outcome.copied?outcome.target:null;});
+ipcMain.handle('asset:export',async(_event,id)=>{const asset=library.assets.find((item)=>item.id===id&&!item.deletedAt);if(!asset||!(await pathAvailable(asset.path)))return null;const result=await dialog.showSaveDialog(mainWindow,{title:'Export file',defaultPath:asset.filename});if(result.canceled||!result.filePath)return null;const outcome=await copyExportAsset(asset,result.filePath,{});return outcome.copied?outcome.target:null;});
 ipcMain.handle('asset:read-text',async(_event,id)=>{const asset=library.assets.find((item)=>item.id===id&&!item.deletedAt),allowed=TEXT_PREVIEW_DOCUMENT_EXTENSIONS;if(!asset||!allowed.has(String(asset.extension).toUpperCase())||!(await pathAvailable(asset.path)))return null;const stat=await fsp.stat(asset.path);if(stat.size>8*1024*1024)throw new Error('Text reader supports files up to 8 MB');return{content:await fsp.readFile(asset.path,'utf8'),extension:String(asset.extension).toLowerCase(),filename:asset.filename};});
 ipcMain.handle('contact-sheet:export',async(event,payload)=>{const format=typeof payload==='string'?payload:payload?.format,extension=['pdf','jpeg','png','webp'].includes(String(format).toLowerCase())?String(format).toLowerCase():'pdf',result=await dialog.showSaveDialog(mainWindow,{title:'Export contact sheet',defaultPath:`contact-sheet.${extension}`,filters:[{name:extension.toUpperCase(),extensions:[extension]}]});if(result.canceled||!result.filePath)return null;if(extension==='pdf'){const pdf=await event.sender.printToPDF({printBackground:true,pageSize:'A4'});await fsp.writeFile(result.filePath,pdf);}else{const rect=payload?.rect&&Number.isFinite(payload.rect.width)?payload.rect:undefined,image=await event.sender.capturePage(rect),png=image.toPNG();if(extension==='png')await fsp.writeFile(result.filePath,png);else await sharp(png)[extension==='jpeg'?'jpeg':'webp']({quality:92}).toFile(result.filePath);}return result.filePath;});
 ipcMain.handle('extension:open-folder', () => shell.openPath(app.isPackaged ? path.join(process.resourcesPath, 'browser-extension') : path.join(process.cwd(), 'browser-extension')));

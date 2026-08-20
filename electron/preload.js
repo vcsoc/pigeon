@@ -13,6 +13,10 @@ contextBridge.exposeInMainWorld('pigeon', {
   getLegalDocuments: () => ipcRenderer.invoke('app:legal-documents'),
   getDiagnostics: () => ipcRenderer.invoke('diagnostics:get'),
   getTelemetry: () => ipcRenderer.invoke('telemetry:get'),
+  listBackgroundThreads:()=>ipcRenderer.invoke('background-threads:list'),
+  setBackgroundThreadPaused:(id,paused)=>ipcRenderer.invoke('background-threads:set-paused',{id,paused}),
+  setAllBackgroundThreadsPaused:(paused)=>ipcRenderer.invoke('background-threads:set-all-paused',Boolean(paused)),
+  reorderBackgroundThreads:(ids)=>ipcRenderer.invoke('background-threads:reorder',Array.from(ids||[])),
   recordPerformanceSpan: (span) => ipcRenderer.send('performance:renderer-span', span),
   acknowledgeAssetBatch: (payload) => ipcRenderer.send('library:assets-consumed', payload),
   prioritizeThumbnails: (payload) => ipcRenderer.send('thumbnails:prioritize', payload),
@@ -37,6 +41,7 @@ contextBridge.exposeInMainWorld('pigeon', {
   pathForDroppedFile: (file) => { try { return webUtils.getPathForFile(file); } catch { return ''; } },
   importDroppedFiles: (paths, target = {}) => ipcRenderer.invoke('library:import-dropped-files', { paths: Array.from(paths || []).filter((value) => typeof value === 'string' && value.trim()), target }),
   moveAssetsToFolder: (ids, locationId, subfolder = '') => ipcRenderer.invoke('assets:move-to-folder', { ids, locationId, subfolder }),
+  moveCollectionToFolder: (collectionId, locationId, subfolder = '') => ipcRenderer.invoke('collection:move-to-folder', { collectionId, locationId, subfolder }),
   moveAssetsToPath: (ids, folderPath) => ipcRenderer.invoke('assets:move-to-path', { ids, folderPath }),
   autoRenameAssets: (ids, pattern) => ipcRenderer.invoke('assets:auto-rename', { ids, pattern }),
   startAssetDrag: (ids) => ipcRenderer.invoke('assets:start-drag', ids),
@@ -46,7 +51,7 @@ contextBridge.exposeInMainWorld('pigeon', {
   removeLocation: (id) => ipcRenderer.invoke('library:remove-location', id),
   rescan: (id) => ipcRenderer.invoke('library:rescan', id),
   refreshSources: () => ipcRenderer.invoke('library:refresh-sources'),
-  createCollection: (name, parentId) => ipcRenderer.invoke('collection:create', { name, parentId }),
+  createCollection: (name, parentId, id = null) => ipcRenderer.invoke('collection:create', { name, parentId, id }),
   duplicateGroupStructure: (type, id, subfolder = '') => ipcRenderer.invoke('group:duplicate-structure', { type, id, subfolder }),
   createPhysicalSubfolder: (locationId, subfolder, name) => ipcRenderer.invoke('folder:create-physical', { locationId, subfolder, name }),
   movePhysicalFolder: (sourceLocationId, sourceSubfolder, destinationLocationId, destinationParentSubfolder = '', name = null) => ipcRenderer.invoke('folder:move-physical', { sourceLocationId, sourceSubfolder, destinationLocationId, destinationParentSubfolder, name }),
@@ -125,6 +130,8 @@ contextBridge.exposeInMainWorld('pigeon', {
   chooseAutoImportFolder: () => ipcRenderer.invoke('preferences:auto-import-folder'),
   toggleAlwaysOnTop: () => ipcRenderer.invoke('window:toggle-always-on-top'),
   closeWindow: () => ipcRenderer.invoke('window:close'),
+  resolveFileConflict: (payload) => ipcRenderer.send('file-conflict:resolve', payload),
+  onFileConflictPrompt: (callback) => { const handler=(_event,value)=>callback(value);ipcRenderer.on('file-conflict:prompt',handler);return()=>ipcRenderer.removeListener('file-conflict:prompt',handler); },
   onError: (callback) => {
     const handler = (_event, value) => callback(value);
     ipcRenderer.on('app:error', handler);

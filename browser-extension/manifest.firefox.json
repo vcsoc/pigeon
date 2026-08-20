@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "Pigeon Drag & Drop",
-  "version": "2.0.0",
+  "name": "Pigeon for Firefox",
+  "version": "2.0.5",
   "description": "Drag images and videos from any website into your local Pigeon Downloads collection.",
   "permissions": ["contextMenus", "activeTab", "scripting"],
   "host_permissions": ["http://*/*", "https://*/*"],

@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const os = require('node:os');
 const path = require('node:path');
 const fsp = require('node:fs/promises');
-const { filesAreIdentical, uniqueConflictPath, resolveFileConflict } = require('../electron/file-conflicts');
+const { filesAreIdentical, uniqueConflictPath, replaceFileSafely, resolveFileConflict } = require('../electron/file-conflicts');
 
 test('file comparison detects identical bytes and rejects same-size differing content', async (t) => {
   const directory = await fsp.mkdtemp(path.join(os.tmpdir(), 'pigeon-conflict-')); t.after(() => fsp.rm(directory, { recursive: true, force: true }));
@@ -22,8 +22,16 @@ test('differing content receives a collision-safe name only when preference is e
   await assert.rejects(() => resolveFileConflict('C:\\source\\photo.jpg', 'C:\\target\\photo.jpg', { autoRename: false, exists, identical: async () => false, pathApi: path.win32 }), { code: 'FILE_NAME_CONFLICT' });
 });
 
-test('identical conflicts require an explicit Skip or Keep both decision', async () => {
+test('safe overwrite leaves one destination and removes a moved source', async (t) => {
+  const directory = await fsp.mkdtemp(path.join(os.tmpdir(), 'pigeon-overwrite-')); t.after(() => fsp.rm(directory, { recursive: true, force: true }));
+  const source=path.join(directory,'incoming.jpg'),destination=path.join(directory,'existing.jpg');await Promise.all([fsp.writeFile(source,'PIGEON'),fsp.writeFile(destination,'PIGEON')]);
+  await replaceFileSafely(source,destination,{removeSource:true});
+  assert.equal(await fsp.readFile(destination,'utf8'),'PIGEON');await assert.rejects(()=>fsp.stat(source),{code:'ENOENT'});assert.deepEqual((await fsp.readdir(directory)).sort(),['existing.jpg']);
+});
+
+test('identical conflicts support Skip, Keep both, and Overwrite decisions', async () => {
   const base = { exists: async () => true, identical: async () => true, uniquePath: async () => '/target/file (2).jpg' };
   assert.equal((await resolveFileConflict('/source/file.jpg', '/target/file.jpg', { ...base, decideIdentical: async () => 'skip' })).action, 'skip');
   assert.deepEqual(await resolveFileConflict('/source/file.jpg', '/target/file.jpg', { ...base, decideIdentical: async () => 'keep-both' }), { action: 'write', target: '/target/file (2).jpg', renamed: true, identical: true });
+  assert.deepEqual(await resolveFileConflict('/source/file.jpg', '/target/file.jpg', { ...base, decideIdentical: async () => 'overwrite' }), { action: 'overwrite', target: '/target/file.jpg', renamed: false, identical: true });
 });

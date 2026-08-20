@@ -16,7 +16,10 @@ const criticalFiles = [
   'electron/main.js',
   'electron/preload.js',
   'electron/embedded-metadata.js',
-  'electron/thumbnail-worker.js'
+  'electron/thumbnail-worker.js',
+  'electron/folder-tree-worker.js',
+  'electron/library-deduplication.js',
+  'electron/background-thread-manager.js'
 ];
 
 function digest(value) { return crypto.createHash('sha256').update(value).digest('hex'); }

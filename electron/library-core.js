@@ -45,13 +45,15 @@ function migrateLibrary(input = {}) {
   return library;
 }
 
-function createCollection(library, name, parentId = null) {
+function createCollection(library, name, parentId = null, requestedId = null) {
   const trimmed = String(name || '').trim();
   if (!trimmed) throw new Error('Collection name is required');
   if (parentId && !library.collections.some((item) => item.id === parentId)) throw new Error('Parent collection does not exist');
   const duplicate = library.collections.some((item) => item.parentId === parentId && item.name.toLowerCase() === trimmed.toLowerCase());
   if (duplicate) throw new Error('A collection with that name already exists here');
-  const now=Date.now(),siblings=library.collections.filter((item)=>item.parentId===parentId);const collection = { id: idFor('collection'), name: trimmed, parentId, createdAt:now,updatedAt:now,order:siblings.length, icon: null };
+  const suppliedId=String(requestedId||'');
+  if(suppliedId&&(!/^[0-9a-f-]{16,64}$/i.test(suppliedId)||library.collections.some((item)=>item.id===suppliedId)))throw new Error('Invalid collection identifier');
+  const now=Date.now(),siblings=library.collections.filter((item)=>item.parentId===parentId);const collection = { id: suppliedId||idFor('collection'), name: trimmed, parentId, createdAt:now,updatedAt:now,order:siblings.length, icon: null };
   library.collections.push(collection);
   return collection;
 }

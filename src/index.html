@@ -114,8 +114,12 @@
             </section>
             <section id="locked-content" class="locked-content hidden" aria-live="polite">
               <div class="locked-art" aria-hidden="true"><span class="locked-shackle"></span><span class="locked-body"><i></i></span></div>
-              <h2>Unlock to view contents</h2><p id="locked-hint">This collection is password protected.</p>
-              <form id="inline-unlock-form"><label class="sr-only" for="inline-unlock-password">Password</label><input id="inline-unlock-password" type="password" placeholder="Enter Password" autocomplete="current-password" /><button type="submit">Unlock</button></form>
+              <h2 id="inline-password-title">Unlock to view contents</h2><p id="locked-hint">This folder is password protected.</p>
+              <form id="inline-unlock-form">
+                <label class="sr-only" for="inline-unlock-password">Password</label><input id="inline-unlock-password" type="password" placeholder="Enter password" autocomplete="current-password" />
+                <label class="sr-only" for="inline-unlock-confirmation">Confirm password</label><input id="inline-unlock-confirmation" class="hidden" type="password" placeholder="Confirm password" autocomplete="new-password" />
+                <button id="inline-password-submit" type="submit">Unlock</button><button id="inline-password-cancel" class="hidden" type="button">Cancel</button>
+              </form>
               <p id="inline-unlock-error" class="inline-unlock-error" role="alert"></p>
             </section>
             <section id="tag-browser" class="tag-browser hidden" aria-label="Tag manager"></section>
@@ -181,8 +185,9 @@
           </div>
 
           <aside id="inspector" class="inspector empty">
-            <div id="inspector-selection-count" class="inspector-selection-count hidden">0 selected</div>
             <div id="inspector-resizer" class="panel-resizer inspector-resizer" role="separator" aria-orientation="vertical" aria-label="Resize inspector panel" tabindex="0"></div>
+            <div id="inspector-details-panel" class="inspector-details-panel" role="tabpanel" aria-labelledby="right-panel-details-tab">
+            <div id="inspector-selection-count" class="inspector-selection-count hidden">0 selected</div>
             <div id="inspector-placeholder" class="inspector-placeholder">
               <div class="placeholder-icon">◫</div>
               <p>Select an item to inspect it</p>
@@ -210,6 +215,7 @@
                 <div><dt>Location</dt><dd id="meta-location"></dd></div>
                 <div><dt>Folder</dt><dd id="meta-folder"></dd></div>
                 <div><dt>File</dt><dd id="meta-file"></dd></div>
+                <div id="meta-source-row" class="hidden"><dt>Source URL</dt><dd class="source-url-field"><span id="meta-source-url"></span><button id="copy-source-url" type="button" title="Copy source URL" aria-label="Copy source URL">⧉</button></dd></div>
                 <div><dt>Extension</dt><dd id="meta-extension"></dd></div>
                 <div><dt>Size</dt><dd id="meta-size"></dd></div>
                 <div><dt>Modified</dt><dd id="meta-modified"></dd></div>
@@ -222,10 +228,12 @@
               </dl><section id="exif-metadata" class="additional-metadata hidden"><header><strong>Complete EXIF metadata</strong><button id="copy-exif-metadata" type="button" title="Copy all EXIF metadata">⧉</button></header><dl id="exif-metadata-content" class="exif-metadata-list"></dl></section><section id="additional-metadata" class="additional-metadata hidden"><header><strong>Additional metadata</strong><button id="copy-additional-metadata" type="button" title="Copy all metadata">⧉</button></header><pre id="additional-metadata-content"></pre></section><section id="comfyui-metadata" class="additional-metadata comfyui-metadata hidden"><header><strong>ComfyUI workflow</strong><button id="copy-comfyui-metadata" type="button" title="Copy ComfyUI workflow">⧉</button></header><pre id="comfyui-metadata-content"></pre></section>
 
             </div>
+            </div>
+            <section id="threads-panel" class="threads-panel hidden" role="tabpanel" aria-labelledby="right-panel-threads-tab"><header><strong>Background threads</strong><span id="threads-panel-summary">No active threads</span></header><div id="threads-panel-list" class="threads-panel-list" aria-live="polite"></div><footer class="threads-panel-controls"><span id="threads-live-count">0 running · 0 paused · 0 queued</span><button id="threads-toggle-all" type="button" aria-pressed="false" title="Pause all background threads">⏸ Pause all</button></footer></section>
+            <nav class="right-panel-tabs" role="tablist" aria-label="Right panel"><button id="right-panel-details-tab" class="active" type="button" role="tab" aria-selected="true" data-right-panel-tab="details">Details</button><button id="right-panel-threads-tab" type="button" role="tab" aria-selected="false" data-right-panel-tab="threads">Threads <span id="active-thread-count">0</span></button></nav>
           </aside>
         </section>
 
-        <div id="background-progress" class="background-progress hidden" role="status" aria-live="polite"><div class="background-progress-copy"><strong id="background-progress-label">Working…</strong><span id="background-progress-detail"></span></div><div class="background-progress-track"><span id="background-progress-fill"></span></div></div>
         <aside id="developer-overlay" class="developer-overlay hidden" aria-label="Developer telemetry"><header><strong>Developer telemetry</strong><span id="developer-overlay-time">Live</span></header><div id="developer-overlay-metrics" class="developer-overlay-metrics"></div><footer><span id="developer-overlay-detail">Collecting application metrics…</span><label class="developer-opacity-control" title="Overlay transparency"><span class="sr-only">Developer overlay transparency</span><input id="developer-overlay-opacity" type="range" min="20" max="95" value="68" aria-label="Developer overlay transparency" /></label></footer></aside>
         <section id="diagnostics-console" class="diagnostics-console hidden" aria-label="Diagnostics Console">
           <div id="diagnostics-resizer" class="diagnostics-resizer" role="separator" aria-orientation="horizontal" aria-label="Resize Diagnostics Console"></div>
@@ -236,7 +244,6 @@
         </section>
         <footer class="statusbar">
           <span id="status-text">Ready</span>
-          <img id="status-progress-pigeon" class="status-progress-pigeon hidden" src="../pigeon-peck.gif" alt="" aria-hidden="true" />
         </footer>
       </main>
     </div>
@@ -297,6 +304,10 @@
     <dialog id="text-entry-dialog" class="settings-dialog text-entry-dialog">
       <header><strong id="text-entry-title">Enter a value</strong><button id="close-text-entry">×</button></header>
       <div class="settings-content"><p id="text-entry-message"></p><div id="text-entry-tag-pills" class="text-entry-tag-pills hidden" aria-label="Applied automatic tags"></div><label id="text-entry-label" for="text-entry-input">Name</label><input id="text-entry-input" class="text-field" autocomplete="off" /><footer><button id="cancel-text-entry">Cancel</button><button id="confirm-text-entry" class="primary-button">Create</button></footer></div>
+    </dialog>
+    <dialog id="file-conflict-dialog" class="settings-dialog file-conflict-dialog" aria-labelledby="file-conflict-title" aria-describedby="file-conflict-message">
+      <header><strong id="file-conflict-title">Identical file already exists</strong><button id="close-file-conflict" type="button" aria-label="Close">×</button></header>
+      <div class="settings-content"><div class="file-conflict-summary"><span class="file-conflict-icon" aria-hidden="true">i</span><div><p id="file-conflict-message"><strong id="file-conflict-name"></strong> already exists and is identical to the incoming file.</p><p>Skip keeps the destination unchanged. Keep both creates a collision-safe filename. Overwrite replaces the destination so only one file remains.</p></div></div><footer><label class="file-conflict-apply"><input id="file-conflict-apply-all" type="checkbox" /><span class="file-conflict-switch" aria-hidden="true"></span><span>Apply to all files</span></label><div class="file-conflict-actions"><button id="file-conflict-skip" type="button">Skip</button><button id="file-conflict-keep-both" type="button">Keep both</button><button id="file-conflict-overwrite" class="primary-button" type="button">Overwrite</button></div></footer></div>
     </dialog>
     <dialog id="smart-folder-dialog" class="settings-dialog smart-folder-dialog">
       <header><strong>New Smart Folder</strong><button id="close-smart-folder-dialog">×</button></header>
