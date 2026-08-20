@@ -215,7 +215,7 @@ test('large-file scans defer fingerprints, use size-aware background deadlines, 
 
 test('thumbnail marquee selection auto-scrolls while background scans remain consolidated and responsive',()=>{
   assert.match(html,/id="selection-marquee"/);assert.match(styles,/\.selection-marquee/);assert.match(renderer,/function updateMarqueeSelection/);assert.match(renderer,/function runMarqueeAutoScroll/);assert.match(renderer,/setPointerCapture/);assert.match(renderer,/scrollSpeed/);assert.match(renderer,/paintChangedSelectionCards\(changed\)/);
-  assert.match(main,/\['database','thumbnail','index-scan','fingerprint'\]/);assert.match(main,/offset\+=100/);assert.match(main,/const scanBroadcastQueues=new Map/);assert.match(main,/setTimeout\(drain,16\)/);assert.match(renderer,/function scheduleLibraryAggregateBuild/);assert.match(renderer,/performance\.now\(\)-started<5/);assert.match(renderer,/const smartFolderCounts=new Map/);
+  assert.match(main,/showProgress=\['plugin','similarity'\]\.includes\(type\)/);assert.match(main,/offset\+=100/);assert.match(main,/const scanBroadcastQueues=new Map/);assert.match(main,/setTimeout\(drain,16\)/);assert.match(renderer,/function scheduleLibraryAggregateBuild/);assert.match(renderer,/performance\.now\(\)-started<5/);assert.match(renderer,/const smartFolderCounts=new Map/);
 });
 
 test('destructive sidebar confirmations identify the exact collection, Smart Folder, or indexed folder',()=>{
@@ -227,7 +227,7 @@ test('destructive sidebar confirmations identify the exact collection, Smart Fol
 test('sidebar-only creation, optimistic folders, universal worker progress, and immediate inspector tag suggestions are wired',()=>{
   assert.match(main,/function broadcastSidebar/);assert.match(main,/collection:create[\s\S]{0,220}createCollection\(library, name, parentId, id\)[\s\S]{0,120}broadcastSidebar\(\)/);assert.match(main,/smart-folder:create[\s\S]{0,180}broadcastSidebar\(\)/);assert.match(preload,/createCollection: \(name, parentId, id = null\)/);assert.match(preload,/onSidebarChanged/);assert.match(renderer,/window\.pigeon\.onSidebarChanged/);
   const createPrompt=renderer.slice(renderer.indexOf('async function createCollectionPrompt'),renderer.indexOf("$('#add-collection')"));assert.match(createPrompt,/crypto\.randomUUID\(\)/);assert.ok(createPrompt.indexOf('renderSidebar(false)')<createPrompt.indexOf('await window.pigeon.createCollection'));
-  assert.match(main,/showProgress=!\['database','thumbnail','index-scan','fingerprint'\]\.includes\(type\)/);assert.match(main,/if\(showProgress\)reportBackgroundProgress/);assert.match(main,/worker complete/);
+  assert.match(main,/showProgress=\['plugin','similarity'\]\.includes\(type\)/);assert.match(main,/if\(showProgress\)reportBackgroundProgress/);assert.match(main,/worker complete/);
   assert.match(renderer,/if\(input===elements\.tags\)/);assert.match(renderer,/addTagsToAssets\(targets,\[tag\]\)/);assert.match(renderer,/event\.key === 'Enter'.*applyTagSuggestion/);
 });
 
@@ -443,9 +443,14 @@ test('left-panel section headings collapse, expand, and persist', () => {
   assert.match(renderer, /pigeon\.collapsedSidebarSections/);
   assert.match(renderer, /pigeon\.collapsedFolders/);
   assert.match(renderer, /toggleFolderCollapsed/);
+  assert.match(renderer, /descendantCollapseKeys/);
+  assert.match(renderer, /setFolderCollapseStates/);
   assert.match(renderer, /collectionCollapseKey/);
   assert.match(renderer, /locationCollapseKey/);
   assert.match(styles, /\.folder-tree-toggle/);
+  assert.match(styles, /\.folder-row-collapse/);assert.match(styles,/folder-row-collapse[^}]*font-size:16px[^}]*font-weight:800/);
+  for(const name of ['smart-folders','collections','indexed-locations'])assert.match(html,new RegExp(`data-section-collapse="${name}"`));
+  assert.match(renderer,/\[data-section-collapse\]/);assert.match(main,/\['collections','smartFolders','folders'\]/);
   assert.match(styles, /\.context-menu button \{[^}]*justify-content: flex-start[^}]*text-align: left/);
   assert.match(styles, /sidebar-section-content\.collapsed/);
 });
@@ -1035,7 +1040,7 @@ test('portfolio-scoped threaded background work and diagnostics are wired', () =
   assert.match(preload, /getDiagnostics/);
   assert.match(preload, /onDiagnostic/);
   assert.match(renderer, /openDiagnosticsConsole/);
-  assert.match(renderer, /task\.completed>=task\.total/);
+  assert.match(renderer, /terminal=Boolean\(task\.done\)\|\|\['completed','failed','warning'\]\.includes\(task\.status\)/);
   assert.match(main,/background-threads:set-paused/);assert.match(main,/waitForBackgroundThread/);assert.match(preload,/setAllBackgroundThreadsPaused/);
   for (const id of ['diagnostics-console','diagnostics-list','diagnostics-clear','diagnostics-open-file']) assert.match(html, new RegExp(`id="${id}"`));
   assert.match(styles, /\.diagnostics-console/);
@@ -1063,11 +1068,11 @@ test('password protection immediately hides collection and physical-folder desce
 
 test('folder and collection context menus expose consistent hierarchy and destructive actions',()=>{
   const locationMenu=renderer.match(/function showLocationContextMenu[\s\S]*?function activateSidebarTreeRow/)?.[0]||'',collectionMenu=renderer.match(/function showCollectionContextMenu[\s\S]*?const mapTiles/)?.[0]||'',assetMenu=renderer.match(/function showAssetContextMenu[\s\S]*?function setSidebarSectionExpanded/)?.[0]||'';
-  assert.ok(locationMenu.indexOf('data-location-action="new-subfolder"')<locationMenu.indexOf('data-location-action="contact-sheet"'));assert.match(locationMenu,/createPhysicalSubfolder/);assert.match(preload,/createPhysicalSubfolder/);assert.match(main,/folder:create-physical/);assert.match(locationMenu,/View Analytics/);assert.match(collectionMenu,/View Analytics/);assert.doesNotMatch(`${locationMenu}${collectionMenu}`,/View (?:Folder|Collection) Analytics/);assert.ok(assetMenu.indexOf('remove-from-collection')<assetMenu.indexOf('Move reference to trash'));assert.doesNotMatch(assetMenu,/remove-from-collection[\s\S]{0,180}<hr/);
+  assert.ok(locationMenu.indexOf('data-location-action="new-subfolder"')<locationMenu.indexOf('data-location-action="contact-sheet"'));assert.match(locationMenu,/createPhysicalSubfolder/);assert.match(preload,/createPhysicalSubfolder/);assert.match(main,/folder:create-physical/);assert.match(locationMenu,/data-location-action="delete"/);assert.match(locationMenu,/Delete Folder/);assert.match(preload,/deletePhysicalFolder/);assert.match(main,/folder:delete-physical/);assert.match(locationMenu,/View Analytics/);assert.match(collectionMenu,/View Analytics/);assert.doesNotMatch(`${locationMenu}${collectionMenu}`,/View (?:Folder|Collection) Analytics/);assert.ok(assetMenu.indexOf('remove-from-collection')<assetMenu.indexOf('Move reference to trash'));assert.doesNotMatch(assetMenu,/remove-from-collection[\s\S]{0,180}<hr/);
 });
 
 test('folder, collection, and Smart Folder collapse paints immediately before reconciliation',()=>{
-  assert.match(renderer,/function paintFolderCollapseImmediately/);assert.match(renderer,/paintFolderCollapseImmediately\(key,collapsed\)/);assert.match(renderer,/toggle\.textContent=collapsed\?'▸':'▾'/);assert.match(renderer,/sibling\.hidden=collapsed/);assert.match(renderer,/requestAnimationFrame\(\(\)=>requestAnimationFrame/);assert.match(renderer,/key\.startsWith\('location:'\)\|\|key\.startsWith\('subfolder:'\)/);
+  assert.match(renderer,/function paintFolderCollapseImmediately/);assert.match(renderer,/for\(const descendant of descendants\)paintFolderCollapseImmediately\(descendant,true\)/);assert.match(renderer,/setFolderCollapseStates\(collapsed\?\[key,\.\.\.descendants\]/);assert.match(renderer,/data-total-collapse-key/);assert.match(renderer,/addEventListener\('click',[\s\S]{0,240},true\)/);assert.match(renderer,/control\.textContent=collapsed\?'＋':'−'/);assert.match(renderer,/sibling\.hidden=collapsed\|\|blockedDepth!==null/);assert.match(renderer,/ancestorHidden\|\|collapsed/);assert.match(renderer,/location-subfolder-list" \$\{rootCollapsed\?'hidden':''\}/);assert.doesNotMatch(renderer,/deferredHierarchyRenderFrame/);
 });
 
 test('show content from subfolders includes nested physical folders and collections but defaults off',()=>{
@@ -1335,7 +1340,7 @@ test('removing an empty indexed folder uses a non-recursive disk check',()=>{
 });
 
 test('nested sidebar folders retain a fixed aligned count column',()=>{
-  assert.match(styles,/\.collection-item, \.smart-folder-item, \.location-folder-item \{[^}]*minmax\(0,1fr\) 40px !important/);assert.match(styles,/\.collection-item small, \.smart-folder-item small, \.location-folder-item small \{ width:40px; min-width:40px;[^}]*text-align:right/);
+  assert.match(styles,/\.collection-item, \.smart-folder-item, \.location-folder-item \{[^}]*minmax\(0,1fr\) 40px 18px !important/);assert.match(styles,/\.collection-item small, \.smart-folder-item small, \.location-folder-item small \{ width:40px; min-width:40px;[^}]*text-align:right/);
 });
 
 test('collection navigation applies its saved thumbnail size before revealing new cards',()=>{
@@ -1437,6 +1442,8 @@ test('inspector rename remains asset-bound and patches one card without repainti
   const renameSource=renderer.slice(renderer.indexOf('async function renameAssetFile'),renderer.indexOf('const IMAGE_PREVIEW_DOCUMENT_EXTENSIONS'));
   assert.match(html,/rename-session\.js/);assert.match(renderer,/inspectorRenameSession\.begin\(asset\.id/);assert.match(renderer,/renameAssetFile\(rename\.assetId,rename\.value\)/);assert.match(renderer,/The original file is no longer available/);assert.match(renameSource,/patchCardMetadata\(current/);assert.doesNotMatch(renameSource,/renderGrid\(/);assert.doesNotMatch(renameSource,/reconcileThumbnailCards\(/);
 });
+
+test('collection transfers reuse matching physical roots and Threads expose real durable progress',()=>{assert.match(main,/reuseRoot=path\.basename\(selectedDestination\)\.localeCompare/);assert.match(main,/Generating previews/);assert.match(main,/showProgress=\['plugin','similarity'\]\.includes\(type\)/);assert.match(renderer,/syncBackgroundThreadsForPortfolio/);assert.doesNotMatch(renderer,/task\.total>0&&task\.completed>=task\.total/);});
 
 test('live imports refresh clean cards, context menus clear the footer, and persistent Threads uses bottom inspector tabs',()=>{
   for(const id of ['inspector-details-panel','threads-panel','threads-panel-list','right-panel-details-tab','right-panel-threads-tab','active-thread-count','threads-toggle-all'])assert.match(html,new RegExp(`id="${id}"`));assert.match(html,/data-section-toggle="indexed-locations"[^>]*>[\s\S]*?<span>Folders<\/span>/);assert.doesNotMatch(html,/>Indexed Locations?<\//i);

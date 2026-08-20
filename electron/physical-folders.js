@@ -114,6 +114,19 @@ async function moveDirectory(source, target, fsApi = fsp) {
   return 'copy-remove';
 }
 
+async function deletePhysicalFolder(locationRoot, subfolder = '', { trashItem, fsApi = fsp } = {}) {
+  const target = await safeExistingFolder(locationRoot, subfolder, { allowRoot: true, fsApi });
+  if (comparablePath(target.folder) === comparablePath(path.parse(target.folder).root)) throw new Error('A drive root cannot be deleted.');
+  const entries = await fsApi.readdir(target.folder);
+  if (!entries.length) {
+    await fsApi.rmdir(target.folder);
+    return { path: target.folder, empty: true, recycled: false };
+  }
+  if (typeof trashItem !== 'function') throw new Error('The operating-system Recycle Bin is unavailable.');
+  await trashItem(target.folder);
+  return { path: target.folder, empty: false, recycled: true };
+}
+
 async function movePhysicalSubfolder({ sourceRoot, sourceSubfolder, destinationRoot, destinationParentSubfolder = '', name }, fsApi = fsp) {
   const source = await safeExistingFolder(sourceRoot, sourceSubfolder, { fsApi });
   const destination = await safeExistingFolder(destinationRoot, destinationParentSubfolder, { allowRoot: true, fsApi });
@@ -143,4 +156,4 @@ async function movePhysicalSubfolder({ sourceRoot, sourceSubfolder, destinationR
   return { moved: true, method, name: targetName, source: source.folder, path: target, subfolder: [parent, targetName].filter(Boolean).join('/') };
 }
 
-module.exports = { createPhysicalSubfolder, movePhysicalSubfolder, rebasePhysicalPath, rebaseSubfolder, safeFolderName };
+module.exports = { createPhysicalSubfolder, deletePhysicalFolder, movePhysicalSubfolder, rebasePhysicalPath, rebaseSubfolder, safeFolderName };

@@ -54,6 +54,7 @@ contextBridge.exposeInMainWorld('pigeon', {
   createCollection: (name, parentId, id = null) => ipcRenderer.invoke('collection:create', { name, parentId, id }),
   duplicateGroupStructure: (type, id, subfolder = '') => ipcRenderer.invoke('group:duplicate-structure', { type, id, subfolder }),
   createPhysicalSubfolder: (locationId, subfolder, name) => ipcRenderer.invoke('folder:create-physical', { locationId, subfolder, name }),
+  deletePhysicalFolder: (locationId, subfolder = '') => ipcRenderer.invoke('folder:delete-physical', { locationId, subfolder }),
   movePhysicalFolder: (sourceLocationId, sourceSubfolder, destinationLocationId, destinationParentSubfolder = '', name = null) => ipcRenderer.invoke('folder:move-physical', { sourceLocationId, sourceSubfolder, destinationLocationId, destinationParentSubfolder, name }),
   renameCollection: (id, name) => ipcRenderer.invoke('collection:rename', { id, name }),
   moveCollection: (id, parentId) => ipcRenderer.invoke('collection:move', { id, parentId }),

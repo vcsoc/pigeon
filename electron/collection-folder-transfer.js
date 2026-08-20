@@ -16,7 +16,7 @@ function uniqueSiblingSegment(name, used) {
   return candidate;
 }
 
-function planCollectionFolderTransfer({ collections = [], assets = [], rootId, destination }) {
+function planCollectionFolderTransfer({ collections = [], assets = [], rootId, destination, reuseRoot = false }) {
   const byId = new Map(collections.map((collection) => [collection.id, collection])), root = byId.get(rootId);
   if (!root) throw new Error('Collection does not exist');
   const children = new Map();
@@ -39,7 +39,10 @@ function planCollectionFolderTransfer({ collections = [], assets = [], rootId, d
     relativeParts.set(collection.id, parts); depth.set(collection.id, parts.length); traversalOrder.set(collection.id, orderedCollections.length); orderedCollections.push(collection);
     for (const child of (children.get(collection.id) || []).slice().sort(compare)) visit(child, parts);
   };
-  visit(root, [], true);
+  if (reuseRoot) {
+    relativeParts.set(root.id, []); depth.set(root.id, 0); traversalOrder.set(root.id, orderedCollections.length); orderedCollections.push(root);
+    for (const child of (children.get(root.id) || []).slice().sort(compare)) visit(child, []);
+  } else visit(root, [], true);
   const subtreeIds = new Set(orderedCollections.map((collection) => collection.id));
   const isAncestor = (ancestorId, descendantId) => { let cursor = byId.get(descendantId); while (cursor?.parentId) { if (cursor.parentId === ancestorId) return true; cursor = byId.get(cursor.parentId); } return false; };
   let ambiguous = 0;

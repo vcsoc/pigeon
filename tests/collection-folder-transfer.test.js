@@ -27,6 +27,12 @@ test('plans a complete collection hierarchy and places files in their deepest ma
   assert.equal(plan.ambiguous, 0);
 });
 
+test('reuses an existing same-named physical destination as the collection root', () => {
+  const destination = path.resolve('C:/Pictures/Portfolio'), collections = [{ id: 'root', name: 'Portfolio', parentId: null }, { id: 'child', name: 'People', parentId: 'root' }], assets = [{ id: 'cover', collectionIds: ['root'] }, { id: 'portrait', collectionIds: ['child'] }];
+  const plan = planCollectionFolderTransfer({ collections, assets, rootId: 'root', destination, reuseRoot: true });
+  assert.equal(plan.rootDirectory, destination); assert.ok(plan.directories.includes(path.join(destination, 'People')));assert.equal(plan.files.find((item)=>item.assetId==='cover').directory,destination);assert.equal(plan.files.find((item)=>item.assetId==='portrait').directory,path.join(destination,'People'));
+});
+
 test('resolves sibling memberships deterministically and makes unsafe folder names collision-safe', () => {
   const collections = [
     { id: 'root', name: 'CON', parentId: null, order: 0 },
