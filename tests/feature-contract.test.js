@@ -441,6 +441,9 @@ test('left-panel section headings collapse, expand, and persist', () => {
     assert.match(html, new RegExp(`id="sidebar-section-${name}"`));
   }
   assert.match(renderer, /setSidebarSectionExpanded/);
+  assert.match(renderer,/setGroupExpanded=\(expanded\)=>\{setSidebarSectionExpanded\(name,expanded\);setHierarchyGroupCollapsed\(group,!expanded\);\}/);
+  assert.match(renderer,/setSidebarSectionExpanded\(name,!collapsedSidebarSections\.has\(name\)\)/);
+  assert.match(renderer,/label\.getAttribute\('aria-expanded'\)!=='true'/);
   assert.match(renderer, /pigeon\.collapsedSidebarSections/);
   assert.match(renderer, /pigeon\.collapsedFolders/);
   assert.match(renderer, /toggleFolderCollapsed/);

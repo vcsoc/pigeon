@@ -2075,9 +2075,9 @@ function setSidebarSectionExpanded(name, expanded) {
   if (expanded && name === 'indexed-locations') scheduleFolderTreeBuild();
 }
 document.querySelectorAll('[data-section-toggle]').forEach((label) => {
-  const name=label.dataset.sectionToggle,group=name==='smart-folders'?'smartFolders':name==='indexed-locations'?'folders':'collections';setSidebarSectionExpanded(name,true);
-  label.addEventListener('click',(event)=>{if(event.target.closest('button'))return;const control=document.querySelector(`[data-hierarchy-collapse="${group}"]`);setHierarchyGroupCollapsed(group,control?.getAttribute('aria-expanded')==='true');});
-  label.addEventListener('keydown',(event)=>{if(event.target.closest('button')||!['Enter',' '].includes(event.key))return;event.preventDefault();const control=document.querySelector(`[data-hierarchy-collapse="${group}"]`);setHierarchyGroupCollapsed(group,control?.getAttribute('aria-expanded')==='true');});
+  const name=label.dataset.sectionToggle,group=name==='smart-folders'?'smartFolders':name==='indexed-locations'?'folders':'collections',setGroupExpanded=(expanded)=>{setSidebarSectionExpanded(name,expanded);setHierarchyGroupCollapsed(group,!expanded);};setSidebarSectionExpanded(name,!collapsedSidebarSections.has(name));
+  label.addEventListener('click',(event)=>{if(event.target.closest('button'))return;setGroupExpanded(label.getAttribute('aria-expanded')!=='true');});
+  label.addEventListener('keydown',(event)=>{if(event.target.closest('button')||!['Enter',' '].includes(event.key))return;event.preventDefault();setGroupExpanded(label.getAttribute('aria-expanded')!=='true');});
 });
 $$('[data-hierarchy-collapse]').forEach((button)=>button.addEventListener('click',(event)=>{event.preventDefault();event.stopPropagation();const group=button.dataset.hierarchyCollapse;setHierarchyGroupCollapsed(group,button.getAttribute('aria-expanded')==='true');}));
 $('#add-folder-mini').addEventListener('click', addFolder);
