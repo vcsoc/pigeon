@@ -62,8 +62,8 @@ async function prepareNativeLibraries(temporaryDirectory) {
       findMachOBinary('node_modules/@img/sharp-libvips-darwin-x64', /^libvips-cpp.*\.dylib$/)
     ],
     [
-      findMachOBinary('node_modules/pdfjs-dist/node_modules/@napi-rs/canvas-darwin-arm64', /^skia\.darwin-arm64\.node$/),
-      findMachOBinary('node_modules/pdfjs-dist/node_modules/@napi-rs/canvas-darwin-x64', /^skia\.darwin-x64\.node$/)
+      findMachOBinary('node_modules/@napi-rs/canvas-darwin-arm64', /^skia\.darwin-arm64\.node$/),
+      findMachOBinary('node_modules/@napi-rs/canvas-darwin-x64', /^skia\.darwin-x64\.node$/)
     ]
   ];
   for (const [arm64Path, x64Path] of pairs) await universalizePair(arm64Path, x64Path, temporaryDirectory);
@@ -95,8 +95,8 @@ async function main() {
       ['@img/sharp-darwin-x64', 'node_modules/@img/sharp-darwin-x64'],
       ['@img/sharp-libvips-darwin-arm64', 'node_modules/@img/sharp-libvips-darwin-arm64'],
       ['@img/sharp-libvips-darwin-x64', 'node_modules/@img/sharp-libvips-darwin-x64'],
-      ['@napi-rs/canvas-darwin-arm64', 'node_modules/pdfjs-dist/node_modules/@napi-rs/canvas-darwin-arm64'],
-      ['@napi-rs/canvas-darwin-x64', 'node_modules/pdfjs-dist/node_modules/@napi-rs/canvas-darwin-x64']
+      ['@napi-rs/canvas-darwin-arm64', 'node_modules/@napi-rs/canvas-darwin-arm64'],
+      ['@napi-rs/canvas-darwin-x64', 'node_modules/@napi-rs/canvas-darwin-x64']
     ];
     for (const [name, packagePath] of packages) await installPackage(name, lockedVersion(packagePath), path.join(root, packagePath), temporaryDirectory);
     await prepareNativeLibraries(temporaryDirectory);

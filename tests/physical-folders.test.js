@@ -65,7 +65,7 @@ test('falls back to copy and remove for cross-device folder moves', async (conte
 });
 
 test('rebases physical paths and nested folder settings without touching siblings', () => {
-  assert.equal(rebasePhysicalPath('C:/root/source', 'D:/target/source', 'C:/root/source/child/file.jpg'), path.resolve('D:/target/source/child/file.jpg'));
+  assert.equal(rebasePhysicalPath('C:/root/source', 'D:/target/source', 'C:/root/source/child/file.jpg'), path.join('D:/target/source', 'child/file.jpg'));
   assert.equal(rebasePhysicalPath('C:/root/source', 'D:/target/source', 'C:/root/sibling/file.jpg'), null);
   assert.equal(rebaseSubfolder('source', 'destination/source', 'source/child'), 'destination/source/child');
   assert.equal(rebaseSubfolder('source', 'destination/source', 'source-two'), null);
