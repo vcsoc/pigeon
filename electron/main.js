@@ -32,6 +32,7 @@ const { portfolioChooserHtml, startupModifierPowerShell } = require('./startup-p
 const { portfolioAutoImportPath, samePath } = require('./auto-import');
 const { orderedNativeDragSelection, prepareCollisionSafeDragFiles } = require('./native-drag');
 const { resolveFileConflict, replaceFileSafely } = require('./file-conflicts');
+const { mimeTypeForExtension, mimeTypeForFile } = require('./asset-mime');
 const { createPhysicalSubfolder, deletePhysicalFolder, movePhysicalSubfolder, rebasePhysicalPath, rebaseSubfolder } = require('./physical-folders');
 const { matchingFolderLockRules } = require('./folder-locks');
 const { normalizedPathKey, findLocationOverlap, visibleLocations, owningLocation, deduplicateAssetsByPath } = require('./library-deduplication');
@@ -1059,7 +1060,7 @@ async function registerProtocol() {
       try {
         const body = await decryptFileCopy(encryptedPaths[encryptedCollection], unlockedCollections.get(encryptedCollection));
         const extension = wantsOriginal ? asset.extension : '.jpg';
-        const mime = ({ '.png':'image/png', '.webp':'image/webp', '.gif':'image/gif', '.jpg':'image/jpeg', '.jpeg':'image/jpeg' })[extension] || 'application/octet-stream';
+        const mime = mimeTypeForExtension(extension,body);
         return new Response(body, { status: 200, headers: { 'Content-Type': mime, 'Content-Length': String(body.length), 'Accept-Ranges': 'none', 'Cache-Control': 'no-store' } });
       } catch { return new Response('', { status: 403 }); }
     }
@@ -1070,8 +1071,7 @@ async function registerProtocol() {
         const originalSource = candidate === asset.path;
         if (originalSource && (asset.sourceMissing || asset.sourcePending || !await pathAvailable(candidate))) { markAssetSourcePending(asset); continue; }
         const stat = await fsp.stat(candidate);
-        const extension = path.extname(candidate).toLowerCase();
-        const mime = ({ '.svg':'image/svg+xml', '.png':'image/png', '.webp':'image/webp', '.gif':'image/gif', '.jpg':'image/jpeg', '.jpeg':'image/jpeg', '.mp4':'video/mp4', '.m4v':'video/mp4', '.mov':'video/quicktime', '.webm':'video/webm', '.ogv':'video/ogg', '.mp3':'audio/mpeg', '.wav':'audio/wav', '.m4a':'audio/mp4', '.aac':'audio/aac', '.flac':'audio/flac', '.ogg':'audio/ogg', '.oga':'audio/ogg', '.opus':'audio/ogg' })[extension] || 'application/octet-stream';
+        const mime = await mimeTypeForFile(candidate);
         const range = request.headers.get('range')?.match(/bytes=(\d+)-(\d*)/);
         if (range && wantsOriginal) {
           const start = Number(range[1]);

@@ -5,7 +5,7 @@ const RAW_IMAGE_EXTENSION_SET = new Set(RAW_IMAGE_EXTENSIONS);
 const HEIC_IMAGE_EXTENSIONS = Object.freeze(['.heic','.heif']);
 const HEIC_IMAGE_EXTENSION_SET = new Set(HEIC_IMAGE_EXTENSIONS);
 const FILE_TYPE_GROUPS = Object.freeze({
-  images: Object.freeze(['.jpg','.jpeg','.png','.webp','.gif','.bmp','.ico','.avif','.heic','.heif','.tif','.tiff','.svg','.psd',...RAW_IMAGE_EXTENSIONS]),
+  images: Object.freeze(['.jpg','.jpeg','.png','.pnj','.webp','.gif','.bmp','.ico','.avif','.heic','.heif','.tif','.tiff','.svg','.psd',...RAW_IMAGE_EXTENSIONS]),
   videos: Object.freeze(['.mp4','.mov','.m4v','.webm','.avi','.mkv','.ogv','.mpg','.mpeg','.m2v','.mts','.m2ts','.3gp','.3g2','.wmv','.flv']),
   audio: Object.freeze(['.mp3','.wav','.m4a','.aac','.flac','.ogg','.oga','.opus','.aif','.aiff','.wma']),
   documents: Object.freeze(['.pdf','.txt','.rtf','.md','.markdown','.doc','.docx','.odt','.pages','.epub','.html','.htm','.json','.jsonc','.yaml','.yml']),

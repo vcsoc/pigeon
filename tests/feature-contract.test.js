@@ -226,7 +226,8 @@ test('destructive sidebar confirmations identify the exact collection, Smart Fol
 
 test('sidebar-only creation, optimistic folders, universal worker progress, and immediate inspector tag suggestions are wired',()=>{
   assert.match(main,/function broadcastSidebar/);assert.match(main,/collection:create[\s\S]{0,220}createCollection\(library, name, parentId, id\)[\s\S]{0,120}broadcastSidebar\(\)/);assert.match(main,/smart-folder:create[\s\S]{0,180}broadcastSidebar\(\)/);assert.match(preload,/createCollection: \(name, parentId, id = null\)/);assert.match(preload,/onSidebarChanged/);assert.match(renderer,/window\.pigeon\.onSidebarChanged/);
-  const createPrompt=renderer.slice(renderer.indexOf('async function createCollectionPrompt'),renderer.indexOf("$('#add-collection')"));assert.match(createPrompt,/crypto\.randomUUID\(\)/);assert.ok(createPrompt.indexOf('renderSidebar(false)')<createPrompt.indexOf('await window.pigeon.createCollection'));
+  const createPrompt=renderer.slice(renderer.indexOf('async function createCollectionPrompt'),renderer.indexOf("$('#add-collection')"));assert.match(createPrompt,/crypto\.randomUUID\(\)/);assert.ok(createPrompt.indexOf('renderSidebar(false)')<createPrompt.indexOf('await window.pigeon.createCollection'));assert.match(createPrompt,/requestAnimationFrame\(resolve\)/);
+  const physicalCreate=renderer.slice(renderer.indexOf("if(action==='new-subfolder')"),renderer.indexOf("if(action==='rename')"));assert.match(physicalCreate,/stageOptimisticPhysicalFolder/);assert.ok(physicalCreate.indexOf('stageOptimisticPhysicalFolder')<physicalCreate.indexOf('await window.pigeon.createPhysicalSubfolder'));assert.match(physicalCreate,/requestAnimationFrame\(resolve\)/);assert.match(physicalCreate,/rollback\(\)/);assert.match(renderer,/function stageOptimisticPhysicalFolder/);
   assert.match(main,/showProgress=\['plugin','similarity'\]\.includes\(type\)/);assert.match(main,/if\(showProgress\)reportBackgroundProgress/);assert.match(main,/worker complete/);
   assert.match(renderer,/if\(input===elements\.tags\)/);assert.match(renderer,/addTagsToAssets\(targets,\[tag\]\)/);assert.match(renderer,/event\.key === 'Enter'.*applyTagSuggestion/);
 });
@@ -1292,6 +1293,11 @@ test('Help Tutorials provides a comic guided tour with complete navigation and p
   assert.match(renderer,/Password-protect a collection/);assert.match(renderer,/Password protect folder/);assert.match(renderer,/Apply—and remove—privacy effects/);assert.match(renderer,/Blur or Pixelate/);assert.match(renderer,/Press B again to remove it/);
   assert.match(renderer,/Hover to preview motion/);assert.match(renderer,/GIF, or animated WebP/);assert.match(renderer,/Hold Ctrl or Alt while hovering for temporary sound/);assert.match(renderer,/Alt is also the default reveal key/);assert.match(renderer,/temporaryShortcutPressed/);
   assert.match(styles,/\.tutorial-dimmer/);assert.match(styles,/\.tutorial-highlight/);assert.match(styles,/\.tutorial-bubble/);assert.match(styles,/box-shadow:8px 9px 0/);
+});
+
+test('PNJ files are indexed as images and content-sniffed for full previews',()=>{
+  const fileTypes=fs.readFileSync(path.join(root,'electron','file-types.js'),'utf8'),assetMime=fs.readFileSync(path.join(root,'electron','asset-mime.js'),'utf8');
+  assert.match(fileTypes,/['"]\.pnj['"]/);assert.match(main,/mimeTypeForFile\(candidate\)/);assert.match(main,/mimeTypeForExtension\(extension,body\)/);assert.match(assetMime,/image\/jpeg/);assert.match(assetMime,/image\/png/);
 });
 
 test('camera RAW thumbnails and full viewer proxies decode outside the UI thread',()=>{
