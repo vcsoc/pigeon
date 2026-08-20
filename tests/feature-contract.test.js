@@ -12,6 +12,7 @@ const main = fs.readFileSync(path.join(root, 'electron', 'main.js'), 'utf8');
 const libraryCore = fs.readFileSync(path.join(root, 'electron', 'library-core.js'), 'utf8');
 const core = libraryCore;
 const thumbnailWorker = fs.readFileSync(path.join(root, 'electron', 'thumbnail-worker.js'), 'utf8');
+const heicPreview = fs.readFileSync(path.join(root, 'electron', 'heic-preview.js'), 'utf8');
 const textDocumentPreview = fs.readFileSync(path.join(root,'electron','text-document-preview.js'),'utf8');
 const cooperativeView=fs.readFileSync(path.join(root,'src','cooperative-view.js'),'utf8');
 const folderTreeWorker = fs.readFileSync(path.join(root, 'electron', 'folder-tree-worker.js'), 'utf8');
@@ -511,6 +512,16 @@ test('included locations expose nested physical-folder filtering and recursive A
   assert.match(renderer, /function hideContextMenu/);
   assert.match(renderer, /Set Auto-Tag/);
   assert.match(renderer, /data-location-action="rescan"/);
+  assert.match(renderer, /data-location-action="new-subfolder"/);
+  assert.match(renderer, /createPhysicalSubfolder/);
+  assert.match(preload, /folder:create-physical/);
+  assert.match(main, /createPhysicalSubfolder/);
+  assert.match(main, /emptyFolders\[locationId\]/);
+  assert.match(renderer, /data-location-action="rename"/);
+  assert.match(renderer, /application\/x-pigeon-physical-folder/);
+  assert.match(preload, /folder:move-physical/);
+  assert.match(main, /movePhysicalSubfolder/);
+  assert.match(main, /migratePhysicalFolderSettings/);
   assert.match(renderer, /Rescan Folder/);
   assert.match(renderer, /source-missing-overlay/);
   assert.match(renderer, /Source Missing/);
@@ -534,6 +545,14 @@ test('included locations expose nested physical-folder filtering and recursive A
   assert.match(renderer, /folder-tree/);
   assert.match(renderer, /buildFolderTree/);
   assert.match(renderer, /selectedFolder/);
+});
+test('thumbnail context menu navigates in-app to the containing physical Folder',()=>{assert.match(html,/physical-folder-navigation\.js/);assert.match(renderer,/data-context-action="go-to-folder"/);assert.match(renderer,/>Go to Folder</);assert.match(renderer,/goToAssetPhysicalFolder\(asset\)/);assert.match(renderer,/physicalFolderNavigation\.assetFolderTarget/);assert.match(renderer,/await selectLocation\(target\.locationId,target\.subfolder\)/);assert.match(renderer,/folderTreeLimits\.set/);assert.match(renderer,/scheduleFolderTreeBuild\(\)/);});
+test('physical Folders rebuild after sidebar refresh, rescan, and section expansion',()=>{assert.match(renderer,/if\(locations\)scheduleFolderTreeBuild\(\)/);assert.match(renderer,/await window\.pigeon\.rescan\(state\.locationId\); scheduleFolderTreeBuild\(\)/);assert.match(renderer,/expanded && name === 'indexed-locations'\) scheduleFolderTreeBuild\(\)/);assert.match(main,/PIGEON_SMOKE_PHYSICAL_TREE/);assert.match(main,/physical folder tree visible/);});
+
+test('Collections stay virtual while the physical source tree is labeled Folders', () => {
+  assert.match(html, /<span>Folders<\/span>/); assert.doesNotMatch(html, />Indexed locations</i); assert.match(html, /Show these items[\s\S]*showLocations[^\n]*Folders/);
+  assert.match(renderer, /Collections are virtual/); assert.match(renderer, /without changing any folders on disk/); assert.match(renderer, /New Nested Collection/);
+  for (const channel of ['collection:create','collection:rename','collection:move']) { const handler=main.match(new RegExp(`ipcMain\\.handle\\('${channel}'[\\s\\S]*?\\n\\}\\);`))?.[0]||''; assert.ok(handler, `${channel} handler should exist`); assert.doesNotMatch(handler, /\bfsp?\./, `${channel} must not mutate disk`); }
 });
 
 test('rotated justified thumbnails, centered metadata, untagged view, and durable collection auto-tags are wired', () => {
@@ -913,7 +932,7 @@ test('sidebar keyboard navigation, recursive exports, and update checks are wire
   assert.match(styles, /height:0/);
   assert.match(renderer, /handleSidebarTreeKeys/);
   assert.match(renderer, /ArrowDown/);
-  assert.match(renderer, /Export Collection/);
+  assert.match(renderer, /Export Referenced Files/);
   assert.match(renderer, /Export Smart Folder/);
   assert.match(renderer, /Check for Updates/);
   assert.match(preload, /exportGroup/);
@@ -1228,6 +1247,11 @@ test('Help Tutorials provides a comic guided tour with complete navigation and p
 test('camera RAW thumbnails and full viewer proxies decode outside the UI thread',()=>{
   for(const extension of ['.cr2','.cr3','.nef','.arw','.dng','.raf','.rw2','.orf','.pef','.srw','.x3f'])assert.match(fileTypesSource,new RegExp(`'\\${extension}'`));
   assert.match(thumbnailWorker,/decodeRawCamera/);assert.match(thumbnailWorker,/import\('libraw-wasm'\)/);assert.match(thumbnailWorker,/raw\.imageData\(\)/);assert.match(thumbnailWorker,/raw\.thumbnailData\(\)/);assert.match(thumbnailWorker,/proxyVersion:rawCamera\?3/);assert.match(main,/RAW_IMAGE_EXTENSION_SET/);assert.match(main,/rawProxyTarget/);assert.match(main,/asset\.proxyVersion\s*=\s*thumbnail\.proxyVersion/);assert.match(main,/wantsProxy && asset\.proxyPath/);
+});
+
+test('HEIC and HEIF thumbnails use a bounded worker decoder and versioned cache retry',()=>{
+  assert.match(thumbnailWorker,/decodeHeicToRaw/);assert.match(thumbnailWorker,/HEIC_IMAGE_EXTENSION_SET/);assert.match(heicPreview,/require\('heic-decode'\)/);assert.match(heicPreview,/MAX_HEIC_BYTES/);assert.match(heicPreview,/MAX_HEIC_PIXELS/);assert.match(heicPreview,/images\.dispose/);
+  assert.match(main,/HEIC_PREVIEW_VERSION=1/);assert.match(main,/heicPreviewVersion/);assert.match(main,/thumbnailFailureVersion!==HEIC_PREVIEW_VERSION/);assert.match(main,/heic\?30000/);
 });
 
 test('focused file indexing and delayed hover playback are configurable',()=>{

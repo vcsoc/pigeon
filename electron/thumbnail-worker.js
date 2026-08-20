@@ -3,7 +3,8 @@ const sharp = require('sharp');
 const exifReader = require('exif-reader');
 const fs=require('node:fs/promises');
 const {pngTextMetadata}=require('./embedded-metadata');
-const {RAW_IMAGE_EXTENSION_SET:RAW_CAMERA_EXTENSIONS}=require('./file-types');
+const {RAW_IMAGE_EXTENSION_SET:RAW_CAMERA_EXTENSIONS,HEIC_IMAGE_EXTENSION_SET}=require('./file-types');
+const {decodeHeicToRaw}=require('./heic-preview');
 let LibRawClass;
 async function decodeRawCamera(source,proxyTarget){
   const {installNodeWebWorker}=await import('./node-web-worker.mjs');installNodeWebWorker();
@@ -31,9 +32,9 @@ function boundedEmbeddedText(buffers={}){const result={};for(const[name,value]of
 parentPort.on('message', async ({source,target,rawProxyTarget,metadataOnly=false}) => {
   try {
     if(metadataOnly){parentPort.postMessage({ok:true,embeddedMetadata:await pngTextMetadata(source)});return;}
-    const rawCamera=RAW_CAMERA_EXTENSIONS.has(require('node:path').extname(source).toLowerCase()),rawPreview=rawCamera?await decodeRawCamera(source,rawProxyTarget):null;
+    const extension=require('node:path').extname(source).toLowerCase(),rawCamera=RAW_CAMERA_EXTENSIONS.has(extension),heic=HEIC_IMAGE_EXTENSION_SET.has(extension),rawPreview=rawCamera?await decodeRawCamera(source,rawProxyTarget):null,heicPreview=heic?await decodeHeicToRaw(source):null;
     const imageSource=rawPreview?.path||source;
-    const image = sharp(imageSource, { failOn: 'none', limitInputPixels: 268402689 });
+    const image = heicPreview?sharp(heicPreview.data,{raw:{width:heicPreview.width,height:heicPreview.height,channels:heicPreview.channels},failOn:'none'}):sharp(imageSource, { failOn: 'none', limitInputPixels: 268402689 });
     const [metadata, stats, sample] = await Promise.all([
       image.metadata(),
       image.clone().stats(),
@@ -88,7 +89,7 @@ parentPort.on('message', async ({source,target,rawProxyTarget,metadataOnly=false
       perceptualHash,
       exif:exif||(rawCamera?{Image:{Make:rawPreview.metadata.camera_make||null,Model:rawPreview.metadata.camera_model||null},Photo:{ISOSpeedRatings:rawPreview.metadata.iso_speed||null,ExposureTime:rawPreview.metadata.shutter||null,FNumber:rawPreview.metadata.aperture||null,FocalLength:rawPreview.metadata.focal_len||null},DateTimeOriginal:rawPreview.metadata.timestamp instanceof Date?rawPreview.metadata.timestamp.toISOString():rawPreview.metadata.timestamp||null}:null),
       embeddedMetadata: pngMetadata||boundedEmbeddedText({ exif:metadata.exif, xmp:metadata.xmp, iptc:metadata.iptc, tEXt:metadata.comments?Buffer.from(JSON.stringify(metadata.comments)):null }),
-      technicalMetadata: { format: rawCamera?'camera-raw':metadata.format, decodedFormat:rawCamera?metadata.format:null, sourceExtension:rawCamera?require('node:path').extname(source).slice(1).toUpperCase():null, cameraMake:rawCamera?rawPreview.metadata.camera_make||null:null, cameraModel:rawCamera?rawPreview.metadata.camera_model||null:null, space: metadata.space, channels: metadata.channels, depth: metadata.depth, density: metadata.density || null, hasAlpha: metadata.hasAlpha, orientation: metadata.orientation || 1 },
+      technicalMetadata: { format: rawCamera?'camera-raw':heic?'heic':metadata.format, decodedFormat:rawCamera?metadata.format:heic?'raw-rgba':null, sourceExtension:rawCamera||heic?extension.slice(1).toUpperCase():null, imageCount:heic?heicPreview.imageCount:null, cameraMake:rawCamera?rawPreview.metadata.camera_make||null:null, cameraModel:rawCamera?rawPreview.metadata.camera_model||null:null, space: metadata.space, channels: metadata.channels, depth: metadata.depth, density: metadata.density || null, hasAlpha: metadata.hasAlpha, orientation: metadata.orientation || 1 },
       dominantColor: dominant ? `#${[dominant.r, dominant.g, dominant.b].map((value) => value.toString(16).padStart(2, '0')).join('')}` : null
     });
   } catch (error) {

@@ -10,6 +10,8 @@ test('focused indexing defaults cover common media, documents, presentations, an
   assert.deepEqual(DEFAULT_INDEX_CATEGORIES, Object.keys(FILE_TYPE_GROUPS));
   assert.equal(indexingPolicySignature({}), indexingPolicySignature({ indexAllFiles:false, indexFileCategories:[...DEFAULT_INDEX_CATEGORIES], indexCustomExtensions:'' }));
   assert(IMAGE_EXTENSIONS.has('.heic'));
+  assert.equal(shouldIndexFile('PHONE.HEIC'), true);
+  assert.equal(shouldIndexFile('PHONE.HEIF'), true);
   assert(DOCUMENT_EXTENSIONS.has('.md'));
   assert(DOCUMENT_EXTENSIONS.has('.pptx'));
 });

@@ -16,7 +16,7 @@ const { compareVersions, isMissingUpdateMetadataError, isNewerVersion, isTransie
 const { extractSnagxPreview } = require('./snagx-preview');
 const { extractLightroomPreview } = require('./lightroom-preview');
 const {TEXT_PREVIEW_DOCUMENT_EXTENSIONS,createTextDocumentThumbnail}=require('./text-document-preview');
-const { IMAGE_EXTENSIONS, RAW_IMAGE_EXTENSION_SET, VIDEO_EXTENSIONS, AUDIO_EXTENSIONS, FONT_EXTENSIONS, DOCUMENT_EXTENSIONS, shouldIndexFile, dialogExtensions, indexingPolicySignature } = require('./file-types');
+const { IMAGE_EXTENSIONS, RAW_IMAGE_EXTENSION_SET, HEIC_IMAGE_EXTENSION_SET, VIDEO_EXTENSIONS, AUDIO_EXTENSIONS, FONT_EXTENSIONS, DOCUMENT_EXTENSIONS, shouldIndexFile, dialogExtensions, indexingPolicySignature } = require('./file-types');
 const { execFile, spawn } = require('node:child_process');
 const { Worker } = require('node:worker_threads');
 const { performance } = require('node:perf_hooks');
@@ -31,6 +31,7 @@ const { portfolioChooserHtml, startupModifierPowerShell } = require('./startup-p
 const { portfolioAutoImportPath, samePath } = require('./auto-import');
 const { orderedNativeDragSelection, prepareCollisionSafeDragFiles } = require('./native-drag');
 const { resolveFileConflict } = require('./file-conflicts');
+const { createPhysicalSubfolder, movePhysicalSubfolder, rebasePhysicalPath, rebaseSubfolder } = require('./physical-folders');
 autoUpdater.disableWebInstaller = true;
 autoUpdater.allowDowngrade = false;
 
@@ -90,7 +91,7 @@ const MAX_BACKGROUND_THREADS = 4;
 const INDEX_WORKER_COUNT = Math.max(1,Math.min(MAX_BACKGROUND_THREADS,Math.max(1,Math.floor(os.cpus().length/3))));
 const THUMBNAIL_WORKER_COUNT = 2;
 const BACKGROUND_HASH_WORKERS = 2;
-const PDF_WORKER_LIMIT = 1,PDF_PREVIEW_VERSION=3;
+const PDF_WORKER_LIMIT = 1,PDF_PREVIEW_VERSION=3,HEIC_PREVIEW_VERSION=1;
 const LARGE_SCAN_WORKER_LIMIT = 2;
 const ASSET_STREAM_BATCH_SIZE=Math.max(500,Math.min(4000,Number(process.env.PIGEON_ASSET_BATCH_SIZE)||500));
 const THUMBNAIL_IDLE_DELAY_MS=Math.max(250,Math.min(5000,Number(process.env.PIGEON_THUMBNAIL_IDLE_MS)||900));
@@ -519,7 +520,7 @@ function dispatchThumbnailJobs() {
     if (dispatched>=concurrency||worker.busy || !thumbnailQueue.length) continue;
     dispatched+=1;
     const job = thumbnailQueue.shift(); worker.busy = true; worker.currentJob = job; if (worker.telemetry) { worker.telemetry.filesTotal += 1; worker.telemetry.currentFile = job.source; worker.telemetry.status = 'running'; }
-    const rawCamera=RAW_IMAGE_EXTENSION_SET.has(path.extname(job.source).toLowerCase()),timeout=rawCamera?90000:10000,rawProxyTarget=rawCamera?path.join(path.dirname(job.target),`${path.parse(job.target).name}.raw-preview.jpg`):null;
+    const extension=path.extname(job.source).toLowerCase(),rawCamera=RAW_IMAGE_EXTENSION_SET.has(extension),heic=HEIC_IMAGE_EXTENSION_SET.has(extension),timeout=rawCamera?90000:heic?30000:10000,rawProxyTarget=rawCamera?path.join(path.dirname(job.target),`${path.parse(job.target).name}.raw-preview.jpg`):null;
     worker.jobTimer = setTimeout(() => { recordDiagnostic('warning', 'Preview worker timed out', { source: job.source, timeout }); finishThumbnailWorkerJob(worker, { ok: false, message: 'Preview generation timed out' }, true); }, timeout);
     worker.postMessage({source:job.source,target:job.target,rawProxyTarget,metadataOnly:Boolean(job.metadataOnly)});
   }
@@ -586,7 +587,7 @@ async function createDocumentThumbnail(asset, target) {
     const extracted=await extractSnagxPreview(asset.path,path.join(thumbnailDir,`${asset.id}.snagx-preview`));if(!extracted)return null;
     try{const metadata=await sharp(extracted.target).metadata();await sharp(extracted.target).rotate().resize({width:512,height:512,fit:'inside',withoutEnlargement:true}).flatten({background:'#20232d'}).jpeg({quality:76}).toFile(target);asset.proxyPath=extracted.target;asset.proxyVersion=3;return{ok:true,target,proxyPath:extracted.target,width:metadata.width,height:metadata.height,technicalMetadata:{format:'snagx',previewEntry:extracted.entryName,previewFormat:metadata.format,hasAlpha:metadata.hasAlpha}};}catch(error){await fsp.rm(extracted.target,{force:true});throw error;}
   }
-  if (asset.thumbnailPath && await pathAvailable(asset.thumbnailPath) && !(asset.extension==='PDF'&&asset.pdfPreviewVersion!==PDF_PREVIEW_VERSION)) return { ok: true, target: asset.thumbnailPath };
+  if (asset.thumbnailPath && await pathAvailable(asset.thumbnailPath) && !(asset.extension==='PDF'&&asset.pdfPreviewVersion!==PDF_PREVIEW_VERSION) && !(HEIC_IMAGE_EXTENSION_SET.has(path.extname(asset.path).toLowerCase())&&asset.heicPreviewVersion!==HEIC_PREVIEW_VERSION)) return { ok: true, target: asset.thumbnailPath };
   if (asset.extension==='SKETCH'||asset.extension==='FREE'){if(process.platform!=='win32')return null;const extracted=`${target}.embedded`;if(!(await extractZipPreview(asset.path,extracted)))return null;try{const metadata=await sharp(extracted).metadata();await sharp(extracted).resize({width:512,height:512,fit:'inside',withoutEnlargement:true}).flatten({background:'#20232d'}).jpeg({quality:72}).toFile(target);return{ok:true,target,width:metadata.width,height:metadata.height};}finally{await fsp.rm(extracted,{force:true});}}
   if (asset.extension !== 'PDF') { const ready = await runVideoFfmpeg(['-hide_banner', '-loglevel', 'error', '-i', asset.path, '-frames:v', '1', '-vf', 'scale=512:512:force_original_aspect_ratio=decrease', '-q:v', '5', '-y', target], 9000); return ready ? { ok: true, target } : null; }
   await acquirePdfWorkerSlot(); try { return await new Promise((resolve) => { const child=utilityProcess.fork(path.join(__dirname,'pdf-thumbnail-child.js'),[],{serviceName:'Pigeon PDF preview'}); let settled=false; const finish=(result)=>{if(settled)return;settled=true;clearTimeout(timer);try{child.kill();}catch{}if(result&&!result.ok)recordDiagnostic('warning','PDF preview renderer failed',{file:asset.path,error:result.message,stack:result.stack});resolve(result?.ok?result:{ok:false,message:result?.message||'PDF preview unavailable'});}; const timer=setTimeout(()=>{recordDiagnostic('warning','PDF preview timed out',{file:asset.path});finish(null);},30000); child.on('message',finish); child.on('error',(error)=>{recordDiagnostic('error','Isolated PDF preview failed',error);finish(null);}); child.on('exit',(code)=>{if(code!==0)recordDiagnostic('warning','Isolated PDF preview process exited',{code,file:asset.path});finish(null);}); child.postMessage({source:asset.path,target}); }); } finally { releasePdfWorkerSlot(); }
@@ -609,7 +610,7 @@ async function createThumbnail(asset) {
   if (asset.kind === 'audio') return createAudioThumbnail(asset, target);
   if (asset.kind !== 'image') return null;
   const key = `${asset.id}:${asset.modified || 0}`; if (thumbnailPreparationJobs.has(key)) return thumbnailPreparationJobs.get(key);
-  const job = new Promise((resolve) => { thumbnailQueue.push({ source: asset.path, target, resolve }); dispatchThumbnailJobs(); }).finally(() => thumbnailPreparationJobs.delete(key));
+  const job = new Promise((resolve) => { thumbnailQueue.push({ source: asset.path, target, resolve }); dispatchThumbnailJobs(); }).then((result)=>{if(result?.ok&&HEIC_IMAGE_EXTENSION_SET.has(path.extname(asset.path).toLowerCase()))asset.heicPreviewVersion=HEIC_PREVIEW_VERSION;return result;}).finally(() => thumbnailPreparationJobs.delete(key));
   thumbnailPreparationJobs.set(key, job); return job;
 }
 function prepareVideoFiles(asset, includeProxy = false) {
@@ -686,6 +687,7 @@ async function inspectFile(filePath, location, existing, { deferHash = false, in
       thumbnailError: unchanged ? existing?.thumbnailError || null : null,
       thumbnailFailureVersion:unchanged?existing?.thumbnailFailureVersion||null:null,
       pdfPreviewVersion:unchanged?existing?.pdfPreviewVersion||null:null,
+      heicPreviewVersion:unchanged?existing?.heicPreviewVersion||null:null,
       width: unchanged ? existing?.width || null : null,
       height: unchanged ? existing?.height || null : null,
       dominantColor: unchanged ? existing?.dominantColor || null : null,
@@ -899,11 +901,12 @@ async function warmCompatibilityVideoCache() {
 
 function thumbnailWorkRequired(asset) {
   if (asset.linkedYouTube) return false;
-  if (asset.thumbnailFailedAt && asset.thumbnailFailedModified === asset.modified && !(asset.extension==='PDF'&&asset.thumbnailFailureVersion!==PDF_PREVIEW_VERSION)) return false;
+  const heic=HEIC_IMAGE_EXTENSION_SET.has(path.extname(asset.path).toLowerCase());
+  if (asset.thumbnailFailedAt && asset.thumbnailFailedModified === asset.modified && !(asset.extension==='PDF'&&asset.thumbnailFailureVersion!==PDF_PREVIEW_VERSION) && !(heic&&asset.thumbnailFailureVersion!==HEIC_PREVIEW_VERSION)) return false;
   if (asset.kind === 'video') return !asset.thumbnailPath || !asset.width || !asset.height || !asset.duration;
   if (asset.kind === 'audio') return !asset.thumbnailPath || !asset.duration;
   if (PREVIEWABLE_DOCUMENT_EXTENSIONS.has(asset.extension)) return !asset.thumbnailPath || (asset.extension==='PDF'&&asset.pdfPreviewVersion!==PDF_PREVIEW_VERSION);
-  return asset.kind === 'image' && (!asset.thumbnailPath || RAW_IMAGE_EXTENSION_SET.has(path.extname(asset.path).toLowerCase()) && (!asset.proxyPath || asset.proxyVersion!==3) || !asset.width || !asset.height || !asset.dominantColor || !asset.histogram || !asset.palette || !asset.perceptualHash || !asset.technicalMetadata);
+  return asset.kind === 'image' && (!asset.thumbnailPath || heic&&asset.heicPreviewVersion!==HEIC_PREVIEW_VERSION || RAW_IMAGE_EXTENSION_SET.has(path.extname(asset.path).toLowerCase()) && (!asset.proxyPath || asset.proxyVersion!==3) || !asset.width || !asset.height || !asset.dominantColor || !asset.histogram || !asset.palette || !asset.perceptualHash || !asset.technicalMetadata);
 }
 async function generateScheduledThumbnail(job){
   const asset=mainAssetIndex.get(job.id);if(!asset||Number(asset.modified||0)!==job.version||!thumbnailWorkRequired(asset)||asset.sourcePending||asset.sourceMissing)return;
@@ -911,10 +914,10 @@ async function generateScheduledThumbnail(job){
   if(!(await pathAvailable(asset.path))){markAssetSourcePending(asset);return;}
   const run={epoch:backgroundEpoch,portfolioId:activePortfolioId,library,progressId:`${activePortfolioId}:thumbnail:${asset.id}`,reportPauses:false};if(!(await waitForIndexCpuBudget(run)))return;
   const span=performanceRecorder.start('thumbnail-generation',{portfolioId:activePortfolioId,portfolioSize:library.assets.length,queueWaitMs:Date.now()-job.enqueuedAt,phase:job.reason,assetMix:{[asset.kind||'other']:1}});
-  const thumbnail=await retryBackground(async()=>{const value=asset.kind==='video'?await prepareVideoFiles(asset):await createThumbnail(asset);if(!value?.ok)throw new Error(value?.message||'Preview unavailable');return value;},run,{attempts:3,timeout:asset.extension==='PDF'?35000:RAW_IMAGE_EXTENSION_SET.has(path.extname(asset.path).toLowerCase())?95000:11000,baseDelay:120,label:`Preview ${asset.filename}`});
+  const heic=HEIC_IMAGE_EXTENSION_SET.has(path.extname(asset.path).toLowerCase()),thumbnail=await retryBackground(async()=>{const value=asset.kind==='video'?await prepareVideoFiles(asset):await createThumbnail(asset);if(!value?.ok)throw new Error(value?.message||'Preview unavailable');return value;},run,{attempts:3,timeout:asset.extension==='PDF'?35000:RAW_IMAGE_EXTENSION_SET.has(path.extname(asset.path).toLowerCase())?95000:heic?35000:11000,baseDelay:120,label:`Preview ${asset.filename}`});
   if(!backgroundRunActive(run))return;
-  if(!thumbnail?.ok){asset.thumbnailFailedAt=Date.now();asset.thumbnailFailedModified=asset.modified;asset.thumbnailError=thumbnail?.message||'This format could not be previewed';asset.thumbnailFailureVersion=asset.extension==='PDF'?PDF_PREVIEW_VERSION:null;scheduleAssetSave(asset);if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('thumbnail:ready',{id:asset.id,failed:true,error:asset.thumbnailError,generatedAt:Date.now()});performanceRecorder.end(span,{phase:'failed'});return;}
-  asset.thumbnailFailedAt=null;asset.thumbnailFailedModified=null;asset.thumbnailError=null;asset.thumbnailFailureVersion=null;asset.thumbnailPath=thumbnail.target;if(asset.extension==='PDF')asset.pdfPreviewVersion=PDF_PREVIEW_VERSION;asset.proxyPath=thumbnail.proxyPath||asset.proxyPath||null;asset.proxyVersion=thumbnail.proxyVersion||asset.proxyVersion||null;asset.width=thumbnail.width||asset.width||null;asset.height=thumbnail.height||asset.height||null;asset.duration=thumbnail.duration||asset.duration||null;asset.dominantColor=thumbnail.dominantColor||asset.dominantColor||null;asset.histogram=thumbnail.histogram||asset.histogram||null;asset.palette=thumbnail.palette||asset.palette||null;asset.perceptualHash=thumbnail.perceptualHash||asset.perceptualHash||null;asset.exif=thumbnail.exif||asset.exif||null;asset.hasEmbeddedWorkflow=Boolean(thumbnail.embeddedMetadata);asset.embeddedMetadata=null;asset.technicalMetadata=thumbnail.technicalMetadata||asset.technicalMetadata||null;if(library.settings?.autoTag&&!asset.needsOrganization)asset.tags=[...new Set([...(asset.tags||[]),...libraryCore.suggestTags(asset)])];scheduleAssetSave(asset);
+  if(!thumbnail?.ok){asset.thumbnailFailedAt=Date.now();asset.thumbnailFailedModified=asset.modified;asset.thumbnailError=thumbnail?.message||'This format could not be previewed';asset.thumbnailFailureVersion=asset.extension==='PDF'?PDF_PREVIEW_VERSION:heic?HEIC_PREVIEW_VERSION:null;scheduleAssetSave(asset);if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('thumbnail:ready',{id:asset.id,failed:true,error:asset.thumbnailError,generatedAt:Date.now()});performanceRecorder.end(span,{phase:'failed'});return;}
+  asset.thumbnailFailedAt=null;asset.thumbnailFailedModified=null;asset.thumbnailError=null;asset.thumbnailFailureVersion=null;asset.thumbnailPath=thumbnail.target;if(asset.extension==='PDF')asset.pdfPreviewVersion=PDF_PREVIEW_VERSION;if(heic)asset.heicPreviewVersion=HEIC_PREVIEW_VERSION;asset.proxyPath=thumbnail.proxyPath||asset.proxyPath||null;asset.proxyVersion=thumbnail.proxyVersion||asset.proxyVersion||null;asset.width=thumbnail.width||asset.width||null;asset.height=thumbnail.height||asset.height||null;asset.duration=thumbnail.duration||asset.duration||null;asset.dominantColor=thumbnail.dominantColor||asset.dominantColor||null;asset.histogram=thumbnail.histogram||asset.histogram||null;asset.palette=thumbnail.palette||asset.palette||null;asset.perceptualHash=thumbnail.perceptualHash||asset.perceptualHash||null;asset.exif=thumbnail.exif||asset.exif||null;asset.hasEmbeddedWorkflow=Boolean(thumbnail.embeddedMetadata);asset.embeddedMetadata=null;asset.technicalMetadata=thumbnail.technicalMetadata||asset.technicalMetadata||null;if(library.settings?.autoTag&&!asset.needsOrganization)asset.tags=[...new Set([...(asset.tags||[]),...libraryCore.suggestTags(asset)])];scheduleAssetSave(asset);
   const generatedAt=Date.now();if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('thumbnail:ready',{id:asset.id,previewUrl:previewUrlFor(asset),mediaUrl:mediaUrlFor(asset),proxyPath:asset.proxyPath,proxyVersion:asset.proxyVersion,width:asset.width,height:asset.height,duration:asset.duration,dominantColor:asset.dominantColor,perceptualHash:asset.perceptualHash,detailsDeferred:Boolean(asset.histogram||asset.palette||asset.exif||asset.technicalMetadata),generatedAt});performanceRecorder.end(span,{phase:'ready'});
 }
 function ensureThumbnailGenerationScheduler(){if(thumbnailGenerationScheduler)return thumbnailGenerationScheduler;thumbnailGenerationScheduler=createThumbnailScheduler({maxConcurrency:THUMBNAIL_WORKER_COUNT,idleDelayMs:THUMBNAIL_IDLE_DELAY_MS,processJob:generateScheduledThumbnail});thumbnailGenerationScheduler.setContext({portfolioId:activePortfolioId,generation:libraryStreamGeneration});return thumbnailGenerationScheduler;}
@@ -1415,6 +1418,12 @@ function createWindow() {
         console.log(`[smoke] fullscreen performance ${JSON.stringify(result)}`);
         if(result.total<6000||!result.viewerOpen||!result.fullscreenEntered||!result.viewerClosed||!result.fullscreenExited||result.enterDispatchMs>100||result.enterPaintMs>1500||result.exitFirstGridPaintMs>350||result.exitPaintMs>1500||result.lastId!==`asset-${result.total-1}`)throw new Error(`Fullscreen performance verification failed: ${JSON.stringify(result)}`);
         app.exit(0);return;
+      }
+      if(process.env.PIGEON_SMOKE_PHYSICAL_TREE==='1'){
+        const fixtureRoot=path.join(app.getPath('userData'),'physical-tree-fixture');await fsp.rm(fixtureRoot,{recursive:true,force:true});await fsp.mkdir(path.join(fixtureRoot,'empty-parent','empty-child','empty-grandchild'),{recursive:true});await fsp.mkdir(path.join(fixtureRoot,'empty-sibling'),{recursive:true});
+        await addLocations([fixtureRoot],'folder');const location=library.locations.find((item)=>samePath(item.path,fixtureRoot));if(!location)throw new Error('Physical tree smoke location was not indexed');
+        const locationId=JSON.stringify(location.id),verification=await mainWindow.webContents.executeJavaScript(`(async()=>{for(let attempt=0;attempt<100&&!state.library.locations.some((item)=>item.id===${locationId});attempt+=1)await new Promise((resolve)=>setTimeout(resolve,50));setSidebarSectionExpanded('indexed-locations',true);setFolderCollapsed(locationCollapseKey(${locationId}),false);scheduleFolderTreeBuild();let paths=[];for(let attempt=0;attempt<100;attempt+=1){await new Promise((resolve)=>setTimeout(resolve,50));paths=[...document.querySelectorAll('.location-item[data-location-id="${location.id}"] .location-folder-item')].map((row)=>decodeURIComponent(row.dataset.subfolder));if(paths.includes('empty-parent/empty-child/empty-grandchild')&&paths.includes('empty-sibling'))break;}return{paths,rootVisible:Boolean(document.querySelector('.location-item[data-location-id="${location.id}"]')),sectionExpanded:document.querySelector('[data-section-toggle="indexed-locations"]')?.getAttribute('aria-expanded')};})()`,true);
+        console.log(`[smoke] physical folder tree ${JSON.stringify(verification)}`);const expected=['empty-parent','empty-parent/empty-child','empty-parent/empty-child/empty-grandchild','empty-sibling'];if(!verification.rootVisible||verification.sectionExpanded!=='true'||expected.some((folder)=>!verification.paths.includes(folder)))throw new Error(`Physical folder tree verification failed: ${JSON.stringify(verification)}`);const image=await mainWindow.webContents.capturePage();await fsp.writeFile(path.join(process.cwd(),'pigeon-physical-tree-smoke.png'),image.toPNG());console.log('[smoke] physical folder tree visible');app.exit(0);return;
       }
       if(process.env.PIGEON_SMOKE_CAPTURE_TREE==='1'){mainWindow.setSize(340,920);await mainWindow.webContents.executeJavaScript(`(()=>{document.documentElement.style.setProperty('--sidebar-width','310px');document.querySelector('.app-shell')?.classList.add('tree-capture');document.querySelectorAll('[data-collapse-key]').forEach((toggle)=>{if(toggle.getAttribute('aria-expanded')==='false')toggle.click();});document.querySelector('#sidebar-tree-scroll').scrollTop=0;})()`);await new Promise((resolve)=>setTimeout(resolve,700));const image=await mainWindow.webContents.capturePage({x:0,y:0,width:310,height:900});await fsp.writeFile(path.join(process.cwd(),'pigeon-tree-smoke.png'),image.toPNG());console.log('[smoke] tree capture complete');app.exit(0);return;}
       if (smokeSeeded) {
@@ -1965,6 +1974,98 @@ ipcMain.handle('library:rescan', async (_event, id) => {
   return publicLibrarySummary();
 });
 ipcMain.handle('library:refresh-sources', () => refreshSourcesInBackground({ rescan: true }));
+function migratePhysicalFolderSettings(sourceLocationId, destinationLocationId, sourceSubfolder, destinationSubfolder, sourcePath, destinationPath) {
+  library.settings = library.settings || {};
+  const migrateRules = (property) => {
+    const rules = library.settings[property] || {}, moved = [];
+    for (const [key, rule] of Object.entries(rules)) {
+      if (rule.locationId !== sourceLocationId) continue;
+      const nextSubfolder = rebaseSubfolder(sourceSubfolder, destinationSubfolder, rule.subfolder);
+      if (nextSubfolder === null) continue;
+      const unlocked = property === 'folderLocks' ? unlockedFolders.get(folderLockKey(rule.locationId, rule.subfolder)) : null;
+      delete rules[key];
+      const nextRule = { ...rule, locationId: destinationLocationId, subfolder: nextSubfolder };
+      const nextKey = folderRuleKey(destinationLocationId, nextSubfolder);
+      rules[nextKey] = nextRule;
+      if (unlocked) moved.push([nextKey, unlocked]);
+      if (property === 'folderLocks') unlockedFolders.delete(folderLockKey(rule.locationId, rule.subfolder));
+    }
+    for (const [key, value] of moved) unlockedFolders.set(key, value);
+    library.settings[property] = rules;
+  };
+  migrateRules('folderAutoTags');
+  migrateRules('folderLocks');
+  if (library.settings.emptyFolders?.[sourceLocationId]) {
+    const retained = [], moved = [];
+    for (const value of library.settings.emptyFolders[sourceLocationId]) {
+      const next = rebasePhysicalPath(sourcePath, destinationPath, value);
+      (next ? moved : retained).push(next || value);
+    }
+    library.settings.emptyFolders[sourceLocationId] = retained;
+    library.settings.emptyFolders[destinationLocationId] = [...new Set([...(library.settings.emptyFolders[destinationLocationId] || []), ...moved])];
+  }
+  const icons = library.settings.itemIcons || {};
+  for (const [key, icon] of Object.entries({ ...icons })) {
+    if (!key.startsWith(`${sourceLocationId}:`)) continue;
+    const next = rebaseSubfolder(sourceSubfolder, destinationSubfolder, key.slice(sourceLocationId.length + 1));
+    if (next === null) continue;
+    delete icons[key]; icons[`${destinationLocationId}:${next}`] = icon;
+  }
+  library.settings.itemIcons = icons;
+  library.settings.excludedFolders = (library.settings.excludedFolders || []).map((value) => {
+    const [id, ...parts] = String(value).split(':'); if (id !== sourceLocationId) return value;
+    const next = rebaseSubfolder(sourceSubfolder, destinationSubfolder, parts.join(':'));
+    return next === null ? value : `${destinationLocationId}:${next.toLowerCase()}`;
+  });
+  const branchSort = library.settings.sidebarBranchSort || {};
+  for (const [key, sort] of Object.entries({ ...branchSort })) {
+    const prefix = `folders:${sourceLocationId}:`; if (!key.startsWith(prefix)) continue;
+    const next = rebaseSubfolder(sourceSubfolder, destinationSubfolder, key.slice(prefix.length));
+    if (next === null) continue;
+    delete branchSort[key]; branchSort[`folders:${destinationLocationId}:${next}`] = sort;
+  }
+  library.settings.sidebarBranchSort = branchSort;
+}
+ipcMain.handle('folder:create-physical', async (_event, { locationId, subfolder = '', name }) => {
+  const location = library.locations.find((item) => item.id === locationId && item.type === 'folder');
+  if (!location) throw new Error('Physical folder does not exist.');
+  if (!location.online) throw new Error('The physical folder must be online.');
+  const created = await createPhysicalSubfolder(location.path, subfolder, name);
+  library.settings = library.settings || {};
+  library.settings.emptyFolders = library.settings.emptyFolders || {};
+  library.settings.emptyFolders[locationId] = [...new Set([...(library.settings.emptyFolders[locationId] || []), created.path])];
+  scheduleSave();
+  broadcastSidebar();
+  return created;
+});
+ipcMain.handle('folder:move-physical', async (_event, { sourceLocationId, sourceSubfolder, destinationLocationId, destinationParentSubfolder = '', name }) => {
+  const sourceLocation = library.locations.find((item) => item.id === sourceLocationId && item.type === 'folder');
+  const destinationLocation = library.locations.find((item) => item.id === destinationLocationId && item.type === 'folder');
+  if (!sourceLocation || !destinationLocation) throw new Error('The source or destination folder is no longer indexed.');
+  if (!sourceLocation.online || !destinationLocation.online) throw new Error('The source and destination folders must be online.');
+  watcherIgnoreUntil.set(sourceLocationId, Date.now() + 15000); watcherIgnoreUntil.set(destinationLocationId, Date.now() + 15000);
+  const moved = await movePhysicalSubfolder({ sourceRoot: sourceLocation.path, sourceSubfolder, destinationRoot: destinationLocation.path, destinationParentSubfolder, name });
+  if (!moved.moved) return { ...moved, sourceLocationId, destinationLocationId, assets: [], locations: [] };
+  const logicalSource = path.resolve(sourceLocation.path, normalizedSubfolder(sourceSubfolder));
+  const logicalTarget = path.resolve(destinationLocation.path, normalizedSubfolder(moved.subfolder));
+  const changedAssets = [];
+  for (const asset of library.assets) {
+    if (asset.locationId !== sourceLocationId) continue;
+    const nextPath = rebasePhysicalPath(logicalSource, logicalTarget, asset.path) || rebasePhysicalPath(moved.source, moved.path, asset.path);
+    if (!nextPath) continue;
+    asset.path = nextPath; asset.locationId = destinationLocationId; asset.sourceMissing = false; asset.sourcePending = false; delete asset.missingSince; asset.metadataUpdatedAt = Date.now(); changedAssets.push(asset);
+  }
+  migratePhysicalFolderSettings(sourceLocationId, destinationLocationId, normalizedSubfolder(sourceSubfolder), normalizedSubfolder(moved.subfolder), logicalSource, logicalTarget);
+  const locations = [];
+  if (sourceLocationId !== destinationLocationId) {
+    sourceLocation.assetCount = Math.max(0, (Number(sourceLocation.assetCount) || 0) - changedAssets.length);
+    destinationLocation.assetCount = (Number(destinationLocation.assetCount) || 0) + changedAssets.length;
+    locations.push({ id: sourceLocation.id, assetCount: sourceLocation.assetCount }, { id: destinationLocation.id, assetCount: destinationLocation.assetCount });
+  }
+  if (changedAssets.length) scheduleAssetSave(changedAssets);
+  scheduleSave(); broadcastSidebar();
+  return { ...moved, sourceLocationId, destinationLocationId, assets: changedAssets.map((asset) => ({ ...asset, previewUrl: previewUrlFor(asset), mediaUrl: mediaUrlFor(asset) })), locations, settings: { folderAutoTags: library.settings.folderAutoTags || {}, folderLocks: publicFolderLocks(), itemIcons: library.settings.itemIcons || {}, excludedFolders: library.settings.excludedFolders || [], sidebarBranchSort: library.settings.sidebarBranchSort || {} } };
+});
 ipcMain.handle('collection:create', (_event, { name, parentId }) => {
   const collection = libraryCore.createCollection(library, name, parentId);
   scheduleSave(); broadcastSidebar(); return collection;
