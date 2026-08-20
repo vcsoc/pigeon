@@ -135,7 +135,7 @@ html[data-platform="darwin"] .window-drag { padding-left: 80px; }
 .collection-item.drag-over,.location-root-button.drag-over,.location-folder-item.drag-over { outline:1px solid rgba(79,145,237,.48); background:rgba(48,52,59,.3); }
 .location-item { position: relative; }.location-tree-more { width:calc(100% - 12px); min-height:28px; margin:4px 6px; border:1px solid #3c424c; border-radius:5px; background:#292d34; color:#8994a7; text-align:center; }
 .location-item .nav-item { padding-right: 5px; grid-template-columns: 12px 22px minmax(0,1fr) 40px 18px; }
-.location-root-button.multi-selected { outline:1px solid rgba(113,151,223,.7); background:rgba(76,104,162,.27); }
+.location-root-button.multi-selected,.location-folder-item.multi-selected { outline:1px solid rgba(113,151,223,.7); background:rgba(76,104,162,.27); }
 .location-name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .location-subfolder-list { display:grid; min-width:100%; }
 .sidebar-tree-scroll [hidden] { display:none !important; }
