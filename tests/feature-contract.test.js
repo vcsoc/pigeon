@@ -1054,9 +1054,17 @@ test('password protection immediately hides collection and physical-folder desce
   assert.match(main,/unlockedFolders\.clear\(\)/);
   assert.match(main,/folder:set-password/);
   assert.match(main,/folder:unlock/);
+  assert.match(main,/folder:unlock[^\n]*folderLocks\(\)\.filter/);
+  assert.match(main,/folder:unlock[^\n]*if\(!rule\)return false/);
+  assert.match(main,/folder:remove-password[^\n]*folderLocks\(\)\.filter/);
+  assert.match(renderer,/effectiveFolderLockRule\(request\.locationId,request\.subfolder\)/);
   assert.match(main,/folder:lock-now/);
   assert.match(main,/matchingFolderLocks\(asset\)/);
+  assert.match(main,/matchingFolderLockRules\(asset,folderLocks\(\),library\.locations\)/);
+  assert.match(main,/folderLocks:publicFolderLocks\(\)/);
   assert.match(main,/settings:\{\.\.\.settings,folderLocks:publicFolderLocks\(\)\}/);
+  assert.match(renderer,/onLibraryChanged\(\(library\) => \{\s*hideInternalViewer\(\)/);
+  assert.match(renderer,/viewerImage\.removeAttribute\('src'\)/);
   assert.match(preload,/setFolderPassword/);
   assert.match(preload,/unlockFolder/);
   assert.match(renderer,/effectiveFolderLockRule/);

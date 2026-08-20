@@ -1221,7 +1221,7 @@ $('#inline-unlock-form').addEventListener('submit', async (event) => {
     const unlocked=request.type==='collection'?await window.pigeon.unlockCollection(request.collectionId,input.value):await window.pigeon.unlockFolder(request.locationId,request.subfolder,input.value);
     if(!unlocked){error.textContent='Incorrect password. Please try again.';input.select();return;}
     if(request.type==='collection')for(const collection of state.library.collections||[])if(collection.id===request.collectionId||collection.lockSourceId===request.collectionId)collection.locked=false;
-    else{const rule=effectiveFolderLockRule(request.locationId,state.locationSubfolder);if(rule)rule.locked=false;}
+    else{const rule=effectiveFolderLockRule(request.locationId,request.subfolder);if(rule)rule.locked=false;}
     state.inlinePassword=null;input.value='';confirmation.value='';render();
   }catch(passwordError){error.textContent=passwordError.message||`Unable to ${request.mode} this folder.`;}
   finally{controls.forEach((control)=>control.disabled=false);}
@@ -1906,7 +1906,7 @@ function navigateViewer(direction) {
 function hideInternalViewer() {
   cancelViewerCrop();
   elements.viewerVideo.pause(); elements.viewerAudio.pause();
-  elements.viewerVideo.removeAttribute('src'); elements.viewerYoutube.removeAttribute('src'); elements.viewerAudio.removeAttribute('src');
+  elements.viewerVideo.removeAttribute('src'); elements.viewerVideo.removeAttribute('poster'); elements.viewerYoutube.removeAttribute('src'); elements.viewerAudio.removeAttribute('src');elements.viewerImage.removeAttribute('src');elements.viewerMinimapImage.removeAttribute('src');
   elements.mediaViewer.classList.add('hidden');
   $('#filter-bar').classList.remove('viewer-hidden-filter');
 }
@@ -2667,6 +2667,7 @@ let streamFirstPaintGeneration=0;
 function scheduleStreamGridRender(firstUsable=false){if(portfolioSwitchLoading||streamRenderTimer!==null)return;streamRenderTimer=requestAnimationFrame(()=>{streamRenderTimer=null;render();if(firstUsable)streamFirstPaintGeneration=state.streamGeneration;});}
 function acknowledgeAssetBatchAfterFrame(generation,sequence,afterFirstPaint=false){let acknowledged=false,fallback=null;const acknowledge=()=>{if(acknowledged)return;acknowledged=true;clearTimeout(fallback);window.pigeon.acknowledgeAssetBatch({generation,sequence});};if(afterFirstPaint)requestAnimationFrame(()=>requestAnimationFrame(acknowledge));else requestAnimationFrame(acknowledge);fallback=setTimeout(acknowledge,120);}
 window.pigeon.onLibraryChanged((library) => {
+  hideInternalViewer();
   const samePortfolio=Boolean(state.library.activePortfolioId&&state.library.activePortfolioId===library.activePortfolioId),preservedScrollTop=elements.gridWrap.scrollTop;invalidateAssetViewCache();if(scanRenderHandle!==null){(window.cancelIdleCallback||clearTimeout)(scanRenderHandle);scanRenderHandle=null;}if(streamRenderTimer!==null)cancelAnimationFrame(streamRenderTimer);streamRenderTimer=null;if(visibilityDeltaRenderFrame!==null)cancelAnimationFrame(visibilityDeltaRenderFrame);visibilityDeltaRenderFrame=null;visibilityDeltaPainted=false;rendererAssetIndexes.clear();rendererAssetDerivatives.reset();lastThumbnailPrioritySignature='';elements.grid.innerHTML='';elements.grid.classList.add('hidden');
   if (backgroundTaskPortfolioId && library.activePortfolioId && backgroundTaskPortfolioId !== library.activePortfolioId) { backgroundTasks.clear(); renderBackgroundProgress(); }
   backgroundTaskPortfolioId = library.activePortfolioId || backgroundTaskPortfolioId;
