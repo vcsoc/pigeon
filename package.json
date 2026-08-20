@@ -1,6 +1,6 @@
 {
   "name": "pigeon",
-  "version": "0.2.24",
+  "version": "0.2.26",
   "description": "A reference-first visual asset library for files that stay where they are.",
   "main": "electron/main.js",
   "author": "Chris Visser",

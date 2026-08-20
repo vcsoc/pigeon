@@ -138,7 +138,7 @@ test('hovered video uses hold-Control or Alt sound and tree screenshots have ter
 });
 
 test('polished tree, stable post-move reveal and configurable thumbnail privacy effects are wired',()=>{
-  assert.match(styles,/isolation:isolate/);assert.match(styles,/linear-gradient\(90deg,color-mix/);assert.match(styles,/border-radius:0 0 0 5px/);assert.match(styles,/folder-tree-toggle:not\(\.empty\)/);
+  assert.match(styles,/isolation:isolate/);assert.match(styles,/linear-gradient\(90deg,color-mix/);assert.match(styles,/border-radius:0 0 0 5px/);assert.match(styles,/\.folder-tree-toggle \{[^}]*background:transparent[^}]*box-shadow:none/);
   assert.match(renderer,/postMoveRevealUntil=Date\.now\(\)\+900/);assert.match(renderer,/focusSelectedAsset\(\{lockScroll:true\}\)/);assert.match(renderer,/delays=lockScroll\?\[0,60,140,260,480\]/);assert.match(renderer,/interaction!==gridScrollInteractionVersion/);
   assert.match(html,/id="thumbnail-effect-shortcut"/);assert.match(html,/id="thumbnail-effect-strength"/);assert.match(html,/id="blur-effect-preview"/);assert.match(renderer,/function toggleThumbnailEffect/);assert.match(renderer,/thumbnailEffectRevealKey/);assert.match(html,/id="thumbnail-effect-reveal-shortcut"/);assert.match(renderer,/revealShortcutPressed/);assert.match(renderer,/thumbnail-effect-reveal/);assert.match(styles,/thumbnail-effect-applied/);assert.match(libraryCore,/thumbnailEffect/);assert.match(main,/'thumbnailEffect'/);
 });
@@ -443,14 +443,14 @@ test('left-panel section headings collapse, expand, and persist', () => {
   assert.match(renderer, /pigeon\.collapsedSidebarSections/);
   assert.match(renderer, /pigeon\.collapsedFolders/);
   assert.match(renderer, /toggleFolderCollapsed/);
-  assert.match(renderer, /descendantCollapseKeys/);
+  assert.match(renderer, /hierarchyCollapseKeys/);
   assert.match(renderer, /setFolderCollapseStates/);
   assert.match(renderer, /collectionCollapseKey/);
   assert.match(renderer, /locationCollapseKey/);
   assert.match(styles, /\.folder-tree-toggle/);
-  assert.match(styles, /\.folder-row-collapse/);assert.match(styles,/folder-row-collapse[^}]*font-size:16px[^}]*font-weight:800/);
-  for(const name of ['smart-folders','collections','indexed-locations'])assert.match(html,new RegExp(`data-section-collapse="${name}"`));
-  assert.match(renderer,/\[data-section-collapse\]/);assert.match(main,/\['collections','smartFolders','folders'\]/);
+  assert.match(styles, /\.folder-row-lock/);assert.match(styles,/folder-row-lock[^}]*border:0[^}]*background:transparent/);assert.match(styles,/\.sidebar-tree-scroll \[hidden\] \{ display:none !important; \}/);
+  for(const name of ['smartFolders','collections','folders'])assert.match(html,new RegExp(`data-hierarchy-collapse="${name}"`));
+  assert.match(renderer,/\[data-hierarchy-collapse\]/);assert.match(main,/\['collections','smartFolders','folders'\]/);
   assert.match(styles, /\.context-menu button \{[^}]*justify-content: flex-start[^}]*text-align: left/);
   assert.match(styles, /sidebar-section-content\.collapsed/);
 });
@@ -1072,7 +1072,7 @@ test('folder and collection context menus expose consistent hierarchy and destru
 });
 
 test('folder, collection, and Smart Folder collapse paints immediately before reconciliation',()=>{
-  assert.match(renderer,/function paintFolderCollapseImmediately/);assert.match(renderer,/for\(const descendant of descendants\)paintFolderCollapseImmediately\(descendant,true\)/);assert.match(renderer,/setFolderCollapseStates\(collapsed\?\[key,\.\.\.descendants\]/);assert.match(renderer,/data-total-collapse-key/);assert.match(renderer,/addEventListener\('click',[\s\S]{0,240},true\)/);assert.match(renderer,/control\.textContent=collapsed\?'＋':'−'/);assert.match(renderer,/sibling\.hidden=collapsed\|\|blockedDepth!==null/);assert.match(renderer,/ancestorHidden\|\|collapsed/);assert.match(renderer,/location-subfolder-list" \$\{rootCollapsed\?'hidden':''\}/);assert.doesNotMatch(renderer,/deferredHierarchyRenderFrame/);
+  assert.match(renderer,/function paintFolderCollapseImmediately/);assert.match(renderer,/function toggleFolderCollapsed\(key\) \{ const collapsed=!isFolderCollapsed\(key\);paintFolderCollapseImmediately\(key,collapsed\);setFolderCollapsed\(key,collapsed\)/);assert.match(renderer,/function setHierarchyGroupCollapsed/);assert.match(renderer,/data-folder-lock/);assert.doesNotMatch(renderer,/data-total-collapse-key/);assert.match(renderer,/addEventListener\('click',[\s\S]{0,420},true\)/);assert.match(renderer,/control\.textContent=collapsed\?'＋':'−'/);assert.match(renderer,/sibling\.hidden=collapsed\|\|blockedDepth!==null/);assert.match(renderer,/ancestorHidden\|\|collapsed/);assert.match(renderer,/location-subfolder-list" \$\{rootCollapsed\?'hidden':''\}/);assert.doesNotMatch(renderer,/deferredHierarchyRenderFrame/);
 });
 
 test('show content from subfolders includes nested physical folders and collections but defaults off',()=>{
@@ -1449,7 +1449,7 @@ test('live imports refresh clean cards, context menus clear the footer, and pers
   for(const id of ['inspector-details-panel','threads-panel','threads-panel-list','right-panel-details-tab','right-panel-threads-tab','active-thread-count','threads-toggle-all'])assert.match(html,new RegExp(`id="${id}"`));assert.match(html,/data-section-toggle="indexed-locations"[^>]*>[\s\S]*?<span>Folders<\/span>/);assert.doesNotMatch(html,/>Indexed Locations?<\//i);
   assert.match(renderer,/renderGrid\(\{preserveCards:!view\.forceFreshCards\}\)/);assert.match(renderer,/view\.forceFreshCards=true/);
   assert.match(renderer,/footerTop=document\.querySelector\('\.statusbar'\)/);assert.match(renderer,/positionMenu\(elements\.contextMenu,event\.clientX,event\.clientY\)/);assert.match(styles,/\.context-menu \{ z-index:120/);
-  assert.match(renderer,/function activeBackgroundThreads/);assert.match(renderer,/function renderThreadsPanel/);assert.match(renderer,/terminal=Boolean\(task\.done\)/);assert.match(renderer,/--thread-progress:\$\{percent\.toFixed\(1\)\}%/);assert.match(renderer,/setAllBackgroundThreadsPaused/);assert.match(renderer,/reorderBackgroundThreads/);assert.match(styles,/\.right-panel-tabs[^}]*border-top/);assert.match(styles,/\.thread-progress-row::before/);
+  assert.match(renderer,/function activeBackgroundThreads/);assert.match(renderer,/function renderThreadsPanel/);assert.match(renderer,/terminal=Boolean\(task\.done\)/);assert.match(renderer,/--thread-progress:\$\{percent\.toFixed\(1\)\}%/);assert.match(renderer,/setAllBackgroundThreadsPaused/);assert.match(renderer,/reorderBackgroundThreads/);assert.match(styles,/\.right-panel-tabs[^}]*border-top/);assert.match(styles,/\.thread-progress-row::before/);assert.match(renderer,/right-panel-threads-tab'\)\.classList\.toggle\('has-active-threads',tasks\.length>0\)/);assert.match(styles,/right-panel-threads-tab\.has-active-threads[^}]*background:#6b3518/);
   assert.match(main,/readDownloadResponse/);assert.match(main,/onProgress:\(percent\)=>reportDownload/);assert.match(youtubeImport,/ffmpegPath,onProgress/);assert.match(youtubeImport,/downloadYouTubeWithYtDlp[^\n]+onProgress/);
 });
 
