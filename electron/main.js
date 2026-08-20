@@ -2091,28 +2091,35 @@ ipcMain.handle('folder:move-physical', async (_event, { sourceLocationId, source
   const destinationLocation = library.locations.find((item) => item.id === destinationLocationId && item.type === 'folder');
   if (!sourceLocation || !destinationLocation) throw new Error('The source or destination folder is no longer indexed.');
   if (!sourceLocation.online || !destinationLocation.online) throw new Error('The source and destination folders must be online.');
-  watcherIgnoreUntil.set(sourceLocationId, Date.now() + 15000); watcherIgnoreUntil.set(destinationLocationId, Date.now() + 15000);
-  const moved = await movePhysicalSubfolder({ sourceRoot: sourceLocation.path, sourceSubfolder, destinationRoot: destinationLocation.path, destinationParentSubfolder, name });
-  if (!moved.moved) return { ...moved, sourceLocationId, destinationLocationId, assets: [], locations: [] };
-  const logicalSource = path.resolve(sourceLocation.path, normalizedSubfolder(sourceSubfolder));
-  const logicalTarget = path.resolve(destinationLocation.path, normalizedSubfolder(moved.subfolder));
-  const changedAssets = [];
-  for (const asset of library.assets) {
-    if (asset.locationId !== sourceLocationId) continue;
-    const nextPath = rebasePhysicalPath(logicalSource, logicalTarget, asset.path) || rebasePhysicalPath(moved.source, moved.path, asset.path);
-    if (!nextPath) continue;
-    asset.path = nextPath; asset.locationId = destinationLocationId; asset.sourceMissing = false; asset.sourcePending = false; delete asset.missingSince; asset.metadataUpdatedAt = Date.now(); changedAssets.push(asset);
-  }
-  migratePhysicalFolderSettings(sourceLocationId, destinationLocationId, normalizedSubfolder(sourceSubfolder), normalizedSubfolder(moved.subfolder), logicalSource, logicalTarget);
-  const locations = [];
-  if (sourceLocationId !== destinationLocationId) {
-    sourceLocation.assetCount = Math.max(0, (Number(sourceLocation.assetCount) || 0) - changedAssets.length);
-    destinationLocation.assetCount = (Number(destinationLocation.assetCount) || 0) + changedAssets.length;
-    locations.push({ id: sourceLocation.id, assetCount: sourceLocation.assetCount }, { id: destinationLocation.id, assetCount: destinationLocation.assetCount });
-  }
-  if (changedAssets.length) scheduleAssetSave(changedAssets);
-  scheduleSave(); broadcastSidebar();
-  return { ...moved, sourceLocationId, destinationLocationId, assets: changedAssets.map((asset) => ({ ...asset, previewUrl: previewUrlFor(asset), mediaUrl: mediaUrlFor(asset) })), locations, settings: { folderAutoTags: library.settings.folderAutoTags || {}, folderLocks: publicFolderLocks(), itemIcons: library.settings.itemIcons || {}, excludedFolders: library.settings.excludedFolders || [], sidebarBranchSort: library.settings.sidebarBranchSort || {} } };
+  const folderName=String(name||path.basename(normalizedSubfolder(sourceSubfolder))||'folder'),progressId=`${activePortfolioId}:folder-move:${makeId(`${sourceLocationId}:${sourceSubfolder}:${destinationLocationId}:${destinationParentSubfolder}:${Date.now()}`)}`,logicalSource=path.resolve(sourceLocation.path,normalizedSubfolder(sourceSubfolder)),sourceAssetTotal=library.assets.reduce((total,asset)=>total+(asset.locationId===sourceLocationId&&rebasePhysicalPath(logicalSource,logicalSource,asset.path)!==null?1:0),0),report=(detail,completed,options={})=>reportBackgroundProgress(progressId,{label:`Moving ${folderName}`,detail,completed,total:100,pauseSupported:false,...options});
+  report(`Preparing move to ${destinationLocation.name}…`,3);
+  try {
+    watcherIgnoreUntil.set(sourceLocationId, Date.now() + 15000); watcherIgnoreUntil.set(destinationLocationId, Date.now() + 15000);
+    report('Moving files on disk…',8);
+    const moved = await movePhysicalSubfolder({ sourceRoot: sourceLocation.path, sourceSubfolder, destinationRoot: destinationLocation.path, destinationParentSubfolder, name });
+    if (!moved.moved) { report('Folder is already in that location',100,{done:true}); return { ...moved, sourceLocationId, destinationLocationId, assets: [], locations: [] }; }
+    report('Updating indexed file references…',65);
+    const logicalTarget = path.resolve(destinationLocation.path, normalizedSubfolder(moved.subfolder));
+    const changedAssets = [];
+    for (const asset of library.assets) {
+      if (asset.locationId !== sourceLocationId) continue;
+      const nextPath = rebasePhysicalPath(logicalSource, logicalTarget, asset.path) || rebasePhysicalPath(moved.source, moved.path, asset.path);
+      if (!nextPath) continue;
+      asset.path = nextPath; asset.locationId = destinationLocationId; asset.sourceMissing = false; asset.sourcePending = false; delete asset.missingSince; asset.metadataUpdatedAt = Date.now(); changedAssets.push(asset);
+      if(changedAssets.length%100===0||changedAssets.length===sourceAssetTotal)report(`Updating references · ${changedAssets.length.toLocaleString()} of ${sourceAssetTotal.toLocaleString()} files`,65+Math.round(25*changedAssets.length/Math.max(1,sourceAssetTotal)));
+    }
+    report('Updating folder settings…',92);
+    migratePhysicalFolderSettings(sourceLocationId, destinationLocationId, normalizedSubfolder(sourceSubfolder), normalizedSubfolder(moved.subfolder), logicalSource, logicalTarget);
+    const locations = [];
+    if (sourceLocationId !== destinationLocationId) {
+      sourceLocation.assetCount = Math.max(0, (Number(sourceLocation.assetCount) || 0) - changedAssets.length);
+      destinationLocation.assetCount = (Number(destinationLocation.assetCount) || 0) + changedAssets.length;
+      locations.push({ id: sourceLocation.id, assetCount: sourceLocation.assetCount }, { id: destinationLocation.id, assetCount: destinationLocation.assetCount });
+    }
+    if (changedAssets.length) scheduleAssetSave(changedAssets);
+    scheduleSave(); broadcastSidebar();report(`${changedAssets.length.toLocaleString()} indexed files moved`,100,{done:true});
+    return { ...moved, sourceLocationId, destinationLocationId, assets: changedAssets.map((asset) => ({ ...asset, previewUrl: previewUrlFor(asset), mediaUrl: mediaUrlFor(asset) })), locations, settings: { folderAutoTags: library.settings.folderAutoTags || {}, folderLocks: publicFolderLocks(), itemIcons: library.settings.itemIcons || {}, excludedFolders: library.settings.excludedFolders || [], sidebarBranchSort: library.settings.sidebarBranchSort || {} } };
+  }catch(error){report(error.message||'Folder move failed',100,{done:true,status:'failed'});throw error;}
 });
 ipcMain.handle('collection:create', (_event, { name, parentId, id }) => {
   const collection = libraryCore.createCollection(library, name, parentId, id);
@@ -2321,12 +2328,15 @@ async function moveCollectionToFolder(collectionId,locationId,subfolder=''){
   const subtreeIds=collectionDescendants(collectionId);if([...subtreeIds].some(isCollectionLocked))throw new Error('Unlock every protected collection in this hierarchy before moving its files');
   const targetFolder=safeSubfolder.toLowerCase(),targetLock=folderLocks().filter((rule)=>rule.locationId===locationId&&(!rule.subfolder||targetFolder===rule.subfolder||targetFolder.startsWith(`${rule.subfolder}/`))).sort((first,second)=>second.subfolder.length-first.subfolder.length)[0];if(targetLock&&!unlockedFolders.has(folderLockKey(targetLock.locationId,targetLock.subfolder)))throw new Error('Unlock the destination folder before moving a collection into it');
   const assets=library.assets.filter((asset)=>!asset.deletedAt&&(asset.collectionIds||[]).some((id)=>subtreeIds.has(id)));if(assets.some(isAssetLocked))throw new Error('Unlock protected source folders before moving this collection hierarchy');
-  const selectedDestination=path.join(location.path,safeSubfolder),reuseRoot=path.basename(selectedDestination).localeCompare(safeCollectionFolderName(collection.name),undefined,{sensitivity:'base'})===0,plan=planCollectionFolderTransfer({collections:library.collections,assets,rootId:collectionId,destination:selectedDestination,reuseRoot});
-  for(const directory of plan.directories)await fsp.mkdir(directory,{recursive:true});
-  library.settings=library.settings||{};library.settings.emptyFolders=library.settings.emptyFolders||{};library.settings.emptyFolders[locationId]=[...new Set([...(library.settings.emptyFolders[locationId]||[]),...plan.directories])];
-  const movedAssets=[],locationUpdates=new Map(),decisionScope={};let moved=0,renamed=0,skipped=0,unavailable=0,failed=0;watcherIgnoreUntil.set(locationId,Date.now()+5000);
-  for(const entry of plan.files){const asset=library.assets.find((item)=>item.id===entry.assetId);if(!asset||asset.sourceMissing||!(await pathAvailable(asset.path))){unavailable+=1;continue;}try{const result=await moveAssetFiles([entry.assetId],entry.directory,{locationId,decisionScope});moved+=result.moved;renamed+=result.renamed;if(!result.moved&&!result.skipped)skipped+=1;else skipped+=result.skipped;movedAssets.push(...(result.assets||[]));for(const update of result.locations||[])locationUpdates.set(update.id,update);}catch(error){failed+=1;recordDiagnostic('warning','Collection hierarchy file move failed',{assetId:entry.assetId,error:error.message});}}
-  scheduleSave();broadcastSidebar();return{collectionId,name:collection.name,rootPath:plan.rootDirectory,folders:plan.collectionCount,requested:plan.files.length,moved,renamed,skipped,unavailable,failed,ambiguous:plan.ambiguous,assets:movedAssets,locations:[...locationUpdates.values()]};
+  const selectedDestination=path.join(location.path,safeSubfolder),reuseRoot=path.basename(selectedDestination).localeCompare(safeCollectionFolderName(collection.name),undefined,{sensitivity:'base'})===0,plan=planCollectionFolderTransfer({collections:library.collections,assets,rootId:collectionId,destination:selectedDestination,reuseRoot}),total=plan.directories.length+plan.files.length,progressId=`${activePortfolioId}:collection-folder-move:${makeId(`${collectionId}:${locationId}:${safeSubfolder}:${Date.now()}`)}`,label=`Moving ${collection.name} to ${location.name}`,report=(detail,completed,options={})=>reportBackgroundProgress(progressId,{label,detail,completed,total,pauseSupported:false,...options});
+  let completed=0,moved=0,renamed=0,skipped=0,unavailable=0,failed=0;const movedAssets=[],locationUpdates=new Map(),decisionScope={};report(`Preparing ${plan.directories.length.toLocaleString()} folders and ${plan.files.length.toLocaleString()} files…`,0);
+  try{
+    for(const directory of plan.directories){report(`Creating folder ${path.basename(directory)}…`,completed);await fsp.mkdir(directory,{recursive:true});completed+=1;report(`Folders · ${completed.toLocaleString()} of ${plan.directories.length.toLocaleString()}`,completed);}
+    library.settings=library.settings||{};library.settings.emptyFolders=library.settings.emptyFolders||{};library.settings.emptyFolders[locationId]=[...new Set([...(library.settings.emptyFolders[locationId]||[]),...plan.directories])];
+    watcherIgnoreUntil.set(locationId,Date.now()+5000);let fileIndex=0;
+    for(const entry of plan.files){fileIndex+=1;const asset=library.assets.find((item)=>item.id===entry.assetId),filename=asset?.filename||path.basename(entry.path||'file');report(`Moving file ${fileIndex.toLocaleString()} of ${plan.files.length.toLocaleString()} · ${filename}`,completed);if(!asset||asset.sourceMissing||!(await pathAvailable(asset.path))){unavailable+=1;completed+=1;report(`Files · ${fileIndex.toLocaleString()} of ${plan.files.length.toLocaleString()} · ${unavailable} unavailable`,completed);continue;}try{const result=await moveAssetFiles([entry.assetId],entry.directory,{locationId,decisionScope});moved+=result.moved;renamed+=result.renamed;if(!result.moved&&!result.skipped)skipped+=1;else skipped+=result.skipped;movedAssets.push(...(result.assets||[]));for(const update of result.locations||[])locationUpdates.set(update.id,update);}catch(error){failed+=1;recordDiagnostic('warning','Collection hierarchy file move failed',{assetId:entry.assetId,error:error.message});}completed+=1;report(`Files · ${fileIndex.toLocaleString()} of ${plan.files.length.toLocaleString()} · ${moved.toLocaleString()} moved`,completed);}
+    scheduleSave();broadcastSidebar();report(`${plan.directories.length.toLocaleString()} folders prepared · ${moved.toLocaleString()} files moved${failed?` · ${failed} failed`:''}`,total,{done:true,status:failed?'warning':'completed'});return{collectionId,name:collection.name,rootPath:plan.rootDirectory,folders:plan.collectionCount,requested:plan.files.length,moved,renamed,skipped,unavailable,failed,ambiguous:plan.ambiguous,assets:movedAssets,locations:[...locationUpdates.values()]};
+  }catch(error){report(error.message||'Collection move failed',completed,{done:true,status:'failed'});throw error;}
 }
 ipcMain.handle('collection:move-to-folder',(_event,{collectionId,locationId,subfolder=''})=>moveCollectionToFolder(collectionId,locationId,subfolder));
 ipcMain.handle('asset:apply-inline-crop', (_event, { id, crop }) => applyInlineCrop(id, crop));
