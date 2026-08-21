@@ -57,6 +57,7 @@ html[data-theme="midnight"] { --bg: #151a25; --panel: #1d2230; --sidebar: #191e2
 .startup-loader { position:absolute; left:50%; top:50%; translate:-50% -50%; display:grid; justify-items:center; gap:13px; color:#929bb0; font-size:11px; font-weight:600; letter-spacing:.16em; text-transform:uppercase; }
 .startup-loader img{display:block;width:min(540px,70vw);height:auto;max-height:46vh;object-fit:contain;border-radius:12px;box-shadow:0 22px 58px rgba(0,0,0,.42)}
 .startup-brand { position:absolute; left:0; bottom:0; display:flex; align-items:flex-end; gap:18px; margin:0; padding:0; text-align:left; }
+.startup-splash > .startup-brand { left:clamp(24px,3vw,48px); }
 .startup-brand img { display:block; width:270px; height:270px; object-fit:contain; border:0; border-radius:0; box-shadow:none; background:transparent; }
 .startup-brand div { display:grid; gap:14px; padding-bottom:34px; }.startup-brand strong { color:#f1f3f7; font-size:72px; line-height:.92; letter-spacing:.015em; text-transform:lowercase; }.startup-brand span { color:#8995b3; font-size:29px; line-height:1; font-style:italic; letter-spacing:.13em; text-transform:lowercase; }.startup-brand small { color:#687187; font-size:11px; font-weight:600; letter-spacing:.08em; }
 .startup-splash.finishing { opacity: 0; pointer-events: none; }

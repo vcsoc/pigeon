@@ -381,13 +381,15 @@ test('justified rows, tag autocomplete, and viewer editing controls are wired', 
   assert.match(renderer, /event\.key === 'Enter'/);
 });
 
-test('startup, About, runtime and platform packages use the transparent Pigeon logo everywhere', async () => {
-  assert.match(html, /id="startup-splash"[^>]*>[\s\S]*?pigeon-logo\.png/);
+test('startup copy is left aligned without a logo while About and platform packages retain Pigeon branding', async () => {
+  assert.doesNotMatch(html, /id="startup-splash"[^\n]*pigeon-logo\.png/);
+  assert.match(html, /id="startup-splash"[^\n]*class="startup-brand"><div><strong>pigeon<\/strong><span>sees all<\/span><small id="startup-version">Version<\/small>/);
   assert.match(html, /rel="icon"[^>]*pigeon-logo\.png/);
   assert.match(styles, /\.startup-splash \{[^}]*background: #040405/);
   assert.match(styles,/\.app-shell\.startup-active > :not\(\.startup-splash\)/);
   assert.match(html,/startup-brand[\s\S]*?<strong>pigeon<\/strong><span>sees all<\/span>/);
   assert.match(styles,/\.startup-brand \{ position:absolute; left:0; bottom:0/);
+  assert.match(styles,/\.startup-splash > \.startup-brand \{ left:clamp\(24px,3vw,48px\)/);
   assert.match(styles,/\.startup-brand img \{[^}]*width:270px/);
   assert.match(styles,/\.startup-brand strong \{[^}]*font-size:72px/);
   assert.match(styles,/\.startup-brand span \{[^}]*font-size:29px/);
