@@ -21,7 +21,10 @@ const criticalFiles = [
   'electron/thumbnail-worker.js',
   'electron/folder-tree-worker.js',
   'electron/library-deduplication.js',
-  'electron/background-thread-manager.js'
+  'electron/background-thread-manager.js',
+  'electron/plugin-examples/ai-removal/server.py',
+  'electron/plugin-examples/ai-removal/requirements.txt',
+  'electron/plugin-examples/ai-removal/README.md'
 ];
 
 function digest(value) { return crypto.createHash('sha256').update(value).digest('hex'); }
@@ -44,7 +47,7 @@ function verifyPackagedApp(asarPath) {
   for (const relativePath of criticalFiles) {
     const sourcePath = path.join(projectRoot, relativePath);
     let packaged;
-    try { packaged = asar.extractFile(asarPath, relativePath); }
+    try { packaged = asar.extractFile(asarPath, relativePath.split('/').join(path.sep)); }
     catch (error) { failures.push(`${relativePath}: missing (${error.message})`); continue; }
     const source = fs.readFileSync(sourcePath);
     if (source.length !== packaged.length || digest(source) !== digest(packaged)) failures.push(`${relativePath}: packaged bytes do not match source`);
