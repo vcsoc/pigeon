@@ -22,7 +22,7 @@ def inpaint():
 
     image = Image.open(source).convert("RGB")
     mask = Image.open(mask_path).convert("L").resize(image.size, Image.Resampling.LANCZOS)
-    # Pigeon paints selected pixels white; LaMa expects a binary white mask.
+    # Pigeon paints a visible red selection; LaMa expects a binary white mask.
     mask = mask.point(lambda value: 255 if value > 16 else 0)
     result = model(image, mask)
     result.save(output, format="PNG")

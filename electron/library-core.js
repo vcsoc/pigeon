@@ -33,6 +33,7 @@ function migrateLibrary(input = {}) {
   library.smartFolders = library.smartFolders.map((folder,index) => ({ id: folder.id || idFor('smart-folder'), name: folder.name || 'Saved filter', parentId: folder.parentId || null, filters: folder.filters || {}, createdAt: folder.createdAt || Date.now(),updatedAt:folder.updatedAt||folder.createdAt||Date.now(),order:Number.isFinite(folder.order)?folder.order:index, icon: folder.icon || null }));
   library.assets = library.assets.map((asset) => ({
     ...asset,
+    kind: String(asset.extension||'').toUpperCase()==='PNJ'?'image':asset.kind,
     tags: Array.isArray(asset.tags) ? [...new Set(asset.tags.filter(Boolean))] : [],
     collectionIds: Array.isArray(asset.collectionIds) ? [...new Set(asset.collectionIds)] : [],
     annotations: Array.isArray(asset.annotations) ? asset.annotations : [],

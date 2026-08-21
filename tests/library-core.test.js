@@ -10,6 +10,8 @@ function library() {
   ], locations: [{ id: 'l1' }, { id: 'l2' }] });
 }
 
+test('repairs legacy PNJ records as renderable images',()=>{const library=core.migrateLibrary({assets:[{id:'pnj',extension:'PNJ',kind:'file',tags:[]}]});assert.equal(library.assets[0].kind,'image');});
+
 test('migrates legacy libraries without losing assets', () => {
   const result = core.migrateLibrary({ version: 1, assets: [{ id: 'x', rating: 9 }], locations: [] });
   assert.equal(result.version, core.SCHEMA_VERSION);
