@@ -71,7 +71,7 @@ def run_inpainting(image, mask):
     inputs = loaded.get_inputs()
     feed = {item.name: (mask_tensor if "mask" in item.name.lower() else image_tensor) for item in inputs}
     result = loaded.run(None, feed)[0][0]
-    result = np.clip(result.transpose(1, 2, 0) * 255.0, 0, 255).astype(np.uint8)
+    result = np.clip(result.transpose(1, 2, 0), 0, 255).astype(np.uint8)
     generated = Image.fromarray(result, mode="RGB").resize(original_size, Image.Resampling.LANCZOS)
     return Image.composite(generated, image.convert("RGB"), original_mask)
 

@@ -11,7 +11,7 @@ const BUILT_IN_PLUGINS = [{
   id: 'ai-removal',
   legacyDirectories: ['AI Removal'],
   name: 'AI Object Removal',
-  version: '1.1.0',
+  version: '1.1.1',
   author: 'Pigeon',
   category: 'Image editing',
   description: 'Remove painted objects with a private Simple LaMa vision-inpainting model running on this computer.',
@@ -305,6 +305,9 @@ function createPluginManager({ pluginsDir, bundledDir }) {
   async function start(id) {
     const plugin = BUILT_IN_PLUGINS.find((item) => item.id === id);
     if (!plugin || !await installed(plugin)) throw new Error('Install the plugin first');
+    const bundledEntry=path.join(bundledDir,plugin.id,plugin.entry),installedEntry=path.join(pluginDirectory(plugin.id),plugin.entry);
+    let bundledChanged=false;try{bundledChanged=!((await fsp.readFile(bundledEntry)).equals(await fsp.readFile(installedEntry)));}catch{}
+    if(bundledChanged){if(processes.has(id))stop(id);await refreshBundled(plugin);setRuntime(id,'installed',`Updated ${plugin.name} to ${plugin.version}.`);}
     if (processes.has(id)) {
       const checked = await health(id, { attempts: 2 });
       if (checked.ok) return checked;
