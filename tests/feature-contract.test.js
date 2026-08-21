@@ -605,7 +605,7 @@ test('tag assignment snapshots multi-selection and expands complete stacks', () 
 test('collection drag updates smart-folder thumbnails without a full grid refresh',()=>{
   assert.match(renderer,/addAssetsToCollectionWithoutGridRefresh/);
   assert.match(renderer,/batchUpdateAssets\(unique,operation,\{silent:true,returnAssets:true\}\)/);
-  assert.match(renderer,/reconcileThumbnailCards\(changed,\{viewport\}\)/);
+  assert.match(renderer,/applyAssetMutationVisibility\(unique,result,\{viewport\}\)/);
   assert.match(renderer,/card\.remove\(\)/);
   assert.match(renderer,/elements\.grid\.appendChild\(card\)/);
   assert.match(renderer,/renderSidebar\(false\)/);
@@ -1464,6 +1464,8 @@ test('inspector rename remains asset-bound and patches one card without repainti
 });
 
 test('collection transfers reuse matching physical roots and Threads expose real durable progress',()=>{assert.match(main,/reuseRoot=path\.basename\(selectedDestination\)\.localeCompare/);assert.match(main,/Generating previews/);assert.match(main,/showProgress=\['plugin','similarity'\]\.includes\(type\)/);assert.match(renderer,/syncBackgroundThreadsForPortfolio/);assert.doesNotMatch(renderer,/task\.total>0&&task\.completed>=task\.total/);});
+
+test('moves into locked collections or folders remove only affected thumbnails immediately',()=>{assert.match(main,/function mutationVisibilityResult\(changedAssets=\[\]\)/);assert.match(main,/hiddenIds\.push\(asset\.id\);rendererVisibleAssetIds\.delete\(asset\.id\)/);assert.match(main,/if\(options\.returnAssets\)return\{count,\.\.\.mutationVisibilityResult\(changedAssets\)\}/);assert.match(main,/\.\.\.mutationVisibilityResult\(moved\),locations/);assert.match(renderer,/function applyAssetMutationVisibility\(ids,result/);assert.match(renderer,/elements\.grid\.querySelector\(`\[data-asset-id="\$\{CSS\.escape\(id\)\}"\]`\)\?\.remove\(\);scheduleMasonry\(\);assetStreamState\.removeMany\(hiddenIds\)/);assert.match(renderer,/applyAssetMutationVisibility\(unique,result,\{viewport\}\)/);assert.match(renderer,/moveAssetsToFolder[\s\S]{0,600}applyAssetMutationVisibility\(ids,result,\{viewport\}\)/);assert.match(renderer,/returnAssets:true\}\);applyAssetMutationVisibility\(ids,result/);assert.doesNotMatch(renderer,/returnAssets:index===action\.steps\.length-1/);});
 
 test('live imports refresh clean cards, context menus clear the footer, and persistent Threads uses bottom inspector tabs',()=>{
   for(const id of ['inspector-details-panel','threads-panel','threads-panel-list','right-panel-details-tab','right-panel-threads-tab','active-thread-count','threads-toggle-all'])assert.match(html,new RegExp(`id="${id}"`));assert.match(html,/data-section-toggle="indexed-locations"[^>]*>[\s\S]*?<span>Folders<\/span>/);assert.doesNotMatch(html,/>Indexed Locations?<\//i);
