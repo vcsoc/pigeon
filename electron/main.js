@@ -274,6 +274,7 @@ function compatibilityStreamUrl(asset) { return `pigeon-asset://asset/${asset.id
 
 function publicAssetForRenderer(asset,location,locked=isAssetLocked(asset)){return{...lightweightAsset(asset),locked,previewUrl:previewUrlFor(asset,location),mediaUrl:mediaUrlFor(asset)};}
 function mutationVisibilityResult(changedAssets=[]){const assets=[],hiddenIds=[],locationsById=new Map(library.locations.map((location)=>[location.id,location]));for(const asset of changedAssets){if(isAssetLocked(asset)){hiddenIds.push(asset.id);rendererVisibleAssetIds.delete(asset.id);}else{assets.push(publicAssetForRenderer(asset,locationsById.get(asset.locationId),false));rendererVisibleAssetIds.add(asset.id);}}return{assets,hiddenIds};}
+function lockVisibilityResult(){const result=mutationVisibilityResult(library.assets.filter((asset)=>rendererVisibleAssetIds.has(asset.id)&&isAssetLocked(asset)));broadcastSidebar();return result;}
 function publicAssetDetails(asset){return asset?assetDetails(asset):null;}
 const scanBroadcastQueues=new Map();
 function broadcastScanAssets(location,assets,done=false){if(!mainWindow||mainWindow.isDestroyed()||!assets.length&&!done)return;const portfolioId=activePortfolioId,visibleAssets=assets.filter((asset)=>!isAssetLocked(asset)),key=`${portfolioId}:${location.id}`,queue=scanBroadcastQueues.get(key)||{portfolioId,items:[],running:false,timer:null,cancelled:false};for(let offset=0;offset<visibleAssets.length;offset+=100)queue.items.push({portfolioId,locationId:location.id,assets:visibleAssets.slice(offset,offset+100).map((asset)=>publicAssetForRenderer(asset,location)),done:false});if(done){if(queue.items.length)queue.items.at(-1).done=true;else queue.items.push({portfolioId,locationId:location.id,assets:[],done:true});}scanBroadcastQueues.set(key,queue);if(queue.running)return;queue.running=true;const drain=()=>{queue.timer=null;if(queue.cancelled||queue.portfolioId!==activePortfolioId){queue.items.length=0;queue.running=false;scanBroadcastQueues.delete(key);return;}const message=queue.items.shift();if(!message){queue.running=false;scanBroadcastQueues.delete(key);return;}if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('scan:assets',message);queue.timer=setTimeout(drain,16);};drain();}
@@ -1970,8 +1971,7 @@ ipcMain.handle('folder:delete-physical',(_event,{locationId,subfolder=''})=>dele
 
 ipcMain.handle('library:remove-location', async (_event, id) => {
   const location=library.locations.find((item)=>item.id===id);if(!location)throw new Error('Indexed folder no longer exists');
-  let removedFromDisk=false;
-  if(location.type==='folder'&&!library.assets.some((asset)=>asset.locationId===id)){const target=path.resolve(location.path),root=path.parse(target).root;try{if(target!==root&&(await fsp.readdir(target)).length===0){await fsp.rmdir(target);removedFromDisk=true;}}catch(error){if(error?.code!=='ENOTEMPTY'&&error?.code!=='ENOENT')recordDiagnostic('warning','Empty indexed folder was not removed from disk',{path:target,error:error.message});}}
+  const removedFromDisk=false;
   watchers.get(id)?.close();
   watchers.delete(id); clearTimeout(watcherRefreshTimers.get(id)); watcherRefreshTimers.delete(id);
   library.locations = library.locations.filter((location) => location.id !== id);
@@ -2132,7 +2132,7 @@ ipcMain.handle('collection:unlock', (_event, { id, password }) => {
   if (expected.length !== actual.length || !crypto.timingSafeEqual(expected, actual)) return false;
   unlockedCollections.set(id, key); broadcastUnlockVisibilityDelta('collection-unlock'); return true;
 });
-ipcMain.handle('collection:lock-now', (_event, id) => { unlockedCollections.delete(id); broadcast(); return true; });
+ipcMain.handle('collection:lock-now', (_event, id) => { unlockedCollections.delete(id); return lockVisibilityResult(); });
 ipcMain.handle('collection:remove-password', (_event, { id, password }) => {
   const collection = library.collections.find((item) => item.id === id);
   if (!collection?.lock) return true;
@@ -2145,7 +2145,7 @@ ipcMain.handle('collection:remove-password', (_event, { id, password }) => {
 });
 ipcMain.handle('folder:set-password',(_event,{locationId,subfolder='',password})=>{if(!library.locations.some((item)=>item.id===locationId))throw new Error('Folder does not exist');if(String(password).length<4)throw new Error('Password must contain at least four characters');const folder=normalizedSubfolder(subfolder).toLowerCase(),salt=crypto.randomBytes(16).toString('hex'),key=passwordKey(password,salt),rule={locationId,subfolder:folder,salt,digest:passwordDigest(key),createdAt:Date.now()};library.settings=library.settings||{};library.settings.folderLocks=library.settings.folderLocks||{};library.settings.folderLocks[folderLockKey(locationId,folder)]=rule;unlockedFolders.delete(folderLockKey(locationId,folder));scheduleSave();broadcast();return true;});
 ipcMain.handle('folder:unlock',(_event,{locationId,subfolder='',password})=>{const folder=normalizedSubfolder(subfolder).toLowerCase(),rule=folderLocks().filter((item)=>item.locationId===locationId&&(!item.subfolder||folder===item.subfolder||folder.startsWith(`${item.subfolder}/`))).sort((first,second)=>second.subfolder.length-first.subfolder.length)[0];if(!rule)return false;const keyName=folderLockKey(rule.locationId,rule.subfolder),key=passwordKey(password,rule.salt),expected=Buffer.from(rule.digest,'hex'),actual=Buffer.from(passwordDigest(key),'hex');if(expected.length!==actual.length||!crypto.timingSafeEqual(expected,actual))return false;unlockedFolders.set(keyName,key);broadcastUnlockVisibilityDelta('folder-unlock');return true;});
-ipcMain.handle('folder:lock-now',(_event,{locationId,subfolder=''})=>{unlockedFolders.delete(folderLockKey(locationId,subfolder));broadcast();return true;});
+ipcMain.handle('folder:lock-now',(_event,{locationId,subfolder=''})=>{unlockedFolders.delete(folderLockKey(locationId,subfolder));return lockVisibilityResult();});
 ipcMain.handle('folder:remove-password',(_event,{locationId,subfolder='',password})=>{const folder=normalizedSubfolder(subfolder).toLowerCase(),rule=folderLocks().filter((item)=>item.locationId===locationId&&(!item.subfolder||folder===item.subfolder||folder.startsWith(`${item.subfolder}/`))).sort((first,second)=>second.subfolder.length-first.subfolder.length)[0];if(!rule)return false;const keyName=folderLockKey(rule.locationId,rule.subfolder),key=passwordKey(password,rule.salt);if(passwordDigest(key)!==rule.digest)return false;delete library.settings.folderLocks[keyName];unlockedFolders.delete(keyName);scheduleSave();broadcast();return true;});
 ipcMain.handle('collection:remove', (_event, id) => {
   const descendants = collectionDescendants(id), removed = libraryCore.removeCollection(library, id);
