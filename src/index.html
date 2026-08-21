@@ -10,7 +10,7 @@
   </head>
   <body>
     <div class="app-shell startup-active">
-      <div id="startup-splash" class="startup-splash" aria-label="Pigeon is loading" role="status"><div class="startup-loader" aria-hidden="true"><i></i><span>Loading</span></div><div class="startup-brand"><img src="../pigeon-logo.png" alt="Pigeon" /><div><strong>pigeon</strong><span>sees all</span><small id="startup-version">Version</small></div></div></div>
+      <div id="startup-splash" class="startup-splash" aria-label="Pigeon is loading" role="status"><div class="startup-loader" aria-hidden="true"><img src="../pigeon-loading.gif" alt="" /><span>Loading</span></div><div class="startup-brand"><img src="../pigeon-logo.png" alt="Pigeon" /><div><strong>pigeon</strong><span>sees all</span><small id="startup-version">Version</small></div></div></div>
       <aside class="sidebar">
         <div class="window-drag">
           <button id="app-menu-button" class="sidebar-menu-glyph" title="Pigeon menu" aria-label="Open Pigeon menu">☰</button>
@@ -108,7 +108,7 @@
 
         <section class="content-area">
           <div id="grid-wrap" class="grid-wrap">
-            <section id="portfolio-switch-loading" class="portfolio-switch-loading hidden" role="status" aria-live="polite"><img src="../pigeon-logo.png" alt="" /><strong>Opening portfolio…</strong><span>Preparing its folders, rules, and thumbnails</span></section>
+            <section id="portfolio-switch-loading" class="portfolio-switch-loading hidden" role="status" aria-live="polite"><img src="../pigeon-loading.gif" alt="" /><strong>Opening portfolio…</strong><span>Preparing its folders, rules, and thumbnails</span></section>
             <section id="portfolio-transfer" class="portfolio-transfer hidden" aria-labelledby="portfolio-transfer-title">
               <div class="portfolio-transfer-card"><header><div><span>Portfolio transfer</span><h2 id="portfolio-transfer-title">Add to another portfolio</h2></div><button id="close-portfolio-transfer" aria-label="Close">×</button></header><p id="portfolio-transfer-description"></p><div id="portfolio-transfer-list" class="portfolio-transfer-list" role="radiogroup" aria-label="Destination portfolio"></div><label class="portfolio-transfer-move"><input id="portfolio-transfer-move" type="checkbox" /><span><strong>Move to portfolio</strong><small id="portfolio-transfer-move-description">Remove this grouping from the current portfolio after it is added.</small></span></label><footer><button id="cancel-portfolio-transfer">Cancel</button><button id="confirm-portfolio-transfer" class="primary-button" disabled>Add to Portfolio</button></footer></div>
             </section>
@@ -169,7 +169,7 @@
             <div id="duplicate-controls" class="duplicate-controls hidden"><div><strong id="duplicate-mode-label">Similar image groups</strong><span id="duplicate-summary"></span></div><label>Similarity accuracy <input id="duplicate-similarity" type="range" min="35" max="100" value="78" /><output id="duplicate-similarity-value">78%</output></label><button id="show-all-duplicate-groups" class="secondary-button hidden">Show all groups</button></div>
             <div id="empty-state" class="empty-state">
               <div id="empty-folder-art" class="empty-art" aria-hidden="true"><span class="empty-folder-back"></span><span class="empty-photo"><i></i></span><span class="empty-folder-front"></span><b>＋</b></div>
-              <img id="opening-location-animation" class="opening-location-animation hidden" src="../pigeon-peck.gif" alt="" aria-hidden="true" />
+              <img id="opening-location-animation" class="opening-location-animation hidden" src="../pigeon-loading.gif" alt="" aria-hidden="true" />
               <h2 id="empty-title">Your portfolio is ready</h2>
               <p id="empty-description">Start with the Pictures folder on this computer, or choose another source.</p>
               <button id="empty-add-pictures" class="empty-start-action">Click here to add your default Pictures folder to get started</button>

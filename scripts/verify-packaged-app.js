@@ -14,6 +14,7 @@ const criticalFiles = [
   'src/cooperative-view.js',
   'src/asset-indexes.js',
   'src/renderer.js',
+  'pigeon-loading.gif',
   'electron/main.js',
   'electron/preload.js',
   'electron/embedded-metadata.js',
