@@ -5,7 +5,7 @@ const fsp=require('node:fs/promises');
 const os=require('node:os');
 const path=require('node:path');
 const sharp=require('sharp');
-const {outputFormat,normalizedCrop,renderImageDerivative}=require('../electron/image-derivative');
+const {outputFormat,normalizedCrop,normalizedResize,renderImageDerivative}=require('../electron/image-derivative');
 
 test('image derivatives convert, rotate, crop, and apply tonal adjustments',async()=>{
   const directory=await fsp.mkdtemp(path.join(os.tmpdir(),'pigeon-derivative-'));
@@ -19,5 +19,7 @@ test('image derivatives convert, rotate, crop, and apply tonal adjustments',asyn
 
 test('derivative formats and crops are normalized safely',()=>{
   assert.equal(outputFormat('jpg'),'jpeg');assert.equal(outputFormat('', 'copy.PNG'),'png');assert.equal(outputFormat('invalid','copy.webp'),'webp');
-  assert.deepEqual(normalizedCrop({normalized:true,x:.5,y:.5,width:1,height:1},100,80),{left:50,top:40,width:50,height:40});
+  assert.deepEqual(normalizedCrop({normalized:true,x:.5,y:.5,width:1,height:1},100,80),{left:50,top:40,width:50,height:40});assert.deepEqual(normalizedResize({width:640.4,height:360.4}),{width:640,height:360});
 });
+
+test('image derivatives resize to explicit non-destructive output dimensions',async()=>{const directory=await fsp.mkdtemp(path.join(os.tmpdir(),'pigeon-resize-'));try{const source=path.join(directory,'source.png'),target=path.join(directory,'resized.png');await sharp({create:{width:80,height:40,channels:3,background:'#3399cc'}}).png().toFile(source);const result=await renderImageDerivative(source,target,{resize:{width:320,height:180}}),metadata=await sharp(target).metadata();assert.equal(result.width,320);assert.equal(result.height,180);assert.equal(metadata.width,320);assert.equal(metadata.height,180);}finally{await fsp.rm(directory,{recursive:true,force:true});}});

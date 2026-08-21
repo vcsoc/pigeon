@@ -13,7 +13,7 @@ test('plugin manager catalogs, installs, configures and uninstalls bundled plugi
     let plugins=await manager.list(),ai=plugins.find((plugin)=>plugin.id==='ai-removal');
     assert.equal(ai.installed,false);assert.equal(ai.enabled,false);
     plugins=await manager.install('ai-removal');ai=plugins.find((plugin)=>plugin.id==='ai-removal');
-    assert.equal(ai.installed,true);assert.equal(ai.configured.endpoint,'http://127.0.0.1:8765/inpaint');
+    assert.equal(ai.installed,true);assert.equal(ai.model.name,'Simple LaMa ONNX');assert.equal(ai.modelReady,false);await fsp.writeFile(path.join(pluginsDir,'ai-removal','.model-ready'),'ready');ai=(await manager.list()).find((plugin)=>plugin.id==='ai-removal');assert.equal(ai.modelReady,true);assert.equal(ai.configured.endpoint,'http://127.0.0.1:8765/inpaint');
     plugins=await manager.configure('ai-removal',{endpoint:'http://localhost:9988/inpaint',brushSize:73});ai=plugins.find((plugin)=>plugin.id==='ai-removal');
     assert.equal(ai.configured.brushSize,73);assert.equal(ai.configured.endpoint,'http://localhost:9988/inpaint');
     await assert.rejects(()=>manager.configure('ai-removal',{endpoint:'https://example.com/inpaint'}),/loopback-only/);

@@ -1281,13 +1281,13 @@ async function saveImageEdits(id,edits={},annotations=null){
   const asset=library.assets.find((item)=>item.id===id),source=await editableAssetSource(asset),editDir=path.join(thumbnailDir,'edits');await fsp.mkdir(editDir,{recursive:true});
   const target=path.join(editDir,`${asset.id}-${Date.now()}.png`),rotation=((Number(asset.rotation)||0)+Number(edits.rotate||0)+360)%360,result=await renderImageDerivative(source,target,{...edits,rotate:rotation,format:'png'});
   if(asset.editedPath&&asset.editedPath!==target)await fsp.rm(asset.editedPath,{force:true});
-  Object.assign(asset,{editedPath:target,editedAt:Date.now(),inlineCrop:edits.crop||null,imageAdjustments:{grayscale:Boolean(edits.grayscale),negative:Boolean(edits.negative),sepia:Boolean(edits.sepia),brightness:Number(edits.brightness)||1,contrast:Number(edits.contrast)||1},annotations:Array.isArray(annotations)?annotations:asset.annotations||[],width:result.width,height:result.height,rotation:0});
-  scheduleAssetSave(asset);const update=publicEditedAsset(asset);broadcastAssetPatches([{id:asset.id,editedPath:asset.editedPath,editedAt:asset.editedAt,inlineCrop:asset.inlineCrop,imageAdjustments:asset.imageAdjustments,annotations:asset.annotations,width:asset.width,height:asset.height,rotation:0,previewUrl:update.previewUrl,mediaUrl:update.mediaUrl}]);return update;
+  Object.assign(asset,{editedPath:target,editedAt:Date.now(),inlineCrop:edits.crop||null,imageAdjustments:{grayscale:Boolean(edits.grayscale),negative:Boolean(edits.negative),sepia:Boolean(edits.sepia),brightness:Number(edits.brightness)||1,contrast:Number(edits.contrast)||1},imageResize:edits.resize||null,annotations:Array.isArray(annotations)?annotations:asset.annotations||[],width:result.width,height:result.height,rotation:0});
+  scheduleAssetSave(asset);const update=publicEditedAsset(asset);broadcastAssetPatches([{id:asset.id,editedPath:asset.editedPath,editedAt:asset.editedAt,inlineCrop:asset.inlineCrop,imageAdjustments:asset.imageAdjustments,imageResize:asset.imageResize,annotations:asset.annotations,width:asset.width,height:asset.height,rotation:0,previewUrl:update.previewUrl,mediaUrl:update.mediaUrl}]);return update;
 }
 async function applyInlineCrop(id,crop={}){return saveImageEdits(id,{crop:{...crop,normalized:true}});}
 async function resetInlineEdits(id){
   const asset=library.assets.find((item)=>item.id===id);if(!asset)throw new Error('Asset not found');if(asset.editedPath)await fsp.rm(asset.editedPath,{force:true});
-  asset.editedPath=null;asset.editedAt=null;asset.inlineCrop=null;asset.imageAdjustments=null;asset.rotation=0;
+  asset.editedPath=null;asset.editedAt=null;asset.inlineCrop=null;asset.imageAdjustments=null;asset.imageResize=null;asset.rotation=0;
   try{const source=await editableAssetSource(asset),metadata=await sharp(source).metadata();if(source!==asset.thumbnailPath||!asset.width||!asset.height){asset.width=metadata.width||asset.width;asset.height=metadata.height||asset.height;}}catch{}
   scheduleAssetSave(asset);const update=publicEditedAsset(asset);broadcastAssetPatches([{id:asset.id,editedPath:null,editedAt:null,inlineCrop:null,imageAdjustments:null,rotation:0,width:asset.width,height:asset.height,previewUrl:update.previewUrl,mediaUrl:update.mediaUrl}]);return update;
 }
