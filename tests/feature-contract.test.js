@@ -609,8 +609,8 @@ test('collection drag updates smart-folder thumbnails without a full grid refres
   assert.match(renderer,/addAssetsToCollectionWithoutGridRefresh/);
   assert.match(renderer,/batchUpdateAssets\(unique,operation,\{silent:true,returnAssets:true\}\)/);
   assert.match(renderer,/applyAssetMutationVisibility\(unique,result,\{viewport\}\)/);
-  assert.match(renderer,/card\.remove\(\)/);
-  assert.match(renderer,/elements\.grid\.appendChild\(card\)/);
+  assert.match(renderer,/thumbnailVisibilityObserver\.unobserve\(card\);card\.remove\(\)/);
+  const reconcile=renderer.match(/function reconcileThumbnailCards[\s\S]*?\n\}/)?.[0]||'';assert.match(reconcile,/host\.insertBefore\(card,cursor\)/);assert.match(reconcile,/card\.parentElement!==host/);assert.doesNotMatch(reconcile,/appendChild\(card\)/);
   assert.match(renderer,/renderSidebar\(false\)/);
   const helper=renderer.match(/async function addAssetsToCollectionWithoutGridRefresh[\s\S]*?\n\}/)?.[0]||'';
   assert.doesNotMatch(helper,/renderGrid\(/);

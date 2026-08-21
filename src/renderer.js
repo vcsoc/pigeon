@@ -1291,9 +1291,10 @@ function restoreGridViewport(viewport){if(!viewport||viewport.interaction!==grid
 function selectSuccessorWithoutScrolling(id){if(!id)return;state.selectedId=id;state.selectedIds=new Set([id]);state.selectionAnchorId=id;updateCardSelectionStyles();renderInspector();}
 function reconcileThumbnailCards(changedIds=[],{sidebar=true,viewport=null}={}){
   if(state.library.assets.length>=COOPERATIVE_VIEW_THRESHOLD){invalidateAssetViewCache();for(const id of changedIds){state.selectedIds.delete(id);if(state.selectedId===id)state.selectedId=null;}const view=startCooperativeAssetView(assetViewSignature());view.viewportRestore=viewport;view.preserveCards=true;renderBatchBar();renderInspector();if(sidebar)renderSidebar(false);saveNavigationState();return;}
-  const desired=filteredAssets(),desiredVisible=desired,desiredSet=new Set(desiredVisible.map((asset)=>asset.id)),cards=new Map($$('.asset-card').map((card)=>[card.dataset.assetId,card]));
-  for(const [id,card] of cards)if(!desiredSet.has(id)){card.classList.add('asset-card-removing');card.remove();}
-  for(const asset of desiredVisible){const card=cards.get(asset.id);if(card&&card.isConnected)elements.grid.appendChild(card);}
+  const desired=filteredAssets(),desiredVisible=desired,desiredSet=new Set(desiredVisible.map((asset)=>asset.id)),cards=new Map([...elements.grid.querySelectorAll('.asset-card')].map((card)=>[card.dataset.assetId,card])),host=elements.grid.querySelector('.virtual-card-window')||elements.grid;
+  for(const [id,card] of cards)if(!desiredSet.has(id)){card.classList.add('asset-card-removing');thumbnailVisibilityObserver.unobserve(card);card.remove();}
+  let cursor=host.querySelector(':scope > .asset-card');
+  for(const asset of desiredVisible){const card=cards.get(asset.id);if(!card?.isConnected||card.parentElement!==host)continue;if(card===cursor){cursor=cursor.nextElementSibling;continue;}host.insertBefore(card,cursor);}
   for(const id of changedIds)if(!desiredSet.has(id)){state.selectedIds.delete(id);if(state.selectedId===id)state.selectedId=null;}
   elements.count.textContent=`${desired.length} ${desired.length===1?'item':'items'}`;renderBatchBar();renderInspector();if(sidebar)renderSidebar(false);scheduleMasonry();saveNavigationState();
 }
