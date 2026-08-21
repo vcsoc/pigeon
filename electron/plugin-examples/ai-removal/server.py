@@ -83,16 +83,20 @@ def health():
 
 @app.post("/inpaint")
 def inpaint():
-    payload = request.get_json(force=True, silent=False)
-    source = Path(payload["sourcePath"]).resolve(strict=True)
-    mask_path = Path(payload["maskPath"]).resolve(strict=True)
-    output = Path(payload["outputPath"]).resolve()
-    output.parent.mkdir(parents=True, exist_ok=True)
-    image = Image.open(source).convert("RGB")
-    mask = Image.open(mask_path).convert("L")
-    result = run_inpainting(image, mask)
-    result.save(output, format="PNG")
-    return jsonify({"ok": True, "width": result.width, "height": result.height, "model": "Simple LaMa ONNX"})
+    try:
+        payload = request.get_json(force=True, silent=False)
+        source = Path(payload["sourcePath"]).resolve(strict=True)
+        mask_path = Path(payload["maskPath"]).resolve(strict=True)
+        output = Path(payload["outputPath"]).resolve()
+        output.parent.mkdir(parents=True, exist_ok=True)
+        image = Image.open(source).convert("RGB")
+        mask = Image.open(mask_path).convert("L")
+        result = run_inpainting(image, mask)
+        result.save(output, format="PNG")
+        return jsonify({"ok": True, "width": result.width, "height": result.height, "model": "Simple LaMa ONNX"})
+    except Exception as error:
+        app.logger.exception("Inpainting failed")
+        return jsonify({"ok": False, "error": str(error)}), 500
 
 
 if __name__ == "__main__":
@@ -100,5 +104,7 @@ if __name__ == "__main__":
         prepare_model()
         print(f"Simple LaMa ONNX model is ready at {MODEL_PATH}")
         raise SystemExit(0)
+    # Load before reporting healthy so Pigeon never labels an unusable service as running.
+    load_model()
     # Never expose the local editing model to the LAN.
-    app.run(host="127.0.0.1", port=int(os.environ.get("PIGEON_AI_REMOVAL_PORT", "8765")), debug=False)
+    app.run(host="127.0.0.1", port=int(os.environ.get("PIGEON_AI_REMOVAL_PORT", "8765")), debug=False, threaded=False)
