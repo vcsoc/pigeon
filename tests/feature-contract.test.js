@@ -384,7 +384,7 @@ test('justified rows, tag autocomplete, and viewer editing controls are wired', 
 test('startup, About, runtime and platform packages use the transparent Pigeon logo everywhere', async () => {
   assert.match(html, /id="startup-splash"[^>]*>[\s\S]*?pigeon-logo\.png/);
   assert.match(html, /rel="icon"[^>]*pigeon-logo\.png/);
-  assert.match(styles, /\.startup-splash \{[^}]*background: var\(--bg\)/);
+  assert.match(styles, /\.startup-splash \{[^}]*background: #040405/);
   assert.match(styles,/\.app-shell\.startup-active > :not\(\.startup-splash\)/);
   assert.match(html,/startup-brand[\s\S]*?<strong>pigeon<\/strong><span>sees all<\/span>/);
   assert.match(styles,/\.startup-brand \{ position:absolute; left:0; bottom:0/);
@@ -1260,7 +1260,7 @@ test('right-panel threads and scoped analytics are wired', () => {
 });
 
 test('the supplied animated pigeon appears on every loading surface while footer progress stays removed',async()=>{
-  const animationPath=path.join(root,'pigeon-loading.gif'),metadata=await sharp(animationPath,{animated:true}).metadata();assert.equal(metadata.format,'gif');assert.ok(metadata.pages>1);assert.equal(metadata.loop,0);assert.match(html,/id="startup-splash"[\s\S]*?src="\.\.\/pigeon-loading\.gif"/);assert.match(html,/id="portfolio-switch-loading"[^>]*>[\s\S]*?src="\.\.\/pigeon-loading\.gif"/);assert.match(html,/id="opening-location-animation"[^>]*src="\.\.\/pigeon-loading\.gif"/);assert.doesNotMatch(html,/status-progress-pigeon/);assert.match(renderer,/emptyFolderArt\.classList\.toggle\('hidden',loading\)/);assert.match(styles,/\.opening-location-animation\{[^}]*object-fit:contain/);assert.doesNotMatch(styles,/\.status-progress-pigeon\{/);assert.match(packageJson,/"pigeon-loading\.gif"/);
+  const animationPath=path.join(root,'pigeon-loading.gif'),metadata=await sharp(animationPath,{animated:true}).metadata();assert.equal(metadata.format,'gif');assert.ok(metadata.pages>1);assert.equal(metadata.loop,0);assert.match(html,/id="startup-splash"[\s\S]*?src="\.\.\/pigeon-loading\.gif"/);assert.match(html,/id="portfolio-switch-loading"[^>]*>[\s\S]*?src="\.\.\/pigeon-loading\.gif"/);assert.match(html,/id="opening-location-animation"[^>]*src="\.\.\/pigeon-loading\.gif"/);assert.doesNotMatch(html,/status-progress-pigeon/);assert.match(renderer,/emptyFolderArt\.classList\.toggle\('hidden',loading\)/);assert.match(styles,/\.opening-location-animation\{[^}]*object-fit:contain/);assert.match(styles,/#grid-wrap:has\(\.opening-location-animation:not\(\.hidden\)\)\{background:#040405\}/);assert.match(styles,/\.portfolio-switch-loading\{[^}]*background:#040405/);assert.doesNotMatch(styles,/\.status-progress-pigeon\{/);assert.match(packageJson,/"pigeon-loading\.gif"/);
 });
 
 test('Chrome and Edge Manifest V3 extension is installable and local-only', () => {
