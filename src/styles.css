@@ -435,6 +435,8 @@ textarea { resize: vertical; min-height: 68px; padding: 8px; line-height: 1.5; }
 .tag-pill:hover { background: #39425a; color: #e5eaff; }
 .tag-remove { width: 0; overflow: hidden; opacity: 0; color: #d8ddec; font-size: 12px; line-height: 1; transition: width .12s ease, opacity .12s ease; }
 .tag-pill:hover .tag-remove, .tag-remove:focus { width: 10px; opacity: 1; }
+.collection-membership-pills{display:flex;flex-direction:column;gap:6px;padding-top:7px}.collection-membership-row{min-width:0}.collection-membership-row>strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:0 0 4px;color:#8f97a9;font-size:9px}.collection-pill-list{display:flex;flex-wrap:wrap;gap:5px}.collection-pill{min-height:22px;border:0;border-radius:11px;padding:3px 8px;background:#44351f;color:#f0c987;font-size:9px;cursor:pointer}.collection-pill:hover{background:#5b4729;color:#ffe3ad}.collection-pill.partial{opacity:.72}.collection-pill-empty{color:#747b8a;font-size:9px;font-style:italic}
+.annotation-toolbar button[aria-pressed="true"]{background:#54411f;color:#ffd58c;border-color:#8f6c32}
 .metadata-list { margin: 12px 0 0; border-top: 1px solid var(--line); padding-top: 7px; }
 .metadata-list div { display: grid; grid-template-columns: 55px 1fr; gap: 7px; padding: 4px 0; font-size: 9.5px; }
 .metadata-list dt { color: #73798a; }

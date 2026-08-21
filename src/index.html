@@ -137,10 +137,10 @@
               <div id="contact-sheet-pages" class="contact-sheet-pages"></div>
             </section>
             <section id="annotation-view" class="annotation-view hidden" aria-label="Inline annotation editor">
-              <header><strong>Non-destructive annotations</strong><button id="close-annotations" class="secondary-button">Close</button></header>
-              <div class="annotation-toolbar"><button data-tool="rect">Rectangle</button><button data-tool="text">Text</button><button data-tool="crop">Crop</button><input id="annotation-color" type="color" value="#ff3b30" /><button id="undo-annotation">Undo</button><span class="toolbar-divider"></span><button id="rotate-left">↶ Rotate</button><button id="rotate-right">↷ Rotate</button><button id="flip-image">⇋ Flip</button><label>Brightness <input id="edit-brightness" type="range" min="50" max="150" value="100" /></label></div>
+              <header><strong>Non-destructive image editor</strong><button id="close-annotations" class="secondary-button">Close</button></header>
+              <div class="annotation-toolbar"><button data-tool="rect">Rectangle</button><button data-tool="text">Text</button><button data-tool="crop">Crop</button><input id="annotation-color" type="color" value="#ff3b30" /><button id="undo-annotation">Undo</button><span class="toolbar-divider"></span><button id="rotate-left">↶ Rotate</button><button id="rotate-right">↷ Rotate</button><button id="flip-image">⇋ Flip</button><button id="edit-grayscale" aria-pressed="false">Black &amp; white</button><button id="edit-negative" aria-pressed="false">Negative</button><button id="edit-sepia" aria-pressed="false">Sepia</button><label>Brightness <input id="edit-brightness" type="range" min="10" max="300" value="100" /></label><label>Contrast <input id="edit-contrast" type="range" min="10" max="300" value="100" /></label></div>
               <div class="annotation-canvas"><div id="annotation-stage" class="annotation-stage"></div></div>
-              <footer><span>Changes are non-destructive</span><button id="save-annotations" class="secondary-button">Save metadata</button><button id="export-annotations" class="primary-button">Export derivative</button></footer>
+              <footer><span>Changes are non-destructive; source containers remain untouched</span><button id="save-annotations" class="secondary-button">Save edits</button><button id="export-annotations" class="primary-button">Save as copy…</button></footer>
             </section>
             <section id="media-viewer" class="media-viewer hidden">
               <div class="viewer-stage">
@@ -211,6 +211,7 @@
               <input id="asset-tags" class="text-field" placeholder="Add a tag…" autocomplete="off" aria-autocomplete="list" aria-controls="tag-autocomplete" />
               <datalist id="tag-suggestions"></datalist>
               <div id="tag-pills" class="tag-pills"></div>
+              <label class="field-label">Collections</label><div id="collection-membership-pills" class="collection-membership-pills"></div>
               <dl class="metadata-list">
                 <div><dt>Location</dt><dd id="meta-location"></dd></div>
                 <div><dt>Folder</dt><dd id="meta-folder"></dd></div>
@@ -253,7 +254,7 @@
       <button id="menu-add-files"><span>＋</span><span><strong>Add files</strong><small>Reference selected files</small></span></button>
     </div>
     <div id="facet-popover" class="facet-popover hidden"></div>
-    <section id="order-by-popover" class="order-by-popover hidden" aria-label="Order items"><header><strong>Order by</strong><small id="order-by-scope"></small></header><label><span>Sort field</span><select id="order-by-field"><option value="modified">Date modified</option><option value="indexedAt">Date added</option><option value="name">Name</option><option value="size">File size</option><option value="rating">Rating</option></select></label><div class="order-direction" role="group" aria-label="Sort direction"><button id="order-ascending" title="Ascending">↑ Ascending</button><button id="order-descending" title="Descending">↓ Descending</button></div><button id="reset-item-order" class="secondary-button">Reset this view</button></section>
+    <section id="order-by-popover" class="order-by-popover hidden" aria-label="Order items"><header><strong>Order by</strong><small id="order-by-scope"></small></header><label><span>Sort field</span><select id="order-by-field"><option value="modified">Date modified</option><option value="indexedAt">Date added</option><option value="name">Name</option><option value="size">File size</option><option value="dimensions">Dimensions</option><option value="rating">Rating</option></select></label><div class="order-direction" role="group" aria-label="Sort direction"><button id="order-ascending" title="Ascending">↑ Ascending</button><button id="order-descending" title="Descending">↓ Descending</button></div><button id="reset-item-order" class="secondary-button">Reset this view</button></section>
     <div id="app-menu" class="app-menu hidden">
       <button data-menu-group="library"><span>Portfolio</span><span>›</span></button>
       <button data-menu-group="file"><span>File</span><span>›</span></button>

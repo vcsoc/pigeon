@@ -16,6 +16,7 @@ const { extractAffinityPreview } = require('./affinity-preview');
 const { compareVersions, isMissingUpdateMetadataError, isNewerVersion, isTransientUpdateDownloadError, requiresForcedUpdate } = require('./update-support');
 const { extractSnagxPreview } = require('./snagx-preview');
 const { extractLightroomPreview } = require('./lightroom-preview');
+const {renderImageDerivative,outputFormat}=require('./image-derivative');
 const {TEXT_PREVIEW_DOCUMENT_EXTENSIONS,createTextDocumentThumbnail}=require('./text-document-preview');
 const { IMAGE_EXTENSIONS, RAW_IMAGE_EXTENSION_SET, HEIC_IMAGE_EXTENSION_SET, VIDEO_EXTENSIONS, AUDIO_EXTENSIONS, FONT_EXTENSIONS, DOCUMENT_EXTENSIONS, shouldIndexFile, dialogExtensions, indexingPolicySignature } = require('./file-types');
 const { execFile, spawn } = require('node:child_process');
@@ -1263,76 +1264,35 @@ async function duplicateAsset(id) {
   return publicAssetForRenderer(duplicate,location);
 }
 
-async function applyInlineCrop(id, crop = {}) {
-  const asset = library.assets.find((item) => item.id === id);
-  if (!asset || asset.kind !== 'image') throw new Error('Select an image to crop');
-  const source = asset.editedPath && await pathAvailable(asset.editedPath) ? asset.editedPath : asset.path;
-  if (!(await pathAvailable(source))) throw new Error('The source image is offline');
-  const metadata = await sharp(source).metadata();
-  const rotation = ((Number(asset.rotation) || 0) % 360 + 360) % 360;
-  let sourceWidth = metadata.width || asset.width, sourceHeight = metadata.height || asset.height;
-  if (rotation % 180) [sourceWidth, sourceHeight] = [sourceHeight, sourceWidth];
-  const normalized = {
-    x: Math.max(0, Math.min(.95, Number(crop.x) || 0)),
-    y: Math.max(0, Math.min(.95, Number(crop.y) || 0)),
-    width: Math.max(.05, Math.min(1, Number(crop.width) || 1)),
-    height: Math.max(.05, Math.min(1, Number(crop.height) || 1))
-  };
-  normalized.width = Math.min(normalized.width, 1 - normalized.x); normalized.height = Math.min(normalized.height, 1 - normalized.y);
-  const left = Math.min(sourceWidth - 1, Math.round(normalized.x * sourceWidth));
-  const top = Math.min(sourceHeight - 1, Math.round(normalized.y * sourceHeight));
-  const width = Math.max(1, Math.min(sourceWidth - left, Math.round(normalized.width * sourceWidth)));
-  const height = Math.max(1, Math.min(sourceHeight - top, Math.round(normalized.height * sourceHeight)));
-  const editDir = path.join(thumbnailDir, 'edits'); await fsp.mkdir(editDir, { recursive: true });
-  const target = path.join(editDir, `${asset.id}-${Date.now()}.png`);
-  let pipeline = sharp(source);
-  if ([90, 180, 270].includes(rotation)) pipeline = pipeline.rotate(rotation);
-  await pipeline.extract({ left, top, width, height }).png().toFile(target);
-  if (asset.editedPath && asset.editedPath !== target) await fsp.rm(asset.editedPath, { force: true });
-  asset.editedPath = target; asset.editedAt = Date.now(); asset.inlineCrop = normalized; asset.width = width; asset.height = height; asset.rotation = 0;
-  scheduleAssetSave(asset);broadcastAssetPatches([{id:asset.id,editedPath:asset.editedPath,editedAt:asset.editedAt,inlineCrop:asset.inlineCrop,width:asset.width,height:asset.height,rotation:asset.rotation,previewUrl:previewUrlFor(asset),mediaUrl:mediaUrlFor(asset)}]);
-  return { ...asset, previewUrl: previewUrlFor(asset), mediaUrl: mediaUrlFor(asset) };
+const EDITABLE_PREVIEW_EXTENSIONS=new Set(['AF','AFDESIGN','AFPHOTO','SNAGX','LRPREV']);
+function isEditableVisualAsset(asset){return Boolean(asset&&(asset.kind==='image'||EDITABLE_PREVIEW_EXTENSIONS.has(String(asset.extension).toUpperCase())));}
+async function editableAssetSource(asset){
+  if(!isEditableVisualAsset(asset)||isAssetLocked(asset))throw new Error('Select an unlocked image or visual document');
+  if(EDITABLE_PREVIEW_EXTENSIONS.has(String(asset.extension).toUpperCase())&&!asset.sourceMissing&&!asset.sourcePending&&(!asset.proxyPath||!(await pathAvailable(asset.proxyPath)))){const prepared=await createThumbnail(asset);if(prepared?.proxyPath){asset.proxyPath=prepared.proxyPath;asset.proxyVersion=prepared.proxyVersion||3;asset.thumbnailPath=prepared.target||asset.thumbnailPath;}}
+  for(const candidate of [asset.editedPath,asset.proxyVersion===3?asset.proxyPath:null])if(candidate&&await pathAvailable(candidate)){try{await sharp(candidate,{limitInputPixels:200*1024*1024}).metadata();return candidate;}catch{}}
+  if(!asset.sourceMissing&&!asset.sourcePending&&asset.path&&await pathAvailable(asset.path)){try{await sharp(asset.path,{limitInputPixels:200*1024*1024}).metadata();return asset.path;}catch{const fallback=path.join(thumbnailDir,`${asset.id}.editable-preview.png`),ready=await runVideoFfmpeg(['-hide_banner','-loglevel','error','-i',asset.path,'-frames:v','1','-y',fallback],20000);if(ready){asset.proxyPath=fallback;asset.proxyVersion=3;scheduleAssetSave(asset);return fallback;}}}
+  if(asset.thumbnailPath&&await pathAvailable(asset.thumbnailPath))return asset.thumbnailPath;
+  throw new Error('Pigeon could not render this image format');
 }
-async function resetInlineEdits(id) {
-  const asset = library.assets.find((item) => item.id === id);
-  if (!asset) throw new Error('Asset not found');
-  if (asset.editedPath) await fsp.rm(asset.editedPath, { force: true });
-  asset.editedPath = null; asset.editedAt = null; asset.inlineCrop = null; asset.rotation = 0;
-  if (asset.kind === 'image' && await pathAvailable(asset.path)) { const metadata = await sharp(asset.path).metadata(); asset.width = metadata.width || asset.width; asset.height = metadata.height || asset.height; }
-  scheduleAssetSave(asset);broadcastAssetPatches([{id:asset.id,editedPath:null,editedAt:null,inlineCrop:null,rotation:0,width:asset.width,height:asset.height,previewUrl:previewUrlFor(asset),mediaUrl:mediaUrlFor(asset)}]);return { ...asset, previewUrl: previewUrlFor(asset), mediaUrl: mediaUrlFor(asset) };
+function publicEditedAsset(asset){return{...asset,previewUrl:previewUrlFor(asset),mediaUrl:mediaUrlFor(asset)};}
+async function saveImageEdits(id,edits={},annotations=null){
+  const asset=library.assets.find((item)=>item.id===id),source=await editableAssetSource(asset),editDir=path.join(thumbnailDir,'edits');await fsp.mkdir(editDir,{recursive:true});
+  const target=path.join(editDir,`${asset.id}-${Date.now()}.png`),rotation=((Number(asset.rotation)||0)+Number(edits.rotate||0)+360)%360,result=await renderImageDerivative(source,target,{...edits,rotate:rotation,format:'png'});
+  if(asset.editedPath&&asset.editedPath!==target)await fsp.rm(asset.editedPath,{force:true});
+  Object.assign(asset,{editedPath:target,editedAt:Date.now(),inlineCrop:edits.crop||null,imageAdjustments:{grayscale:Boolean(edits.grayscale),negative:Boolean(edits.negative),sepia:Boolean(edits.sepia),brightness:Number(edits.brightness)||1,contrast:Number(edits.contrast)||1},annotations:Array.isArray(annotations)?annotations:asset.annotations||[],width:result.width,height:result.height,rotation:0});
+  scheduleAssetSave(asset);const update=publicEditedAsset(asset);broadcastAssetPatches([{id:asset.id,editedPath:asset.editedPath,editedAt:asset.editedAt,inlineCrop:asset.inlineCrop,imageAdjustments:asset.imageAdjustments,annotations:asset.annotations,width:asset.width,height:asset.height,rotation:0,previewUrl:update.previewUrl,mediaUrl:update.mediaUrl}]);return update;
 }
+async function applyInlineCrop(id,crop={}){return saveImageEdits(id,{crop:{...crop,normalized:true}});}
+async function resetInlineEdits(id){
+  const asset=library.assets.find((item)=>item.id===id);if(!asset)throw new Error('Asset not found');if(asset.editedPath)await fsp.rm(asset.editedPath,{force:true});
+  asset.editedPath=null;asset.editedAt=null;asset.inlineCrop=null;asset.imageAdjustments=null;asset.rotation=0;
+  try{const source=await editableAssetSource(asset),metadata=await sharp(source).metadata();if(source!==asset.thumbnailPath||!asset.width||!asset.height){asset.width=metadata.width||asset.width;asset.height=metadata.height||asset.height;}}catch{}
+  scheduleAssetSave(asset);const update=publicEditedAsset(asset);broadcastAssetPatches([{id:asset.id,editedPath:null,editedAt:null,inlineCrop:null,imageAdjustments:null,rotation:0,width:asset.width,height:asset.height,previewUrl:update.previewUrl,mediaUrl:update.mediaUrl}]);return update;
+}
+async function chooseDerivativeTarget(asset,{title='Save image as copy',format=null,suffix='-edited'}={}){const requested=outputFormat(format),extension=requested==='jpeg'?'jpg':requested,result=await dialog.showSaveDialog(mainWindow,{title,defaultPath:`${asset.name}${suffix}.${extension}`,filters:[{name:'PNG image',extensions:['png']},{name:'JPEG image',extensions:['jpg','jpeg']},{name:'WebP image',extensions:['webp']}]});return result.canceled||!result.filePath?null:result.filePath;}
+async function convertImageAsset(id,format){const asset=library.assets.find((item)=>item.id===id),source=await editableAssetSource(asset),normalized=outputFormat(format),target=await chooseDerivativeTarget(asset,{title:`Convert to ${normalized==='jpeg'?'JPEG':normalized.toUpperCase()}`,format:normalized,suffix:''});if(!target)return null;await renderImageDerivative(source,target,{format:normalized,rotate:Number(asset.rotation)||0});return target;}
+async function exportAnnotatedAsset(id,annotations=[],edits={}){const asset=library.assets.find((item)=>item.id===id),source=await editableAssetSource(asset),target=await chooseDerivativeTarget(asset);if(!target)return null;await renderImageDerivative(source,target,{...edits,format:outputFormat('',target),rotate:((Number(asset.rotation)||0)+Number(edits.rotate||0)+360)%360,annotations});asset.annotations=annotations;scheduleAssetSave(asset);return target;}
 
-async function exportAnnotatedAsset(id, annotations = [], edits = {}) {
-  const asset = library.assets.find((item) => item.id === id);
-  if (!asset || asset.kind !== 'image' || !(await pathAvailable(asset.path))) throw new Error('An online image is required');
-  const result = await dialog.showSaveDialog(mainWindow, { title: 'Export edited derivative', defaultPath: `${asset.name}-edited.png`, filters: [{ name: 'PNG image', extensions: ['png'] }] });
-  if (result.canceled || !result.filePath) return null;
-  const metadata = await sharp(asset.path).metadata();
-  const width = metadata.width || asset.width || 1000, height = metadata.height || asset.height || 1000;
-  const shapes = annotations.map((item) => {
-    const color = /^#[0-9a-f]{6}$/i.test(item.color || '') ? item.color : '#ff3b30';
-    if (item.type === 'rect') return `<rect x="${Number(item.x) || 0}" y="${Number(item.y) || 0}" width="${Number(item.width) || 0}" height="${Number(item.height) || 0}" fill="none" stroke="${color}" stroke-width="${Number(item.stroke) || 4}"/>`;
-    if (item.type === 'text') return `<text x="${Number(item.x) || 0}" y="${Number(item.y) || 0}" fill="${color}" font-size="${Number(item.size) || 28}">${String(item.text || '').replace(/[<>&]/g, '')}</text>`;
-    return '';
-  }).join('');
-  const overlay = Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">${shapes}</svg>`);
-  let pipeline = sharp(asset.path).composite([{ input: overlay }]);
-  if (edits.crop) {
-    const left = Math.max(0, Math.min(width - 1, Math.round(Number(edits.crop.x) || 0)));
-    const top = Math.max(0, Math.min(height - 1, Math.round(Number(edits.crop.y) || 0)));
-    const cropWidth = Math.max(1, Math.min(width - left, Math.round(Number(edits.crop.width) || width)));
-    const cropHeight = Math.max(1, Math.min(height - top, Math.round(Number(edits.crop.height) || height)));
-    pipeline = pipeline.extract({ left, top, width: cropWidth, height: cropHeight });
-  }
-  if ([90, 180, 270].includes(Number(edits.rotate))) pipeline = pipeline.rotate(Number(edits.rotate));
-  if (edits.flip) pipeline = pipeline.flop();
-  const brightness = Math.max(.5, Math.min(1.5, Number(edits.brightness) || 1));
-  if (brightness !== 1) pipeline = pipeline.modulate({ brightness });
-  await pipeline.png().toFile(result.filePath);
-  asset.annotations = annotations;
-  scheduleAssetSave(asset);
-  return result.filePath;
-}
 
 function safeExportName(value, fallback = 'Export') { const cleaned = String(value || '').replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/[. ]+$/g, '').trim(); return cleaned || fallback; }
 function automaticConflictRenameEnabled(){return library.settings?.preferences?.autoRenameFileConflicts!==false;}
@@ -2376,6 +2336,8 @@ ipcMain.handle('asset:rename-file', async (_event, { id, name }) => {
   return { ...asset, previewUrl: previewUrlFor(asset), mediaUrl: mediaUrlFor(asset) };
 });
 ipcMain.handle('asset:reset-inline-edits', (_event, id) => resetInlineEdits(id));
+ipcMain.handle('asset:save-image-edits',(_event,{id,edits,annotations})=>saveImageEdits(id,edits,annotations));
+ipcMain.handle('asset:convert-image',(_event,{id,format})=>convertImageAsset(id,format));
 ipcMain.handle('asset:duplicate', (_event, id) => duplicateAsset(id));
 ipcMain.handle('asset:export-annotated', (_event, { id, annotations, edits }) => exportAnnotatedAsset(id, annotations, edits));
 ipcMain.handle('library:export-group', (_event, { type, id }) => exportLibraryGroup(type, id));

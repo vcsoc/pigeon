@@ -102,6 +102,8 @@ contextBridge.exposeInMainWorld('pigeon', {
   syncNow: () => ipcRenderer.invoke('library:sync-now'),
   applyInlineCrop: (id, crop) => ipcRenderer.invoke('asset:apply-inline-crop', { id, crop }),
   resetInlineEdits: (id) => ipcRenderer.invoke('asset:reset-inline-edits', id),
+  saveImageEdits:(id,edits,annotations=[])=>ipcRenderer.invoke('asset:save-image-edits',{id,edits,annotations}),
+  convertImage:(id,format)=>ipcRenderer.invoke('asset:convert-image',{id,format}),
   duplicateAsset: (id) => ipcRenderer.invoke('asset:duplicate', id),
   exportAnnotated: (id, annotations, edits) => ipcRenderer.invoke('asset:export-annotated', { id, annotations, edits }),
   exportGroup: (type, id) => ipcRenderer.invoke('library:export-group', { type, id }),

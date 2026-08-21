@@ -30,6 +30,8 @@ const ytDlpImport = fs.readFileSync(path.join(root, 'electron', 'yt-dlp-import.j
 const affinityPreview = fs.readFileSync(path.join(root, 'electron', 'affinity-preview.js'), 'utf8');
 const snagxPreview = fs.readFileSync(path.join(root, 'electron', 'snagx-preview.js'), 'utf8');
 const lightroomPreview=fs.readFileSync(path.join(root,'electron','lightroom-preview.js'),'utf8');
+const imageDerivative=fs.readFileSync(path.join(root,'electron','image-derivative.js'),'utf8');
+const assetIndexesSource=fs.readFileSync(path.join(root,'src','asset-indexes.js'),'utf8');
 const fileTypesSource = fs.readFileSync(path.join(root, 'electron', 'file-types.js'), 'utf8');
 
 test('UI exposes collection, smart-folder, batch, trash, media, metadata and editing surfaces', () => {
@@ -711,7 +713,7 @@ test('media protocol implements thumbnails and byte ranges for seekable local pl
   assert.match(main, /aes-256-gcm/);
   assert.match(main, /pbkdf2Sync/);
   assert.match(main, /duplicateAsset/);
-  assert.match(main, /pipeline\.extract/);
+  assert.match(imageDerivative,/pipeline\.extract/);
   assert.match(main, /ffmpegExecutable/);
   assert.match(main, /'-threads', '1'/);
   assert.match(main, /PriorityClass = 'BelowNormal'/);
@@ -1477,4 +1479,8 @@ test('live imports refresh clean cards, context menus clear the footer, and pers
 
 test('overlapping folder roots and exact file paths are presented once and repaired without source deletion',()=>{
   const deduplication=fs.readFileSync(path.join(root,'electron','library-deduplication.js'),'utf8'),folderWorker=fs.readFileSync(path.join(root,'electron','folder-tree-worker.js'),'utf8');assert.match(main,/findLocationOverlap\(planned,resolved,type\)/);assert.match(main,/Pigeon allows one reference to each physical file/);assert.match(main,/deduplicateAssetsByPath\(library\)/);assert.match(main,/await persistLibrary\(library\)/);assert.match(main,/globalByPath\.get\(normalizedPathKey\(resolvedFile\)\)/);assert.match(main,/id: existing\?\.id \|\| makeId\(path\.resolve\(filePath\)\.toLowerCase\(\)\)/);assert.match(assetStreamState,/pathIndexes=new Map\(\)/);assert.match(main,/owner\.id!==location\.id/);assert.match(main,/locations:visibleLocations\(library\.locations\)/);assert.match(deduplication,/function owningLocation/);assert.match(deduplication,/merged\.collectionIds/);assert.match(deduplication,/merged\.tags/);assert.doesNotMatch(deduplication,/\brmSync\b|unlinkSync|trashItem/);assert.match(folderWorker,/excludedRoots/);assert.match(folderWorker,/if\s*\(isExcluded\(relativeSource\)\)\s*continue/);
+});
+
+test('visual assets convert and edit non-destructively while dimensions and collection memberships are visible',()=>{
+  for(const format of ['png','jpeg','webp'])assert.match(imageDerivative,new RegExp(`'${format}'`));for(const effect of ['grayscale','negative','sepia','brightness','contrast']){assert.match(imageDerivative,new RegExp(effect));assert.match(html,new RegExp(`edit-${effect}`));}assert.match(main,/EDITABLE_PREVIEW_EXTENSIONS[^\n]*'SNAGX'[^\n]*'LRPREV'/);assert.match(main,/renderImageDerivative/);assert.match(main,/editable-preview\.png/);assert.match(main,/if\(!asset\.sourceMissing&&!asset\.sourcePending&&asset\.path/);assert.match(main,/asset:save-image-edits/);assert.match(main,/asset:convert-image/);assert.match(preload,/saveImageEdits/);assert.match(preload,/convertImage/);assert.match(renderer,/Convert to PNG/);assert.match(renderer,/isEditableVisualAsset/);assert.match(html,/option value="dimensions">Dimensions/);assert.match(assetIndexesSource,/dimensions:\(Number\(asset\.width\)\|\|0\)\*\(Number\(asset\.height\)\|\|0\)/);assert.match(html,/id="collection-membership-pills"/);assert.match(renderer,/renderInspectorCollectionMemberships/);assert.match(styles,/\.collection-pill/);
 });
