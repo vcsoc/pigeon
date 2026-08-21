@@ -1297,6 +1297,7 @@ test('Help Tutorials provides a comic guided tour with complete navigation and p
   assert.match(renderer,/help: \[\['Tutorials', 'tutorials'/);assert.match(renderer,/function startTutorial\(/);assert.match(renderer,/function showTutorialStep\(/);assert.match(renderer,/Help → Tutorials/);
   assert.match(renderer,/Password-protect a collection/);assert.match(renderer,/Password protect folder/);assert.match(renderer,/Apply—and remove—privacy effects/);assert.match(renderer,/Blur or Pixelate/);assert.match(renderer,/Press B again to remove it/);
   assert.match(renderer,/Hover to preview motion/);assert.match(renderer,/GIF, or animated WebP/);assert.match(renderer,/Hold Ctrl or Alt while hovering for temporary sound/);assert.match(renderer,/Alt is also the default reveal key/);assert.match(renderer,/temporaryShortcutPressed/);
+  assert.match(renderer,/Open a whole hierarchy at once/);assert.match(renderer,/Select folders as a team/);assert.match(renderer,/Shift-click selects the visible range/);assert.match(renderer,/Threads show real work/);assert.match(renderer,/Clicking Update now opens this tab automatically/);assert.match(renderer,/Know what portfolio transfer means/);assert.match(renderer,/independent physical copies/);assert.match(renderer,/adds references to files where they already live/);
   assert.match(styles,/\.tutorial-dimmer/);assert.match(styles,/\.tutorial-highlight/);assert.match(styles,/\.tutorial-bubble/);assert.match(styles,/box-shadow:8px 9px 0/);
 });
 
