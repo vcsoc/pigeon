@@ -3,6 +3,7 @@
 Runs a loopback-only HTTP service backed by Simple LaMa. The model is loaded once
 and all image paths are supplied by the local Pigeon desktop process.
 """
+import os
 from pathlib import Path
 from flask import Flask, jsonify, request
 from PIL import Image
@@ -31,4 +32,4 @@ def inpaint():
 
 if __name__ == "__main__":
     # Never expose a local editing model to the LAN.
-    app.run(host="127.0.0.1", port=8765, debug=False)
+    app.run(host="127.0.0.1", port=int(os.environ.get("PIGEON_AI_REMOVAL_PORT", "8765")), debug=False)

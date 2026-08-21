@@ -22,6 +22,7 @@ const criticalFiles = [
   'electron/folder-tree-worker.js',
   'electron/library-deduplication.js',
   'electron/background-thread-manager.js',
+  'electron/plugin-manager.js',
   'electron/plugin-examples/ai-removal/server.py',
   'electron/plugin-examples/ai-removal/requirements.txt',
   'electron/plugin-examples/ai-removal/README.md'

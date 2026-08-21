@@ -38,6 +38,7 @@ const { createPhysicalSubfolder, deletePhysicalFolder, movePhysicalSubfolder, re
 const { matchingFolderLockRules } = require('./folder-locks');
 const { normalizedPathKey, findLocationOverlap, visibleLocations, owningLocation, deduplicateAssetsByPath } = require('./library-deduplication');
 const { createBackgroundThreadManager } = require('./background-thread-manager');
+const { createPluginManager, isLoopbackEndpoint } = require('./plugin-manager');
 autoUpdater.disableWebInstaller = true;
 autoUpdater.allowDowngrade = false;
 
@@ -74,6 +75,7 @@ let thumbnailDir;
 let importsDir;
 let backupDir;
 let pluginsDir;
+let pluginManager;
 let portfolioRegistryFile;
 let portfolioRegistrySave=Promise.resolve();
 let mapTileDir;
@@ -1292,9 +1294,9 @@ async function resetInlineEdits(id){
 async function chooseDerivativeTarget(asset,{title='Save image as copy',format=null,suffix='-edited'}={}){const requested=outputFormat(format),extension=requested==='jpeg'?'jpg':requested,result=await dialog.showSaveDialog(mainWindow,{title,defaultPath:`${asset.name}${suffix}.${extension}`,filters:[{name:'PNG image',extensions:['png']},{name:'JPEG image',extensions:['jpg','jpeg']},{name:'WebP image',extensions:['webp']}]});return result.canceled||!result.filePath?null:result.filePath;}
 async function convertImageAsset(id,format){const asset=library.assets.find((item)=>item.id===id),source=await editableAssetSource(asset),normalized=outputFormat(format),target=await chooseDerivativeTarget(asset,{title:`Convert to ${normalized==='jpeg'?'JPEG':normalized.toUpperCase()}`,format:normalized,suffix:''});if(!target)return null;await renderImageDerivative(source,target,{format:normalized,rotate:Number(asset.rotation)||0});return target;}
 async function prepareImageEdit(id){const asset=library.assets.find((item)=>item.id===id);if(!asset||isAssetLocked(asset)||!isEditableVisualAsset(asset))throw new Error('This image is not available for editing');const source=await editableAssetSource(asset),metadata=await sharp(source,{limitInputPixels:200*1024*1024}).metadata();asset.width=Number(asset.width)||Number(metadata.width)||0;asset.height=Number(asset.height)||Number(metadata.height)||0;if(!asset.width||!asset.height)throw new Error('Pigeon could not determine the image dimensions');return publicEditedAsset(asset);}
-function localAiRemovalEndpoint(){const configured=String(library.settings?.preferences?.aiRemovalEndpoint||'http://127.0.0.1:8765/inpaint');let endpoint;try{endpoint=new URL(configured);}catch{throw new Error('The AI removal plugin endpoint is invalid');}if(endpoint.protocol!=='http:'||!['127.0.0.1','localhost','::1','[::1]'].includes(endpoint.hostname))throw new Error('AI removal plugins must use a local HTTP endpoint');return endpoint.toString();}
+async function localAiRemovalEndpoint(){const plugins=await pluginManager.list(),plugin=plugins.find((item)=>item.id==='ai-removal');if(!plugin?.installed)throw new Error('Install AI Object Removal from Plugin Manager first');if(!plugin.enabled)throw new Error('Enable AI Object Removal in Plugin Manager first');const configured=String(plugin.configured?.endpoint||'http://127.0.0.1:8765/inpaint');if(!isLoopbackEndpoint(configured))throw new Error('AI removal plugins must use a local HTTP endpoint');return new URL(configured).toString();}
 async function discardAiRemoval(token){const preview=aiRemovalPreviews.get(String(token));if(!preview)return false;aiRemovalPreviews.delete(String(token));await Promise.all([fsp.rm(preview.outputPath,{force:true}),fsp.rm(preview.maskPath,{force:true})]);return true;}
-async function runAiRemoval(id,maskDataUrl,previousToken=null){if(previousToken)await discardAiRemoval(previousToken);const asset=library.assets.find((item)=>item.id===id),source=await editableAssetSource(asset),match=/^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(String(maskDataUrl||''));if(!match)throw new Error('Paint over the object you want removed first');const directory=path.join(thumbnailDir,'ai-removal');await fsp.mkdir(directory,{recursive:true});const token=crypto.randomUUID(),maskPath=path.join(directory,`${token}-mask.png`),outputPath=path.join(directory,`${token}-result.png`);await fsp.writeFile(maskPath,Buffer.from(match[1],'base64'));let response;try{response=await fetch(localAiRemovalEndpoint(),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({sourcePath:source,maskPath,outputPath}),signal:AbortSignal.timeout(120000)});}catch(error){await Promise.all([fsp.rm(maskPath,{force:true}),fsp.rm(outputPath,{force:true})]);throw new Error(`AI removal plugin is unavailable · ${error.message}`);}if(!response.ok){const detail=String(await response.text()).slice(0,300);await Promise.all([fsp.rm(maskPath,{force:true}),fsp.rm(outputPath,{force:true})]);throw new Error(`AI removal failed${detail?` · ${detail}`:''}`);}const metadata=await sharp(outputPath,{limitInputPixels:200*1024*1024}).metadata(),preview=await sharp(outputPath).resize({width:1600,height:1200,fit:'inside',withoutEnlargement:true}).jpeg({quality:86}).toBuffer();aiRemovalPreviews.set(token,{assetId:id,outputPath,maskPath,width:metadata.width,height:metadata.height});return{token,previewUrl:`data:image/jpeg;base64,${preview.toString('base64')}`,width:metadata.width,height:metadata.height};}
+async function runAiRemoval(id,maskDataUrl,previousToken=null){if(previousToken)await discardAiRemoval(previousToken);const asset=library.assets.find((item)=>item.id===id),source=await editableAssetSource(asset),match=/^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(String(maskDataUrl||''));if(!match)throw new Error('Paint over the object you want removed first');const directory=path.join(thumbnailDir,'ai-removal');await fsp.mkdir(directory,{recursive:true});const token=crypto.randomUUID(),maskPath=path.join(directory,`${token}-mask.png`),outputPath=path.join(directory,`${token}-result.png`);await fsp.writeFile(maskPath,Buffer.from(match[1],'base64'));let response;try{response=await fetch(await localAiRemovalEndpoint(),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({sourcePath:source,maskPath,outputPath}),signal:AbortSignal.timeout(120000)});}catch(error){await Promise.all([fsp.rm(maskPath,{force:true}),fsp.rm(outputPath,{force:true})]);throw new Error(`AI removal plugin is unavailable · ${error.message}`);}if(!response.ok){const detail=String(await response.text()).slice(0,300);await Promise.all([fsp.rm(maskPath,{force:true}),fsp.rm(outputPath,{force:true})]);throw new Error(`AI removal failed${detail?` · ${detail}`:''}`);}const metadata=await sharp(outputPath,{limitInputPixels:200*1024*1024}).metadata(),preview=await sharp(outputPath).resize({width:1600,height:1200,fit:'inside',withoutEnlargement:true}).jpeg({quality:86}).toBuffer();aiRemovalPreviews.set(token,{assetId:id,outputPath,maskPath,width:metadata.width,height:metadata.height});return{token,previewUrl:`data:image/jpeg;base64,${preview.toString('base64')}`,width:metadata.width,height:metadata.height};}
 async function acceptAiRemoval(id,token){const preview=aiRemovalPreviews.get(String(token)),asset=library.assets.find((item)=>item.id===id);if(!preview||preview.assetId!==id||!asset)throw new Error('The AI removal preview has expired');const editDir=path.join(thumbnailDir,'edits');await fsp.mkdir(editDir,{recursive:true});const target=path.join(editDir,`${asset.id}-${Date.now()}.png`);await fsp.rename(preview.outputPath,target);await fsp.rm(preview.maskPath,{force:true});aiRemovalPreviews.delete(String(token));if(asset.editedPath&&asset.editedPath!==target)await fsp.rm(asset.editedPath,{force:true});Object.assign(asset,{editedPath:target,editedAt:Date.now(),width:preview.width||asset.width,height:preview.height||asset.height,rotation:0});scheduleAssetSave(asset);const update=publicEditedAsset(asset);broadcastAssetPatches([{id:asset.id,editedPath:target,editedAt:asset.editedAt,width:asset.width,height:asset.height,rotation:0,previewUrl:update.previewUrl,mediaUrl:update.mediaUrl}]);return update;}
 async function exportAnnotatedAsset(id,annotations=[],edits={}){const asset=library.assets.find((item)=>item.id===id),source=await editableAssetSource(asset),target=await chooseDerivativeTarget(asset);if(!target)return null;await renderImageDerivative(source,target,{...edits,format:outputFormat('',target),rotate:((Number(asset.rotation)||0)+Number(edits.rotate||0)+360)%360,annotations});asset.annotations=annotations;scheduleAssetSave(asset);return target;}
 
@@ -1325,7 +1327,8 @@ async function exportLibraryGroup(type, id) {
 }
 
 async function runPlugin(pluginName) {
-  const safeName = path.basename(pluginName);
+  const safeName = path.basename(pluginName),registered=(await pluginManager.list()).find((plugin)=>plugin.kind==='script'&&plugin.entry===safeName);
+  if(!registered?.enabled)throw new Error('Enable this plugin in Plugin Manager first');
   const file = path.join(pluginsDir, safeName);
   if (!file.endsWith('.js')) throw new Error('Plugins must be JavaScript files');
   return new Promise((resolve) => {
@@ -2354,12 +2357,13 @@ ipcMain.handle('asset:export',async(_event,id)=>{const asset=library.assets.find
 ipcMain.handle('asset:read-text',async(_event,id)=>{const asset=library.assets.find((item)=>item.id===id&&!item.deletedAt),allowed=TEXT_PREVIEW_DOCUMENT_EXTENSIONS;if(!asset||!allowed.has(String(asset.extension).toUpperCase())||!(await pathAvailable(asset.path)))return null;const stat=await fsp.stat(asset.path);if(stat.size>8*1024*1024)throw new Error('Text reader supports files up to 8 MB');return{content:await fsp.readFile(asset.path,'utf8'),extension:String(asset.extension).toLowerCase(),filename:asset.filename};});
 ipcMain.handle('contact-sheet:export',async(event,payload)=>{const format=typeof payload==='string'?payload:payload?.format,extension=['pdf','jpeg','png','webp'].includes(String(format).toLowerCase())?String(format).toLowerCase():'pdf',result=await dialog.showSaveDialog(mainWindow,{title:'Export contact sheet',defaultPath:`contact-sheet.${extension}`,filters:[{name:extension.toUpperCase(),extensions:[extension]}]});if(result.canceled||!result.filePath)return null;if(extension==='pdf'){const pdf=await event.sender.printToPDF({printBackground:true,pageSize:'A4'});await fsp.writeFile(result.filePath,pdf);}else{const rect=payload?.rect&&Number.isFinite(payload.rect.width)?payload.rect:undefined,image=await event.sender.capturePage(rect),png=image.toPNG();if(extension==='png')await fsp.writeFile(result.filePath,png);else await sharp(png)[extension==='jpeg'?'jpeg':'webp']({quality:92}).toFile(result.filePath);}return result.filePath;});
 ipcMain.handle('extension:open-folder', () => shell.openPath(app.isPackaged ? path.join(process.resourcesPath, 'browser-extension') : path.join(process.cwd(), 'browser-extension')));
-async function seedPluginExamples(){await fsp.mkdir(pluginsDir,{recursive:true});const target=path.join(pluginsDir,'AI Removal'),source=path.join(app.getAppPath(),'electron','plugin-examples','ai-removal');await fsp.mkdir(target,{recursive:true});for(const name of ['README.md','requirements.txt','server.py']){const destination=path.join(target,name);if(!(await pathAvailable(destination)))await fsp.copyFile(path.join(source,name),destination);}}
-ipcMain.handle('plugins:list', async () => {
-  await seedPluginExamples();
-  return (await fsp.readdir(pluginsDir)).filter((name) => name.endsWith('.js'));
-});
-ipcMain.handle('plugins:open-folder', async () => { await seedPluginExamples(); shell.openPath(pluginsDir); });
+ipcMain.handle('plugins:list',()=>pluginManager.list());
+ipcMain.handle('plugins:install',(_event,id)=>pluginManager.install(id));
+ipcMain.handle('plugins:setup',(_event,id)=>pluginManager.setup(id));
+ipcMain.handle('plugins:uninstall',(_event,id)=>pluginManager.uninstall(id));
+ipcMain.handle('plugins:set-enabled',(_event,{id,enabled})=>pluginManager.setEnabled(id,enabled));
+ipcMain.handle('plugins:configure',(_event,{id,config})=>pluginManager.configure(id,config));
+ipcMain.handle('plugins:open-folder', async () => { await fsp.mkdir(pluginsDir,{recursive:true});return shell.openPath(pluginsDir); });
 ipcMain.handle('plugins:run', (_event, name) => runPlugin(name));
 ipcMain.handle('asset:update', (_event, { id, patch }) => {
   const asset = library.assets.find((item) => item.id === id);
@@ -2472,6 +2476,8 @@ app.on('open-url', (event, value) => { event.preventDefault(); pendingProtocolUr
 
 app.whenReady().then(async () => {
   initializeStoragePaths();
+  pluginManager=createPluginManager({pluginsDir,bundledDir:path.join(app.getAppPath(),'electron','plugin-examples')});
+  pluginManager.restoreEnabled().catch((error)=>recordDiagnostic('error','Plugin startup failed',error));
   if (!smokeTest) await loadPortfolioRegistry();
   if(await startupPortfolioChooserProbe){const selectedId=await showStartupPortfolioChooser();if(!selectedId){app.isQuitting=true;app.quit();return;}const selected=portfolios.find((portfolio)=>portfolio.id===selectedId);if(selected){activePortfolioId=selected.id;databaseFile=selected.database||portfolioDatabasePath(selected.id);legacyJsonFile=selected.legacyFile||null;await savePortfolioRegistry();}}
   app.setAsDefaultProtocolClient('pigeon');
@@ -2530,5 +2536,6 @@ app.on('before-quit', () => {
   for (const worker of backgroundHashWorkers) worker.terminate();
   databaseWorker?.terminate(); databaseWorker = null;
   for (const child of activeFfmpegChildren) child.kill();
+  pluginManager?.close();
   mediaServer?.closeAllConnections?.(); mediaServer?.close(); mediaServer = null; mediaServerPort = 0;
 });
