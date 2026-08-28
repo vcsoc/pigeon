@@ -16,14 +16,17 @@ function manifest(name = 'manifest.json') {
 test('drag capture is injected on HTTP sites and targets the Downloads collection', () => {
   const chromium = manifest();
   assert.equal(chromium.manifest_version, 3);
-  assert.equal(chromium.version, '2.0.5');
+  assert.equal(chromium.version, '2.1.0');
   assert.equal(chromium.name, 'Pigeon for Chrome');
   assert.deepEqual(chromium.content_scripts[0].matches, ['http://*/*', 'https://*/*']);
   assert.equal(chromium.content_scripts[0].all_frames, true);
   assert.equal(chromium.content_scripts[0].run_at, 'document_start');
   const content = fs.readFileSync(path.join(extension, 'content-script.js'), 'utf8');
-  assert.match(content, /Drop image or video here/);
-  assert.match(content, /collection: 'downloads'/);
+  assert.match(content, /Quick download/);
+  assert.match(content, /Choose YouTube options/);
+  assert.match(content, /Single file with chapters embedded/);
+  assert.match(content, /Separate file for each chapter/);
+  assert.match(content, /collection:'downloads'/);
   assert.match(content, /HTMLVideoElement/);
   assert.match(content, /backgroundImage/);
   assert.match(content, /scheduleOverlay\(elementUrl \|\| transferUrl\)/);
@@ -35,16 +38,16 @@ test('drag capture is injected on HTTP sites and targets the Downloads collectio
   assert.match(content, /if \(!dropCommitted\) hideTimer = setTimeout\(hideOverlay, 350\)/);
   const worker = fs.readFileSync(path.join(extension, 'service-worker.js'), 'utf8');
   assert.match(worker, /http:\/\/127\.0\.0\.1:47635\/extension\/import/);
-  assert.match(worker, /body: JSON\.stringify\(\{ url, collection, requestId, title \}\)/);
+  assert.match(worker, /body: JSON\.stringify\(\{ url, collection, requestId, title, youtubeOptions \}\)/);
   assert.match(worker, /controller\.abort\(\), 10 \* 60 \* 1000/);
   assert.match(worker, /const pendingImports = new Map\(\)/);
   assert.doesNotMatch(worker, /attempt < 6/);
-  assert.match(content, /if \(dropCommitted\) return/);
+  assert.match(content, /if\(dropCommitted\)return/);
   assert.match(content, /closeOverlayAfterDrop\(\)/);
-  assert.ok(content.indexOf('closeOverlayAfterDrop();') < content.indexOf("api.runtime.sendMessage({ type: 'save-url'"));
+  assert.ok(content.indexOf('closeOverlayAfterDrop();') < content.indexOf("api.runtime.sendMessage({type:'save-url'"));
   assert.match(content,/canonicalYouTubeUrl\(globalThis\.location\?\.href\)/);
   assert.match(content,/globalThis\.crypto\?\.randomUUID\?\.\(\)/);
-  assert.match(content,/if \(!url \|\| !api\?\.runtime\?\.sendMessage\) return/);
+  assert.match(content,/if\(!url\|\|!api\?\.runtime\?\.sendMessage\)return/);
   assert.doesNotMatch(content, /Downloading in Pigeon…/);
   assert.doesNotMatch(content, /response\?\.ok===false/);
   assert.deepEqual(chromium.content_scripts[0].js, ['drop-url.js', 'content-script.js']);
@@ -66,6 +69,17 @@ test('Edge duplicate save messages share one in-flight Pigeon download', async (
   assert.equal(fetchCalls, 1);
   assert.equal(responses.length, 3);
   assert.ok(responses.every((result) => result.ok));
+});
+
+test('custom extension downloads forward sanitized YouTube format, quality, and chapter choices', async () => {
+  const source=fs.readFileSync(path.join(extension,'service-worker.js'),'utf8');let messageListener,payload;
+  const chrome={runtime:{onInstalled:{addListener(){}},onMessage:{addListener(listener){messageListener=listener;}},lastError:null},contextMenus:{removeAll(callback){callback();},create(){},onClicked:{addListener(){}}}};
+  const context={chrome,fetch:async(_url,options)=>{payload=JSON.parse(options.body);return{ok:true,json:async()=>({ok:true,id:'asset-2'})};},AbortController,setTimeout,clearTimeout};
+  vm.runInNewContext(source,context);
+  const result=await new Promise((resolve)=>messageListener({type:'save-url',url:'https://www.youtube.com/watch?v=dQw4w9WgXcQ',collection:'downloads',requestId:'custom-1',title:'Video',youtubeOptions:{format:'mp3',quality:'1080',chapterMode:'split'}},{},resolve));
+  assert.equal(result.ok,true);assert.deepEqual(JSON.parse(JSON.stringify(payload.youtubeOptions)),{format:'mp3',quality:'1080',chapterMode:'split'});
+  const main=fs.readFileSync(path.join(root,'electron','main.js'),'utf8');
+  assert.match(main,/youtubeOptions=requested\?/);assert.match(main,/downloadEnabled=youtubeOptions\?true/);assert.match(main,/youtubeOptions\}\)/);
 });
 
 test('YouTube title and thumbnail drags preserve the canonical video rather than the image CDN URL', () => {
@@ -92,7 +106,7 @@ test('extension remains permission-minimal and provides a Firefox manifest', () 
     assert.equal(JSON.stringify([chromium, firefox]).includes(blocked), false, blocked);
   }
   assert.equal(chromium.background.service_worker, 'service-worker.js');
-  assert.equal(firefox.version, '2.0.5');
+  assert.equal(firefox.version, '2.1.0');
   assert.deepEqual(firefox.background.scripts, ['service-worker.js']);
   assert.equal(firefox.browser_specific_settings.gecko.id, 'drag-drop@pigeon.cool');
 });
@@ -110,7 +124,10 @@ test('browser build emits installable packages named for each browser family', (
     }
   }
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, 'release', 'browser-extensions', 'firefox', 'manifest.json'))).background.scripts, ['service-worker.js']);
-  assert.match(fs.readFileSync(path.join(extension,'popup.js'),'utf8'),/runtime\.getManifest\(\)\.name/);
+  const popup=fs.readFileSync(path.join(extension,'popup.js'),'utf8'),popupHtml=fs.readFileSync(path.join(extension,'popup.html'),'utf8');
+  assert.match(popup,/runtime\.getManifest\(\)\.name/);
+  assert.match(popup,/youtubeOptions/);assert.match(popup,/transferUrl\(event\.dataTransfer\)/);
+  assert.match(popupHtml,/id="quick-drop"/);assert.match(popupHtml,/id="custom-drop"/);assert.match(popupHtml,/id="page-options"/);
 });
 
 test('desktop localhost capture routes imports into the virtual Downloads collection', () => {

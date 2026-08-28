@@ -2,8 +2,9 @@ const api = globalThis.chrome || globalThis.browser;
 const CAPTURE_ENDPOINT = 'http://127.0.0.1:47635/extension/import';
 const pendingImports = new Map();
 
-async function sendToPigeon(url, collection = 'downloads', requestId = '', title = '') {
-  const key = `${collection}:${String(url).trim()}`, existing = pendingImports.get(key);
+async function sendToPigeon(url, collection = 'downloads', requestId = '', title = '', youtubeOptions = null) {
+  const optionKey=youtubeOptions?`${youtubeOptions.format}:${youtubeOptions.quality}:${youtubeOptions.chapterMode}`:'preferences';
+  const key = `${collection}:${String(url).trim()}:${optionKey}`, existing = pendingImports.get(key);
   if (existing) return existing;
   const operation = (async () => {
     const controller = new AbortController();
@@ -12,7 +13,7 @@ async function sendToPigeon(url, collection = 'downloads', requestId = '', title
       const response = await fetch(CAPTURE_ENDPOINT, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Pigeon-Extension': '2' },
-        body: JSON.stringify({ url, collection, requestId, title }),
+        body: JSON.stringify({ url, collection, requestId, title, youtubeOptions }),
         signal: controller.signal
       });
       const result = await response.json().catch(() => ({}));
@@ -43,7 +44,7 @@ api.contextMenus.onClicked.addListener((info) => {
 });
 api.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type !== 'save-url' || !message.url) return false;
-  sendToPigeon(message.url, message.collection || 'downloads', message.requestId || '', message.title || '')
+  sendToPigeon(message.url, message.collection || 'downloads', message.requestId || '', message.title || '', message.youtubeOptions || null)
     .then((result) => sendResponse(result))
     .catch((error) => sendResponse({ ok: false, message: error.message }));
   return true;

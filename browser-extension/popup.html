@@ -4,18 +4,32 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <style>
-    *{box-sizing:border-box}body{width:300px;margin:0;background:#202225;color:#f1f2f4;font:13px Inter,system-ui,-apple-system,sans-serif}.header{display:flex;align-items:center;gap:10px;padding:15px 16px;border-bottom:1px solid #3c4045}.header img{width:28px;height:28px}.header strong{font-size:15px}.body{padding:15px 16px}.destination{display:flex;gap:10px;align-items:center;padding:11px;border:1px solid #474c52;border-radius:8px;background:#292c30}.folder{font-size:22px;color:#d5d9df}.destination small{display:block;color:#969ca4;margin-top:2px}.tip{color:#afb4bb;line-height:1.5;margin:13px 1px}.actions{display:grid;gap:8px}button{width:100%;height:36px;border:1px solid #555b63;border-radius:7px;background:#35393e;color:#fff;font:600 12px system-ui;cursor:pointer}button:hover{background:#40454b}.status{min-height:18px;margin-top:10px;color:#aeb4bc;font-size:11px}.version{color:#737981;font-size:10px;text-align:center;padding:0 0 12px}
+    *{box-sizing:border-box}body{width:350px;margin:0;background:#202225;color:#f1f2f4;font:13px Inter,system-ui,-apple-system,sans-serif}.header{display:flex;align-items:center;gap:10px;padding:15px 16px;border-bottom:1px solid #3c4045}.header img{width:28px;height:28px}.header strong{font-size:15px}.body{padding:14px 16px}.destination{display:flex;gap:10px;align-items:center;padding:10px;border:1px solid #474c52;border-radius:8px;background:#292c30}.folder{font-size:22px;color:#d5d9df}.destination small{display:block;color:#969ca4;margin-top:2px}.tip{color:#afb4bb;line-height:1.45;margin:12px 1px}.zones{display:grid;grid-template-columns:1fr 1fr;gap:9px}.drop-zone{min-height:105px;padding:12px 9px;border:1px dashed #686f77;border-radius:8px;background:#292c30;color:#eef1f4;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:default}.drop-zone:hover,.drop-zone.hot{border-color:#cbd2d9;background:#34383e}.drop-zone strong{font-size:12px}.drop-zone span{color:#9fa6ae;font-size:10px;line-height:1.4;margin-top:5px}.drop-icon{font-size:20px!important;margin:0 0 5px!important;color:#d4d9df!important}.options{display:none;margin-top:10px;padding:11px;border:1px solid #4b5057;border-radius:8px;background:#292c30}.options.visible{display:block}.options-title{display:flex;justify-content:space-between;align-items:center;font-weight:650;margin-bottom:9px}.options-title button{width:auto;height:auto;padding:2px 5px;border:0;background:transparent;color:#aeb4bc}.fields{display:grid;grid-template-columns:1fr 1fr;gap:8px}.field{display:grid;gap:4px}.field.full{grid-column:1/-1}.field label{font-size:10px;color:#aeb4bc}.field select{width:100%;height:31px;border:1px solid #555b63;border-radius:6px;background:#202327;color:#fff;padding:0 7px;font:11px system-ui}.actions{display:grid;gap:7px;margin-top:10px}button{width:100%;height:34px;border:1px solid #555b63;border-radius:7px;background:#35393e;color:#fff;font:600 11px system-ui;cursor:pointer}button:hover{background:#40454b}.primary{background:#4d5966;border-color:#718091}.status{min-height:17px;margin-top:9px;color:#b9c0c8;font-size:10px}.version{color:#737981;font-size:10px;text-align:center;padding:0 0 11px}
   </style>
 </head>
 <body>
   <header class="header"><img src="icons/icon-32.png" alt=""><strong id="extension-name">Pigeon</strong></header>
   <main class="body">
-    <div class="destination"><span class="folder">▱</span><div><strong>Downloads</strong><small>Temporary Pigeon collection</small></div></div>
-    <p class="tip">Drag an image or video on any website. Drop it into the Pigeon panel that appears to save it locally.</p>
-    <div class="actions"><button id="image">Save largest image on this page</button><button id="page">Save current page URL</button></div>
+    <div class="destination"><span class="folder">▱</span><div><strong>Downloads</strong><small>Pigeon’s managed collection</small></div></div>
+    <p class="tip">Drop a YouTube video, image, or media link into either area.</p>
+    <div class="zones">
+      <div id="quick-drop" class="drop-zone" tabindex="0"><span class="drop-icon">⇩</span><strong>Quick download</strong><span>Immediately use your Pigeon preferences</span></div>
+      <div id="custom-drop" class="drop-zone" tabindex="0"><span class="drop-icon">⚙</span><strong>Choose options</strong><span>YouTube quality, MP4 or MP3, and chapters</span></div>
+    </div>
+    <section id="options" class="options" aria-label="YouTube download options">
+      <div class="options-title"><span>Custom YouTube download</span><button id="options-close" aria-label="Close options">×</button></div>
+      <div class="fields">
+        <div class="field"><label for="format">Format</label><select id="format"><option value="mp4">MP4 video</option><option value="mp3">MP3 audio</option></select></div>
+        <div class="field"><label for="quality">Video quality</label><select id="quality"><option value="360">360p</option><option value="720" selected>720p</option><option value="1080">1080p</option></select></div>
+        <div class="field full"><label for="chapters">Chapters</label><select id="chapters"><option value="embed">Single file with chapters embedded</option><option value="split">Separate file for each chapter</option></select></div>
+      </div>
+      <div class="actions"><button id="custom-download" class="primary">Start download in Pigeon</button></div>
+    </section>
+    <div class="actions"><button id="image">Quick-save largest image on this page</button><button id="page">Quick-save current page URL</button><button id="page-options">Choose options for current YouTube page</button></div>
     <div id="status" class="status" aria-live="polite"></div>
   </main>
-  <div class="version">Pigeon extension 2.0.2</div>
+  <div class="version">Pigeon extension 2.1.0</div>
+  <script src="drop-url.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

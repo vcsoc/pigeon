@@ -11,6 +11,7 @@
   let hideTimer = null;
   let showFrame = null;
   let dropCommitted = false;
+  let pendingCustomUrl = '';
 
   function httpUrl(value) {
     if (!value) return '';
@@ -93,35 +94,25 @@
     shadow = overlay.attachShadow({ mode: 'closed' });
     shadow.innerHTML = `<style>
       *{box-sizing:border-box} .stage{width:100%;display:block}
-      .panel{width:100%;min-height:238px;position:relative;border:1px solid #646970;border-radius:12px;background:#282b2f;box-shadow:0 18px 52px #0009;display:grid;grid-template-columns:minmax(220px,46%) 1fr;overflow:hidden}
-      .drop{margin:15px;border:1px dashed #848990;border-radius:7px;display:grid;place-items:center;text-align:center;padding:24px;color:#d6d8dc;background:#24272a;transition:.14s ease}
+      .panel{width:100%;min-height:238px;position:relative;border:1px solid #646970;border-radius:12px;background:#282b2f;box-shadow:0 18px 52px #0009;overflow:hidden;padding:18px}
+      .choice-grid{display:grid;grid-template-columns:1fr 1fr;gap:13px;margin-top:12px}.heading{padding:0 38px 2px 2px}.heading strong{font-size:15px}.heading p{font-size:11px;color:#9ea4ab;margin:5px 0 0}.drop{min-height:180px;border:1px dashed #848990;border-radius:8px;display:grid;place-items:center;text-align:center;padding:22px;color:#d6d8dc;background:#24272a;transition:.14s ease}
       .drop.hot{border-color:#d8dde3;background:#30343a;transform:scale(1.012)}
       .mark{width:76px;height:62px;margin:auto auto 17px;position:relative;border:2px solid #858b92;border-radius:8px;background:linear-gradient(155deg,#444950,#282c31)}
       .mark:before{content:'';position:absolute;left:10px;top:-13px;width:33px;height:14px;border:2px solid #858b92;border-bottom:0;border-radius:6px 6px 0 0;background:#34383d}
       .bird{font-size:25px;line-height:58px;opacity:.88}.title{font-size:14px;font-weight:650}.hint{font-size:11px;color:#9ba0a7;margin-top:7px}
-      .destination{border-left:1px solid #464a50;display:flex;flex-direction:column;justify-content:flex-end;padding:22px 24px;background:#2d3034}
-      .eyebrow{color:#969ca4;font-size:10px;text-transform:uppercase;letter-spacing:.14em}.folder{display:flex;align-items:center;gap:11px;margin-top:9px;font-size:14px;font-weight:650}.folder-icon{font-size:20px;color:#ccd1d7}.copy{font-size:11px;color:#9ea4ab;line-height:1.5;margin:10px 0 0}
-      .status{height:19px;margin-top:15px;color:#aeb4bc;font-size:11px}.close{position:absolute;z-index:2;right:8px;top:8px;width:30px;height:30px;padding:0;border:1px solid #51565d;border-radius:7px;background:#24272b;color:#c5cad1;font:22px/27px system-ui;cursor:pointer}.close:hover{border-color:#7c838c;background:#34383d;color:#fff}
-      @media(max-width:560px){.panel{grid-template-columns:1fr}.destination{border-left:0;border-top:1px solid #464a50}.drop{min-height:175px}}
-    </style><div class="stage"><section class="panel" role="dialog" aria-label="Save media to Pigeon"><button class="close" title="Cancel" aria-label="Cancel">×</button><div class="drop"><div><div class="mark"><div class="bird">◒</div></div><div class="title">Drop image or video here</div><div class="hint">Release to save it to Pigeon</div></div></div><div class="destination"><div class="eyebrow">Temporary collection</div><div class="folder"><span class="folder-icon">▱</span><span>Downloads</span></div><p class="copy">Captured media stays in Pigeon’s managed imports folder while you review, organize, or remove its library reference.</p><div class="status" aria-live="polite"></div></div></section></div>`;
+      .options{display:none;border:1px solid #4b5057;border-radius:8px;background:#24272a;padding:16px;margin-top:12px}.options.visible{display:block}.options-title{font-size:14px;font-weight:650;margin-bottom:12px}.fields{display:grid;grid-template-columns:1fr 1fr 1.5fr;gap:10px}.field{display:grid;gap:5px}.field label{font-size:10px;color:#aeb4bc}.field select{height:34px;border:1px solid #555b63;border-radius:6px;background:#1e2124;color:#fff;padding:0 8px}.option-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:13px}.option-actions button{height:34px;padding:0 14px;border:1px solid #626a73;border-radius:6px;background:#34383e;color:#fff;font-weight:650;cursor:pointer}.option-actions .primary{background:#4b5865;border-color:#758494}
+      .status{height:19px;margin-top:11px;color:#aeb4bc;font-size:11px}.close{position:absolute;z-index:2;right:8px;top:8px;width:30px;height:30px;padding:0;border:1px solid #51565d;border-radius:7px;background:#24272b;color:#c5cad1;font:22px/27px system-ui;cursor:pointer}.close:hover{border-color:#7c838c;background:#34383d;color:#fff}
+      @media(max-width:560px){.choice-grid,.fields{grid-template-columns:1fr}.drop{min-height:135px}}
+    </style><div class="stage"><section class="panel" role="dialog" aria-label="Download media to Pigeon"><button class="close" title="Cancel" aria-label="Cancel">×</button><div class="heading"><strong>Download to Pigeon</strong><p>Drop into Quick download or choose custom YouTube options.</p></div><div class="choice-grid"><div class="drop quick-drop"><div><div class="mark"><div class="bird">⇩</div></div><div class="title">Quick download</div><div class="hint">Immediately uses your Pigeon preferences</div></div></div><div class="drop custom-drop"><div><div class="mark"><div class="bird">⚙</div></div><div class="title">Choose YouTube options</div><div class="hint">Quality, MP4 or MP3, and chapter handling</div></div></div></div><div class="options"><div class="options-title">Custom YouTube download</div><div class="fields"><div class="field"><label>Format</label><select class="format"><option value="mp4">MP4 video</option><option value="mp3">MP3 audio</option></select></div><div class="field"><label>Video quality</label><select class="quality"><option value="360">360p</option><option value="720" selected>720p</option><option value="1080">1080p</option></select></div><div class="field"><label>Chapters</label><select class="chapters"><option value="embed">Single file with chapters embedded</option><option value="split">Separate file for each chapter</option></select></div></div><div class="option-actions"><button class="back">Back</button><button class="primary start">Start download in Pigeon</button></div></div><div class="status" aria-live="polite"></div></section></div>`;
     document.documentElement.appendChild(overlay);
-    const drop = shadow.querySelector('.drop');
-    const status = shadow.querySelector('.status');
-    const prevent = (event) => { event.preventDefault(); event.stopPropagation(); if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'; drop.classList.add('hot'); };
-    overlay.addEventListener('dragenter', prevent, true);
-    overlay.addEventListener('dragover', prevent, true);
-    overlay.addEventListener('dragleave', (event) => { if (!overlay.contains(event.relatedTarget)) drop.classList.remove('hot'); }, true);
-    overlay.addEventListener('drop', (event) => {
-      prevent(event);
-      if (dropCommitted) return;
-      dropCommitted = true;
-      const url = activeUrl || mediaUrlFromTransfer(event.dataTransfer), requestId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-      closeOverlayAfterDrop();
-      if (!url || !api?.runtime?.sendMessage) return;
-      try { api.runtime.sendMessage({ type: 'save-url', url, collection: 'downloads', requestId, title: document.title || '' }, () => { try { if (api.runtime.lastError) void api.runtime.lastError; } catch {} }); }
-      catch { /* The page must be reloaded after an extension update invalidates its old runtime. */ }
-    }, true);
-    shadow.querySelector('.close').addEventListener('click', hideOverlay);
+    const status = shadow.querySelector('.status'),choiceGrid=shadow.querySelector('.choice-grid'),options=shadow.querySelector('.options'),format=shadow.querySelector('.format'),quality=shadow.querySelector('.quality');
+    const sendDownload=(url,youtubeOptions=null)=>{const requestId=globalThis.crypto?.randomUUID?.()||`${Date.now()}-${Math.random().toString(16).slice(2)}`;closeOverlayAfterDrop();if(!url||!api?.runtime?.sendMessage)return;try{api.runtime.sendMessage({type:'save-url',url,collection:'downloads',requestId,title:document.title||'',youtubeOptions},()=>{try{if(api.runtime.lastError)void api.runtime.lastError;}catch{}});}catch{/* The page must be reloaded after an extension update invalidates its old runtime. */}};
+    const prepareDrop=(drop)=>(event)=>{event.preventDefault();event.stopPropagation();if(event.dataTransfer)event.dataTransfer.dropEffect='copy';drop.classList.add('hot');};
+    for(const drop of shadow.querySelectorAll('.drop')){const prevent=prepareDrop(drop);drop.addEventListener('dragenter',prevent);drop.addEventListener('dragover',prevent);drop.addEventListener('dragleave',()=>drop.classList.remove('hot'));drop.addEventListener('drop',(event)=>{prevent(event);drop.classList.remove('hot');if(dropCommitted)return;const url=activeUrl||mediaUrlFromTransfer(event.dataTransfer);if(drop.classList.contains('quick-drop')){dropCommitted=true;sendDownload(url);return;}const canonical=globalThis.PigeonDropUrl?.canonicalYouTubeUrl(url,document.baseURI);if(!canonical){status.textContent='Custom options are available for YouTube videos. Use Quick download for other media.';return;}dropCommitted=true;pendingCustomUrl=canonical;choiceGrid.style.display='none';options.classList.add('visible');status.textContent='Choose the format, quality, and chapter handling.';});}
+    format.addEventListener('change',()=>{quality.disabled=format.value==='mp3';});
+    shadow.querySelector('.back').addEventListener('click',()=>{pendingCustomUrl='';dropCommitted=false;options.classList.remove('visible');choiceGrid.style.display='grid';status.textContent='';});
+    shadow.querySelector('.start').addEventListener('click',()=>sendDownload(pendingCustomUrl,{format:format.value,quality:quality.value,chapterMode:shadow.querySelector('.chapters').value}));
+    shadow.querySelector('.close').addEventListener('click',hideOverlay);
   }
 
   function showOverlay(url) {
@@ -129,9 +120,12 @@
     clearTimeout(hideTimer);
     buildOverlay();
     activeUrl = url;
+    pendingCustomUrl = '';
     dropCommitted = false;
     shadow.querySelector('.status').textContent = '';
-    shadow.querySelector('.drop').classList.remove('hot');
+    for(const drop of shadow.querySelectorAll('.drop'))drop.classList.remove('hot');
+    shadow.querySelector('.choice-grid').style.display='grid';
+    shadow.querySelector('.options').classList.remove('visible');
     overlay.style.display = 'block';
   }
 
@@ -151,6 +145,7 @@
     if (showFrame !== null) cancelAnimationFrame(showFrame);
     showFrame = null;
     activeUrl = '';
+    pendingCustomUrl = '';
     if (overlay) overlay.style.display = 'none';
     if (temporaryDraggable) { temporaryDraggable.removeAttribute('draggable'); temporaryDraggable = null; }
   }
