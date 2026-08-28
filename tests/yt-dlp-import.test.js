@@ -1,9 +1,16 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
+const fs=require('node:fs');
 const fsp=require('node:fs/promises');
 const os=require('node:os');
 const path=require('node:path');
 const {ytDlpFormatSelectors,downloadYouTubeWithYtDlp}=require('../electron/yt-dlp-import');
+const ytDlpSource=fs.readFileSync(path.join(__dirname,'..','electron','yt-dlp-import.js'),'utf8');
+
+test('yt-dlp allows long chapter and high-quality downloads to finish',()=>{
+  assert.match(ytDlpSource,/timeout=60\*60\*1000/);
+  assert.match(ytDlpSource,/longer than 60 minutes/);
+});
 
 test('yt-dlp selectors preserve the requested MP4 quality and deterministic lower fallbacks',()=>{
   const[adaptive,progressive]=ytDlpFormatSelectors(1080);

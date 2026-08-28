@@ -37,11 +37,11 @@ async function resolveDependencies({ytDlpPath=process.env.YT_DLP_PATH||'yt-dlp',
   try{return await dependencyProbe;}catch(error){dependencyProbe=null;throw error;}
 }
 
-function runDownload(command,args,{timeout=10*60*1000,env=process.env,onProgress,onProcess,onTitle}={}){
+function runDownload(command,args,{timeout=60*60*1000,env=process.env,onProgress,onProcess,onTitle}={}){
   return new Promise((resolve,reject)=>{
     const child=spawn(command,args,{windowsHide:true,stdio:['ignore','pipe','pipe'],env});onProcess?.(child);let output='',errors='',buffer='',settled=false;
     const consume=(chunk)=>{buffer+=chunk;const lines=buffer.split(/\r?\n/);buffer=lines.pop()||'';for(const line of lines){const file=line.match(/__FILE__:(.+)$/);if(file)output=file[1].trim();const title=line.match(/__TITLE__:(.+)$/);if(title)onTitle?.(title[1].trim());const progress=line.match(/__PROGRESS__:\s*([\d.]+)%/);if(progress)onProgress?.(Math.max(0,Math.min(100,Number(progress[1])||0)));}};
-    const timer=setTimeout(()=>{child.kill();finish(new Error('YouTube download took longer than 10 minutes'));},timeout);timer.unref?.();
+    const timer=setTimeout(()=>{child.kill();finish(new Error('YouTube download took longer than 60 minutes'));},timeout);timer.unref?.();
     const finish=(error)=>{if(settled)return;settled=true;clearTimeout(timer);onProcess?.(null);error?reject(error):resolve(output);};
     child.stdout.on('data',consume);child.stderr.on('data',(chunk)=>{errors=`${errors}${chunk}`.slice(-24000);consume(chunk);});child.once('error',finish);child.once('close',(code)=>{if(buffer)consume('\n');code===0&&output?finish():finish(new Error(errors.trim()||`yt-dlp stopped (${code})`));});
   });

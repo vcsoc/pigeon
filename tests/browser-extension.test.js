@@ -16,7 +16,7 @@ function manifest(name = 'manifest.json') {
 test('drag capture is injected on HTTP sites and targets the Downloads collection', () => {
   const chromium = manifest();
   assert.equal(chromium.manifest_version, 3);
-  assert.equal(chromium.version, '2.1.0');
+  assert.equal(chromium.version, '2.2.0');
   assert.equal(chromium.name, 'Pigeon for Chrome');
   assert.deepEqual(chromium.content_scripts[0].matches, ['http://*/*', 'https://*/*']);
   assert.equal(chromium.content_scripts[0].all_frames, true);
@@ -39,7 +39,7 @@ test('drag capture is injected on HTTP sites and targets the Downloads collectio
   const worker = fs.readFileSync(path.join(extension, 'service-worker.js'), 'utf8');
   assert.match(worker, /http:\/\/127\.0\.0\.1:47635\/extension\/import/);
   assert.match(worker, /body: JSON\.stringify\(\{ url, collection, requestId, title, youtubeOptions \}\)/);
-  assert.match(worker, /controller\.abort\(\), 10 \* 60 \* 1000/);
+  assert.match(worker, /controller\.abort\(\), 70 \* 60 \* 1000/);
   assert.match(worker, /const pendingImports = new Map\(\)/);
   assert.doesNotMatch(worker, /attempt < 6/);
   assert.match(content, /if\(dropCommitted\)return/);
@@ -79,7 +79,7 @@ test('custom extension downloads forward sanitized YouTube format, quality, and 
   const result=await new Promise((resolve)=>messageListener({type:'save-url',url:'https://www.youtube.com/watch?v=dQw4w9WgXcQ',collection:'downloads',requestId:'custom-1',title:'Video',youtubeOptions:{format:'mp3',quality:'1080',chapterMode:'split'}},{},resolve));
   assert.equal(result.ok,true);assert.deepEqual(JSON.parse(JSON.stringify(payload.youtubeOptions)),{format:'mp3',quality:'1080',chapterMode:'split'});
   const main=fs.readFileSync(path.join(root,'electron','main.js'),'utf8');
-  assert.match(main,/youtubeOptions=requested\?/);assert.match(main,/downloadEnabled=youtubeOptions\?true/);assert.match(main,/youtubeOptions\}\)/);
+  assert.match(main,/youtubeOptions=requested\?/);assert.match(main,/requested\.format==='thumbnail'/);assert.match(main,/downloadEnabled=youtubeOptions\?true/);assert.match(main,/youtubeOptions\}\)/);
 });
 
 test('YouTube title and thumbnail drags preserve the canonical video rather than the image CDN URL', () => {
@@ -106,7 +106,7 @@ test('extension remains permission-minimal and provides a Firefox manifest', () 
     assert.equal(JSON.stringify([chromium, firefox]).includes(blocked), false, blocked);
   }
   assert.equal(chromium.background.service_worker, 'service-worker.js');
-  assert.equal(firefox.version, '2.1.0');
+  assert.equal(firefox.version, '2.2.0');
   assert.deepEqual(firefox.background.scripts, ['service-worker.js']);
   assert.equal(firefox.browser_specific_settings.gecko.id, 'drag-drop@pigeon.cool');
 });
@@ -127,7 +127,7 @@ test('browser build emits installable packages named for each browser family', (
   const popup=fs.readFileSync(path.join(extension,'popup.js'),'utf8'),popupHtml=fs.readFileSync(path.join(extension,'popup.html'),'utf8');
   assert.match(popup,/runtime\.getManifest\(\)\.name/);
   assert.match(popup,/youtubeOptions/);assert.match(popup,/transferUrl\(event\.dataTransfer\)/);
-  assert.match(popupHtml,/id="quick-drop"/);assert.match(popupHtml,/id="custom-drop"/);assert.match(popupHtml,/id="page-options"/);
+  assert.match(popupHtml,/id="quick-drop"/);assert.match(popupHtml,/id="custom-drop"/);assert.match(popupHtml,/id="page-options"/);assert.match(popupHtml,/value="thumbnail">Highest-quality thumbnail image/);
 });
 
 test('desktop localhost capture routes imports into the virtual Downloads collection', () => {

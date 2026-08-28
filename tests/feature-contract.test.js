@@ -1446,7 +1446,14 @@ test('YouTube drops switch between linked inline playback and saved-quality down
   assert.match(renderer,/deleteTrashItems\(selectedIds,'permanent'\)/);
   assert.match(main,/youtubeVideoId\(url\)/);
   assert.match(main,/youtubeDownloadQuality\|\|'720'/);
-  assert.match(main,/youtubeDownloadFormat\)==='mp3'/);
+  assert.match(main,/requestedFormat==='mp3'/);
+  assert.match(main,/requestedFormat==='thumbnail'/);
+  assert.match(main,/downloadHighestQualityYouTubeThumbnail/);
+  assert.match(renderer,/onThumbnailReady\([^\n]+\n  const layoutAnchor=captureVirtualLayoutAnchor\(\)/);
+  assert.match(main,/maxresdefault\.jpg/);
+  assert.match(main,/imported\.sourceUrl=canonicalYouTubeUrl\(url\)/);
+  assert.match(renderer,/Highest-quality thumbnail image/);
+  assert.match(renderer,/largest available thumbnail image/);
   assert.match(main,/youtubeChapterMode\)==='split'/);
   assert.match(main,/result\.targets\?\.length/);
   assert.match(main,/Saved \$\{assets\.length\} chapter files/);

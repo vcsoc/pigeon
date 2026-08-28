@@ -8,7 +8,7 @@ async function sendToPigeon(url, collection = 'downloads', requestId = '', title
   if (existing) return existing;
   const operation = (async () => {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10 * 60 * 1000);
+    const timeout = setTimeout(() => controller.abort(), 70 * 60 * 1000);
     try {
       const response = await fetch(CAPTURE_ENDPOINT, {
         method: 'POST',
@@ -20,7 +20,7 @@ async function sendToPigeon(url, collection = 'downloads', requestId = '', title
       if (response.ok && result.ok) return result;
       throw new Error(result.message || `Pigeon returned ${response.status}`);
     } catch (error) {
-      const message = error.name === 'AbortError' ? 'The YouTube import took longer than 10 minutes' : error.message;
+      const message = error.name === 'AbortError' ? 'Pigeon did not answer the extension within 70 minutes' : error.message;
       throw new Error(`${message}. Make sure Pigeon is open and try again.`);
     } finally { clearTimeout(timeout); }
   })();

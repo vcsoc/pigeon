@@ -32,7 +32,7 @@ for(const [id,custom] of [['quick-drop',false],['custom-drop',true]]){
   zone.addEventListener('dragenter',prevent);zone.addEventListener('dragover',prevent);zone.addEventListener('dragleave',()=>zone.classList.remove('hot'));zone.addEventListener('drop',(event)=>{prevent(event);zone.classList.remove('hot');const url=transferUrl(event.dataTransfer);if(custom)showOptions(url);else send(url);});
 }
 
-document.querySelector('#format').addEventListener('change',(event)=>{document.querySelector('#quality').disabled=event.target.value==='mp3';});
+document.querySelector('#format').addEventListener('change',(event)=>{const thumbnail=event.target.value==='thumbnail';document.querySelector('#quality').disabled=event.target.value!=='mp4';document.querySelector('#chapters').disabled=thumbnail;status.textContent=thumbnail?'Pigeon will save only the largest thumbnail image and retain the original YouTube link.':'Choose the format, quality, and chapter handling.';});
 document.querySelector('#options-close').addEventListener('click',()=>{pendingCustomUrl='';optionsPanel.classList.remove('visible');status.textContent='';});
 document.querySelector('#custom-download').addEventListener('click',()=>send(pendingCustomUrl,pendingCustomTitle,{format:document.querySelector('#format').value,quality:document.querySelector('#quality').value,chapterMode:document.querySelector('#chapters').value}));
 document.querySelector('#page').addEventListener('click', async () => {const tab=await activeTab();send(tab?.url,tab?.title||'');});
