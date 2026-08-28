@@ -18,7 +18,16 @@ test('yt-dlp download uses the proven embedded client and records a bounded loca
   try{
     const run=async(command,args)=>{calls.push({command,args});const template=args[args.indexOf('-o')+1],prefix=path.basename(template).split('%')[0],target=path.join(path.dirname(template),`${prefix}Downloaded video [dQw4w9WgXcQ].mp4`);await fsp.writeFile(target,'video');return target;};
     const result=await downloadYouTubeWithYtDlp('https://www.youtube.com/watch?v=dQw4w9WgXcQ',{outputDir:directory,quality:'720',dependencies:{ytDlpPath:'yt-dlp-test',denoPath:'deno-test'},ffmpegPath:'ffmpeg-test',run});
-    assert.equal(calls.length,1);assert.equal(calls[0].command,'yt-dlp-test');assert.ok(calls[0].args.includes('youtube:player_client=web_embedded'));assert.ok(calls[0].args.includes('1M'));assert.ok(calls[0].args.includes('deno:deno-test'));assert.ok(calls[0].args.includes('ffmpeg-test'));assert.equal(await fsp.readFile(result.target,'utf8'),'video');assert.equal(result.downloader,'yt-dlp');
+    assert.equal(calls.length,1);assert.equal(calls[0].command,'yt-dlp-test');assert.ok(calls[0].args.includes('youtube:player_client=web_embedded'));assert.ok(calls[0].args.includes('1M'));assert.ok(calls[0].args.includes('deno:deno-test'));assert.ok(calls[0].args.includes('ffmpeg-test'));assert.ok(calls[0].args.includes('--embed-metadata'));assert.ok(calls[0].args.includes('--embed-chapters'));assert.equal(await fsp.readFile(result.target,'utf8'),'video');assert.deepEqual(result.targets,[result.target]);assert.equal(result.format,'mp4');assert.equal(result.chapterMode,'embed');assert.equal(result.downloader,'yt-dlp');
+  }finally{await fsp.rm(directory,{recursive:true,force:true});}
+});
+
+test('yt-dlp converts to MP3 and returns only numbered split chapter files',async()=>{
+  const directory=await fsp.mkdtemp(path.join(os.tmpdir(),'pigeon-ytdlp-')),calls=[];
+  try{
+    const run=async(command,args)=>{calls.push({command,args});const template=args[args.lastIndexOf('-o')+1],prefix=path.basename(template).split('%')[0],main=path.join(directory,`${prefix}Chaptered audio [dQw4w9WgXcQ].mp3`);const intro=path.join(directory,`${prefix}Chaptered audio [dQw4w9WgXcQ] - 001 Intro.mp3`),lastChapter=path.join(directory,`${prefix}Chaptered audio [dQw4w9WgXcQ] - 002 Main.mp3`);await Promise.all([fsp.writeFile(main,'combined'),fsp.writeFile(intro,'intro'),fsp.writeFile(lastChapter,'main')]);return lastChapter;};
+    const result=await downloadYouTubeWithYtDlp('https://youtu.be/dQw4w9WgXcQ',{outputDir:directory,format:'mp3',chapterMode:'split',dependencies:{ytDlpPath:'yt-dlp',denoPath:'deno'},ffmpegPath:'ffmpeg',run});
+    const args=calls[0].args;assert.ok(args.includes('--extract-audio'));assert.ok(args.includes('--audio-format'));assert.ok(args.includes('mp3'));assert.ok(args.includes('--split-chapters'));assert.ok(args.some((item)=>String(item).startsWith('chapter:')));assert.equal(result.targets.length,2);assert.ok(result.targets.every((target)=>/ - 00[12] /.test(path.basename(target))));assert.equal(await fsp.readFile(result.targets[0],'utf8'),'intro');assert.equal(await fsp.readFile(result.targets[1],'utf8'),'main');assert.equal(result.format,'mp3');assert.equal(result.chapterMode,'split');assert.equal(await fsp.readFile(path.join(directory,path.basename(result.target)),'utf8'),'intro');
   }finally{await fsp.rm(directory,{recursive:true,force:true});}
 });
 

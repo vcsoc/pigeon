@@ -1167,38 +1167,27 @@ async function readDownloadResponse(response,{maxBytes,onProgress,progressId}={}
   return Buffer.concat(chunks,received);
 }
 
-async function importUrl(urlValue, { collection = '', mediaOnly = false, progressId = null, displayName = '' } = {}) {
+async function importUrl(urlValue, { collection = '', mediaOnly = false, progressId = null, displayName = '', youtubeOptions = null } = {}) {
   const url = new URL(urlValue);
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Only HTTP and HTTPS URLs are supported');
   const portfolioDrop=collection==='downloads',importOwner=portfolioDrop?autoImportOwner():null,autoImportLocation=portfolioDrop?await ensureActivePortfolioAutoImportLocation({create:true,scan:false}):null,destination=autoImportLocation?.path||importsDir;if(portfolioDrop&&!autoImportLocation)throw new Error('Could not prepare the active portfolio auto-import folder');
   const guessedName=String(displayName||(youtubeVideoId(url)?`YouTube video ${youtubeVideoId(url)}`:decodeURIComponent(path.basename(url.pathname))||'download')).replace(/\s+-\s+YouTube$/i,'').slice(0,180);let downloadLabel=`Downloading ${guessedName}`;let reportedPercent=-1;const reportDownload=(completed,total,detail='Downloading into Pigeon…')=>{if(!progressId)return;const percent=total>0?Math.floor(Math.max(0,Math.min(100,completed/total*100))):-1;if(percent>=0&&percent<=reportedPercent)return;reportedPercent=percent;reportBackgroundProgress(progressId,{label:downloadLabel,detail,completed,total});};if(progressId){reportDownload(0,0,'Preparing download…');await waitForBackgroundThread(progressId);}
   const youtubeId = youtubeVideoId(url);
   if (youtubeId) {
-    const downloadEnabled = library.settings?.preferences?.youtubeAutoDownload !== false;
-    const quality = library.settings?.preferences?.youtubeDownloadQuality || '720';
-    let asset, target = '';
-    if (portfolioDrop && !downloadEnabled) asset = await createLinkedYouTubeAsset(canonicalYouTubeUrl(url), destination, autoImportLocation, importOwner);
+    const downloadEnabled=library.settings?.preferences?.youtubeAutoDownload!==false,quality=['360','720','1080'].includes(String(youtubeOptions?.quality))?String(youtubeOptions.quality):library.settings?.preferences?.youtubeDownloadQuality||'720',format=(youtubeOptions?.format||library.settings?.preferences?.youtubeDownloadFormat)==='mp3'?'mp3':'mp4',chapterMode=(youtubeOptions?.chapterMode||library.settings?.preferences?.youtubeChapterMode)==='split'?'split':'embed';
+    let asset,assets=[],targets=[];
+    if(portfolioDrop&&!downloadEnabled){asset=await createLinkedYouTubeAsset(canonicalYouTubeUrl(url),destination,autoImportLocation,importOwner);assets=[asset];}
     else {
       const processControl=progressId?createBackgroundProcessControl(progressId):null;try{
-        try{({ target } = await downloadYouTubeVideo(url.toString(), { outputDir: destination, quality, ffmpegPath: ffmpegExecutable, waitForResume:()=>waitForBackgroundThread(progressId),onProcess:(child)=>processControl?.onProcess(child),onTitle:(title)=>{downloadLabel=`Downloading ${String(title||guessedName).slice(0,180)}`;reportedPercent=-1;reportDownload(0,0,'Preparing video…');},onProgress:(percent)=>reportDownload(percent,100,`${Math.round(percent)}% received`) }));}
-        catch(error){if(!portfolioDrop||!/no matching formats|no playable.*format|no valid url to decipher|to decipher urls|non 2xx|fetch_failed|403 forbidden/i.test(error.message))throw error;recordDiagnostic('warning','YouTube download formats unavailable; saved a playable link instead',{videoId:youtubeId,error:error.message});asset=await createLinkedYouTubeAsset(canonicalYouTubeUrl(url),destination,autoImportLocation,importOwner);}
+        try{const result=await downloadYouTubeVideo(url.toString(),{outputDir:destination,quality,format,chapterMode,ffmpegPath:ffmpegExecutable,waitForResume:()=>waitForBackgroundThread(progressId),onProcess:(child)=>processControl?.onProcess(child),onTitle:(title)=>{downloadLabel=`Downloading ${String(title||guessedName).slice(0,180)}`;reportedPercent=-1;reportDownload(0,0,`Preparing ${format==='mp3'?'audio':'video'}${chapterMode==='split'?' chapters':''}…`);},onProgress:(percent)=>reportDownload(percent,100,`${Math.round(percent)}% received`)});targets=result.targets?.length?result.targets:[result.target].filter(Boolean);}
+        catch(error){if(!portfolioDrop||!/no matching formats|no playable.*format|no valid url to decipher|to decipher urls|non 2xx|fetch_failed|403 forbidden/i.test(error.message))throw error;recordDiagnostic('warning','YouTube download formats unavailable; saved a playable link instead',{videoId:youtubeId,error:error.message});asset=await createLinkedYouTubeAsset(canonicalYouTubeUrl(url),destination,autoImportLocation,importOwner);assets=[asset];}
       }finally{processControl?.dispose();}
-      if(target){if(portfolioDrop&&!autoImportOwnerActive(importOwner)){await fsp.rm(target,{force:true}).catch(()=>{});throw new Error('The active portfolio changed while YouTube was downloading');}asset = portfolioDrop?await indexAutoImportFile(target,autoImportLocation,importOwner):(await addLocations([target], 'file'),library.assets.find((item)=>item.path===path.resolve(target)));}
+      if(targets.length){if(portfolioDrop&&!autoImportOwnerActive(importOwner)){await Promise.all(targets.map((target)=>fsp.rm(target,{force:true}).catch(()=>{})));throw new Error('The active portfolio changed while YouTube was downloading');}if(portfolioDrop)for(const target of targets)assets.push(await indexAutoImportFile(target,autoImportLocation,importOwner));else{await addLocations(targets,'file');assets=targets.map((target)=>library.assets.find((item)=>item.path===path.resolve(target))).filter(Boolean);}asset=assets[0];}
     }
     if(portfolioDrop&&!autoImportOwnerActive(importOwner))throw new Error('The active portfolio changed before the YouTube download was committed');
-    if (asset) {
-      asset.sourceUrl = canonicalYouTubeUrl(url);
-      asset.importMode = asset.linkedYouTube ? 'linked' : 'downloaded';
-      if (collection === 'downloads') {
-        const downloads = ensureDownloadsCollection();
-        asset.collectionIds = [...new Set([...(asset.collectionIds || []), downloads.id])];
-        asset.needsOrganization = false;
-        applyConfiguredCollectionTags(asset);
-      }
-      scheduleAssetSave(asset);
-    }
-    if(portfolioDrop){await saveLibraryNow();broadcastScanAssets(autoImportLocation,[asset],true);broadcastSidebar();}else{scheduleSave();broadcast();}
-    if(progressId)reportBackgroundProgress(progressId,{label:`Downloaded ${asset?.filename||guessedName}`,detail:'Saved to Downloads',completed:100,total:100,done:true});return asset;
+    if(assets.length){const downloads=collection==='downloads'?ensureDownloadsCollection():null;for(const imported of assets){imported.sourceUrl=canonicalYouTubeUrl(url);imported.importMode=imported.linkedYouTube?'linked':'downloaded';imported.youtubeDownloadFormat=imported.linkedYouTube?null:format;imported.youtubeChapterMode=imported.linkedYouTube?null:chapterMode;if(downloads){imported.collectionIds=[...new Set([...(imported.collectionIds||[]),downloads.id])];imported.needsOrganization=false;applyConfiguredCollectionTags(imported);}}scheduleAssetSave(assets);}
+    if(portfolioDrop){await saveLibraryNow();broadcastScanAssets(autoImportLocation,assets,true);broadcastSidebar();}else{scheduleSave();broadcast();}
+    if(progressId){const detail=assets.length>1?`Saved ${assets.length} chapter files to Downloads`:'Saved to Downloads';reportBackgroundProgress(progressId,{label:`Downloaded ${asset?.filename||guessedName}`,detail,completed:100,total:100,done:true});}return asset;
   }
   const response = await fetch(url, { redirect: 'follow' });
   if (!response.ok) throw new Error(`Download failed with status ${response.status}`);
@@ -1227,7 +1216,7 @@ async function importUrl(urlValue, { collection = '', mediaOnly = false, progres
   if(progressId)reportBackgroundProgress(progressId,{label:`Downloaded ${asset?.filename||safeName}`,detail:'Saved to Downloads',completed:bytes.length,total:bytes.length,done:true});return asset;
 }
 
-async function importUrlWithThread(url){const progressId=`${activePortfolioId}:url-import:${crypto.randomUUID()}`;try{return await importUrl(url,{progressId});}catch(error){reportBackgroundProgress(progressId,{label:'Download failed',detail:error.message,done:true,status:'failed'});throw error;}}
+async function importUrlWithThread(url,youtubeOptions=null){const progressId=`${activePortfolioId}:url-import:${crypto.randomUUID()}`;try{return await importUrl(url,{progressId,youtubeOptions});}catch(error){reportBackgroundProgress(progressId,{label:'Download failed',detail:error.message,done:true,status:'failed'});throw error;}}
 
 async function captureScreenshot() {
   const sources = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 2560, height: 1440 }, fetchWindowIcons: false });
@@ -2239,7 +2228,7 @@ ipcMain.handle('trash:empty', async (_event, request = {}) => {
   }
   library.assets = library.assets.filter((asset) => !removed.has(asset.id));for(const id of removed)mainAssetIndex.delete(id);for(const location of library.locations)location.assetCount=library.assets.filter((asset)=>asset.locationId===location.id).length;await sendDatabaseRequest('delete-assets',{ids:[...removed]});broadcastSidebar();reportBackgroundProgress(progressId,{label:failures.length?'Trash cleared with issues':'Trash cleared',detail:`${removed.size.toLocaleString()} files removed${failures.length?` · ${failures.length} failed`:''}`,completed:total,total,done:true,status:failures.length?'warning':'completed'}); return { deleted: removed.size, deletedIds: [...removed], failed: failures.length, failures };
 });
-ipcMain.handle('library:import-url', async (_event, url) => importUrlWithThread(url));
+ipcMain.handle('library:import-url',async(_event,payload)=>typeof payload==='string'?importUrlWithThread(payload):importUrlWithThread(payload?.url,payload?.options));
 ipcMain.handle('clipboard:write-text', (_event, value) => { clipboard.writeText(String(value || '').slice(0, 32768)); return true; });
 ipcMain.handle('clipboard:copy-assets',async(_event,ids=[])=>{const paths=[...new Set(ids.map((id)=>library.assets.find((asset)=>asset.id===id)).filter((asset)=>asset&&!asset.sourceMissing&&!asset.sourcePending).map((asset)=>asset.path))];if(!paths.length)return{copied:0};if(process.platform==='win32'){const encoded=Buffer.from(JSON.stringify(paths),'utf8').toString('base64'),script=`Add-Type -AssemblyName System.Windows.Forms; $paths=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encoded}'))|ConvertFrom-Json; $files=New-Object System.Collections.Specialized.StringCollection; foreach($p in $paths){[void]$files.Add([string]$p)}; [Windows.Forms.Clipboard]::SetFileDropList($files)`;await withTimeout(new Promise((resolve,reject)=>execFile('powershell.exe',['-NoProfile','-STA','-NonInteractive','-Command',script],{windowsHide:true},(error)=>error?reject(error):resolve())),8000,'Clipboard copy timed out');}else{clipboard.writeText(paths.join('\n'));}return{copied:paths.length};});
 ipcMain.handle('clipboard:paste-assets',async()=>{let paths=[];if(process.platform==='win32'){const script="Add-Type -AssemblyName System.Windows.Forms; if([Windows.Forms.Clipboard]::ContainsFileDropList()){[Windows.Forms.Clipboard]::GetFileDropList()|ConvertTo-Json -Compress}";const output=await execFileText('powershell.exe',['-NoProfile','-STA','-NonInteractive','-Command',script],8000);if(output)try{const parsed=JSON.parse(output);paths=Array.isArray(parsed)?parsed:[parsed];}catch{}}if(paths.length)return importDroppedFiles(paths);const image=clipboard.readImage();if(!image.isEmpty()){const temporary=path.join(app.getPath('temp'),`pigeon-clipboard-${Date.now()}.png`);await fsp.writeFile(temporary,image.toPNG());try{return await importDroppedFiles([temporary]);}finally{await fsp.rm(temporary,{force:true});}}return{imported:0,path:null};});

@@ -86,11 +86,12 @@ function muxStreams(ffmpegPath, videoPath, audioPath, target, onProcess) {
   });
 }
 
-async function downloadYouTubeVideo(urlValue, { outputDir, quality = '720', maxBytes = 250 * 1024 * 1024, ffmpegPath, createClient, mux = muxStreams, onProgress, onProcess, onTitle, waitForResume } = {}) {
+async function downloadYouTubeVideo(urlValue, { outputDir, quality = '720', format = 'mp4', chapterMode = 'embed', maxBytes = 250 * 1024 * 1024, ffmpegPath, createClient, mux = muxStreams, onProgress, onProcess, onTitle, waitForResume } = {}) {
   const videoId = youtubeVideoId(urlValue);
   if (!videoId) throw new Error('This is not a supported YouTube video address');
   const requestedQuality = YOUTUBE_QUALITIES.has(String(quality)) ? String(quality) : '720';
-  if(!createClient){try{return{...(await downloadYouTubeWithYtDlp(canonicalYouTubeUrl(urlValue),{outputDir,quality:requestedQuality,maxBytes,ffmpegPath,onProgress,onProcess,onTitle})),videoId};}catch(error){if(error.code!=='YOUTUBE_DOWNLOADER_UNAVAILABLE')throw error;}}
+  if(!createClient){try{return{...(await downloadYouTubeWithYtDlp(canonicalYouTubeUrl(urlValue),{outputDir,quality:requestedQuality,format,chapterMode,maxBytes,ffmpegPath,onProgress,onProcess,onTitle})),videoId};}catch(error){if(error.code!=='YOUTUBE_DOWNLOADER_UNAVAILABLE')throw error;if(format==='mp3'||chapterMode==='split')throw new Error('MP3 and chapter-split YouTube downloads require yt-dlp and Deno');}}
+  if(format==='mp3'||chapterMode==='split')throw new Error('MP3 and chapter-split YouTube downloads require yt-dlp and Deno');
   const client = createClient ? await createClient() : await createYouTubeClient();
   const info = await client.getBasicInfo(videoId);onTitle?.(info?.basic_info?.title||'YouTube video');
   if (info?.basic_info?.is_live) throw new Error('Live YouTube videos cannot be imported until the stream has ended');
@@ -121,7 +122,7 @@ async function downloadYouTubeVideo(urlValue, { outputDir, quality = '720', maxB
       await mux(ffmpegPath, videoPath, audioPath, target, onProcess);
     }
     if(await fsp.stat(target).then((stat)=>stat.size>maxBytes).catch(()=>false))throw new Error('YouTube download exceeds the 250 MB safety limit');
-    return { target, title: info?.basic_info?.title || 'YouTube video', videoId, quality: selectedQuality };
+    return { target, targets:[target], title: info?.basic_info?.title || 'YouTube video', videoId, quality: selectedQuality, format:'mp4', chapterMode:'none' };
   } catch (error) {
     await fsp.rm(target, { force: true }).catch(() => {});
     throw error;

@@ -550,7 +550,8 @@ textarea { resize: vertical; min-height: 68px; padding: 8px; line-height: 1.5; }
 .tag-assignment-dialog { width: min(430px, calc(100vw - 40px)); }
 .tag-assignment-dialog .text-field { width: 100%; margin-top: 8px; }
 .tag-assignment-dialog footer { margin-top: 16px; display: flex; justify-content: flex-end; gap: 7px; }
-.text-entry-dialog { width: min(430px, calc(100vw - 40px)); }
+.text-entry-dialog, .youtube-download-dialog { width: min(430px, calc(100vw - 40px)); }
+.youtube-download-dialog .settings-content{display:grid;gap:8px}.youtube-download-dialog .preference-row select{min-width:190px}.youtube-download-dialog footer{margin-top:10px;display:flex;justify-content:flex-end;gap:7px}.youtube-download-dialog footer button{min-width:86px;height:31px}
 .text-entry-dialog .text-field, .smart-folder-dialog > .settings-content > .text-field { width: 100%; height: 34px; margin-top: 7px; }
 .text-entry-tag-pills { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
 .text-entry-tag-pills button { min-height: 25px; display: inline-flex; align-items: center; gap: 7px; padding: 3px 8px; border: 1px solid #46516a; border-radius: 13px; background: #30394b; color: #dce4f7; }
