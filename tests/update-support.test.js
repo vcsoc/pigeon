@@ -57,3 +57,20 @@ test('the update IPC handler returns a nonfatal unavailable result for missing m
   assert.match(main,/isTransientUpdateDownloadError\(error\)/);
   assert.match(main,/Update asset not ready; retrying/);
 });
+
+test('failed or declined update installs restore an actionable update prompt', () => {
+  const renderer = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer.js'), 'utf8');
+  assert.match(renderer, /result\?\.status!=='installing'/);
+  assert.match(renderer, /showUpdateToast\(version,\{required,installable:result\?\.installable!==false/);
+  assert.match(renderer, /macOS could not verify this update/);
+  assert.match(renderer, /message:updateFailureMessage\(error\)/);
+});
+
+test('release publishing requires a signed macOS application build', () => {
+  const workflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'build-desktop.yml'), 'utf8');
+  assert.match(workflow, /CSC_LINK:.*MACOS_CERTIFICATE_P12/);
+  assert.match(workflow, /codesign --verify --deep --strict/);
+  assert.match(workflow, /Authority=Developer ID Application/);
+  assert.match(workflow, /if:.*success\(\).*startsWith\(github\.ref/);
+  assert.doesNotMatch(workflow, /always\(\).*startsWith\(github\.ref/);
+});

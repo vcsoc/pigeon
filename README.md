@@ -49,6 +49,8 @@ On any website, drag an image or video into the dimmed Pigeon drop panel to down
 
 The workflow in `.github/workflows/build-desktop.yml` builds Windows x64, a universal macOS package, and Linux x64 on their native runners. A version tag such as `v0.1.0` also publishes the installers and update metadata to the corresponding GitHub Release.
 
+macOS releases must be signed with a **Developer ID Application** certificate so Squirrel can validate automatic updates. Configure the `MACOS_CERTIFICATE_P12`, `MACOS_CERTIFICATE_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID` repository secrets before tagging a release. The workflow rejects unsigned or ad-hoc-signed macOS builds and does not publish a partial release when any platform build fails.
+
 ## License
 
 Copyright © 2026 Chris Visser. Pigeon is source-available under the [PolyForm Shield License 1.0.0](LICENSE.md), which does not permit using this software to provide a competing product. See [`NOTICE.md`](NOTICE.md) for required notices, [`COMMERCIAL-LICENSE.md`](COMMERCIAL-LICENSE.md) for commercial and enterprise licensing, and [`TRADEMARKS.md`](TRADEMARKS.md) for branding rules.
