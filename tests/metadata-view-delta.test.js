@@ -22,6 +22,13 @@ test('changed assets can enter a rated Smart Folder and move to the correct sort
   assert.deepEqual(moved.next,[1,2,0]);assert.deepEqual(moved.retainedIds,['a']);
 });
 
+test('tag changes remove only newly excluded Smart Folder members',()=>{
+  const assets=[{id:'a',tags:['keep']},{id:'b',tags:['keep']},{id:'c',tags:['keep']}],before={...assets[1],tags:[...assets[1].tags]};assets[1].tags.push('excluded');
+  const result=delta.reconcileIndices({indices:[0,1,2],changes:[{index:1,before,after:assets[1]}],assets,compare:(_a,_b)=>0,matches:(asset)=>!asset.tags.includes('excluded')});
+  assert.deepEqual(result.next,[0,2]);assert.deepEqual(result.removedIds,['b']);assert.deepEqual(result.retainedIds,[]);
+  assert.deepEqual(delta.keyedCardPlan(['a','b','c'],['a','c'],['b']),{remove:['b'],create:[],reuse:['a','c'],update:[],order:['a','c']});
+});
+
 test('effective inherited rules drive incremental counts for ancestors and descendants',()=>{
   const folders=[{id:'parent'},{id:'child'},{id:'unrelated'}],counts=new Map([['parent',2],['child',1],['unrelated',4]]),resolutions={parent:{match:(asset)=>asset.parent},child:{match:(asset)=>asset.parent&&asset.rating===0},unrelated:{match:(asset)=>asset.favorite}};
   const before={id:'a',parent:true,rating:0,favorite:false},after={...before,rating:4};
