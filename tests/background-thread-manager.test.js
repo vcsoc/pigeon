@@ -16,3 +16,7 @@ test('pause all queues new threads and queued threads can be reordered',async()=
 test('completed threads wake waiters and cannot be paused again',async()=>{
   const manager=createBackgroundThreadManager();manager.setAllPaused('portfolio',true);manager.report('download','portfolio',{label:'Download'});const waiting=manager.wait('download');manager.report('download','portfolio',{label:'Complete',completed:1,total:1,done:true});assert.equal(await waiting,false);assert.equal(manager.setPaused('download',true),false);
 });
+
+test('removing a paused thread cancels its waiter and registered process control',async()=>{
+  const events=[],controls=[],manager=createBackgroundThreadManager({emit:(task)=>events.push(task)});manager.report('scan','portfolio',{label:'Scan'});manager.registerPauseHandler('scan',(paused,options)=>controls.push({paused,options}));manager.setPaused('scan',true);const waiting=manager.wait('scan');assert.equal(manager.remove('scan'),true);assert.equal(await waiting,false);assert.deepEqual(manager.snapshot('portfolio'),[]);assert.equal(events.at(-1).status,'cancelled');assert.deepEqual(controls.at(-1),{paused:false,options:{cancelled:true}});assert.equal(manager.remove('scan'),false);
+});

@@ -37,7 +37,7 @@ function createBackgroundThreadManager({ emit = () => {}, now = () => Date.now()
   }
   function registerPauseHandler(id,handler){const key=String(id);if(typeof handler!=='function'){pauseHandlers.delete(key);return()=>{};}pauseHandlers.set(key,handler);return()=>pauseHandlers.delete(key);}
   function isPaused(id){return Boolean(tasks.get(String(id))?.paused);}
-  function remove(id) { const key=String(id),task=tasks.get(key); if (task) wake(task);pauseHandlers.delete(key);return tasks.delete(key); }
+  function remove(id) { const key=String(id),task=tasks.get(key); if (!task || task.done || !task.paused) return false;task.done=true;task.paused=false;task.status='cancelled';task.updatedAt=now();pauseHandlers.get(key)?.(false,{cancelled:true});pauseHandlers.delete(key);wake(task);send(task);tasks.delete(key);return true; }
   function snapshot(portfolioId) { return [...tasks.values()].filter((task) => !portfolioId || task.portfolioId === portfolioId).map((task) => ({ ...task, waiters: undefined })); }
   return { report, setPaused, setAllPaused, reorder, wait, registerPauseHandler, isPaused, remove, snapshot };
 }

@@ -22,6 +22,10 @@ test('scheduler deduplicates versions, rejects stale context, and reserves idle 
   releases.splice(0).forEach((resolve)=>resolve());await tick();scheduler.dispose();
 });
 
+test('a failed thumbnail job does not block the remaining files',async()=>{
+  const attempted=[];const scheduler=createThumbnailScheduler({maxConcurrency:1,idleDelayMs:10000,processJob:async(job)=>{attempted.push(job.id);if(job.id==='broken')throw new Error('decoder failed');}});scheduler.setContext({portfolioId:'p',generation:1});scheduler.updatePriority({portfolioId:'p',generation:1,visible:[{id:'broken',version:1},{id:'healthy',version:1}]});await tick();await tick();await tick();assert.deepEqual(attempted,['broken','healthy']);assert.deepEqual(scheduler.stats().active,0);scheduler.dispose();
+});
+
 test('active viewport input pauses additional full-library warming',async()=>{
   let clock=0,nextTimer=0;const timers=new Map(),active=[],releases=new Map(),idle=[{id:'idle-1',version:1},{id:'idle-2',version:1}];
   const scheduler=createThumbnailScheduler({maxConcurrency:2,idleDelayMs:500,now:()=>clock,setTimer:(callback)=>{const id=++nextTimer;timers.set(id,callback);return id;},clearTimer:(id)=>timers.delete(id),processJob:(job)=>new Promise((resolve)=>{active.push(job.id);releases.set(job.id,resolve);})});

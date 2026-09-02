@@ -3,9 +3,16 @@ const sharp = require('sharp');
 const exifReader = require('exif-reader');
 const fs=require('node:fs/promises');
 const {pngTextMetadata}=require('./embedded-metadata');
+const {imageMimeFromBytes}=require('./asset-mime');
 const {RAW_IMAGE_EXTENSION_SET:RAW_CAMERA_EXTENSIONS,HEIC_IMAGE_EXTENSION_SET}=require('./file-types');
 const {decodeHeicToRaw}=require('./heic-preview');
 let LibRawClass;
+async function isRawCameraSource(source,extension){
+  if(!RAW_CAMERA_EXTENSIONS.has(extension))return false;
+  const handle=await fs.open(source,'r');
+  try{const bytes=Buffer.alloc(16),{bytesRead}=await handle.read(bytes,0,bytes.length,0);return !imageMimeFromBytes(bytes.subarray(0,bytesRead));}
+  finally{await handle.close();}
+}
 async function decodeRawCamera(source,proxyTarget){
   const {installNodeWebWorker}=await import('./node-web-worker.mjs');installNodeWebWorker();
   LibRawClass ||= (await import('libraw-wasm')).default;
@@ -32,7 +39,7 @@ function boundedEmbeddedText(buffers={}){const result={};for(const[name,value]of
 parentPort.on('message', async ({source,target,rawProxyTarget,metadataOnly=false}) => {
   try {
     if(metadataOnly){parentPort.postMessage({ok:true,embeddedMetadata:await pngTextMetadata(source)});return;}
-    const extension=require('node:path').extname(source).toLowerCase(),rawCamera=RAW_CAMERA_EXTENSIONS.has(extension),heic=HEIC_IMAGE_EXTENSION_SET.has(extension),rawPreview=rawCamera?await decodeRawCamera(source,rawProxyTarget):null,heicPreview=heic?await decodeHeicToRaw(source):null;
+    const extension=require('node:path').extname(source).toLowerCase(),rawCamera=await isRawCameraSource(source,extension),heic=HEIC_IMAGE_EXTENSION_SET.has(extension),rawPreview=rawCamera?await decodeRawCamera(source,rawProxyTarget):null,heicPreview=heic?await decodeHeicToRaw(source):null;
     const imageSource=rawPreview?.path||source;
     const image = heicPreview?sharp(heicPreview.data,{raw:{width:heicPreview.width,height:heicPreview.height,channels:heicPreview.channels},failOn:'none'}):sharp(imageSource, { failOn: 'none', limitInputPixels: 268402689 });
     const [metadata, stats, sample] = await Promise.all([

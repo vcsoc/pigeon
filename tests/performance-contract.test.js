@@ -37,7 +37,7 @@ test('startup keeps the provisional grid behind the splash until the restored vi
   assert.match(assetStream,/!firstUsable&&library\.assets\.length>0/);
   assert.doesNotMatch(scheduler,/restoreNavigationState/);
   assert.match(completion,/restoreNavigationState\(\);updateFilterChips\(\)/);
-  assert.match(completion,/render\(\{preserveCards:true\}\);scheduleStartupViewportReveal\(\)/);
+  assert.match(completion,/render\(\{preserveCards:true\}\);(?:if\(portfolioSwitchLoading\)schedulePortfolioSwitchReveal\(generation\);)?scheduleStartupViewportReveal\(\)/);
   assert.doesNotMatch(completion,/requestAnimationFrame\(finishStartupSplash\)/);
   assert.match(reveal,/state\.library\.assetStreamPending/);
   assert.match(reveal,/state\.navigationRestoredPortfolioId!==state\.library\.activePortfolioId/);

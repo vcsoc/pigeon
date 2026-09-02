@@ -7,3 +7,5 @@ Licensor Line of Business: Pigeon visual asset management, media cataloguing, pr
 Pigeon is made available under the PolyForm Shield License 1.0.0 in [`LICENSE.md`](LICENSE.md). The license permits broad use but does not permit offering a product that competes with Pigeon or another product the licensor provides using this software.
 
 Third-party packages bundled with Pigeon remain subject to their respective licenses and notices.
+
+The bundled Super-Resolution Sub-Pixel CNN (`electron/ai-models/super-resolution-10.onnx`) is distributed by the ONNX Model Zoo under the Apache License 2.0. ONNX Runtime Web is distributed by Microsoft under the MIT License.

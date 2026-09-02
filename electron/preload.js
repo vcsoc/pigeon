@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('pigeon', {
   listBackgroundThreads:()=>ipcRenderer.invoke('background-threads:list'),
   setBackgroundThreadPaused:(id,paused)=>ipcRenderer.invoke('background-threads:set-paused',{id,paused}),
   setAllBackgroundThreadsPaused:(paused)=>ipcRenderer.invoke('background-threads:set-all-paused',Boolean(paused)),
+  removePausedBackgroundThread:(id)=>ipcRenderer.invoke('background-threads:remove-paused',String(id)),
   reorderBackgroundThreads:(ids)=>ipcRenderer.invoke('background-threads:reorder',Array.from(ids||[])),
   recordPerformanceSpan: (span) => ipcRenderer.send('performance:renderer-span', span),
   acknowledgeAssetBatch: (payload) => ipcRenderer.send('library:assets-consumed', payload),
@@ -46,10 +47,11 @@ contextBridge.exposeInMainWorld('pigeon', {
   autoRenameAssets: (ids, pattern) => ipcRenderer.invoke('assets:auto-rename', { ids, pattern }),
   startAssetDrag: (ids) => ipcRenderer.invoke('assets:start-drag', ids),
   rebuildThumbnails: (ids) => ipcRenderer.invoke('assets:rebuild-thumbnails', ids),
+  grantPermissionAccess: (payload) => ipcRenderer.invoke('permissions:grant', payload),
   getEmbeddedMetadata: (id) => ipcRenderer.invoke('asset:embedded-metadata', id),
   getAssetDetails: (id) => ipcRenderer.invoke('asset:details', id),
   removeLocation: (id) => ipcRenderer.invoke('library:remove-location', id),
-  rescan: (id) => ipcRenderer.invoke('library:rescan', id),
+  rescan: (id, subfolder = '') => ipcRenderer.invoke('library:rescan', { id, subfolder }),
   refreshSources: () => ipcRenderer.invoke('library:refresh-sources'),
   createCollection: (name, parentId, id = null) => ipcRenderer.invoke('collection:create', { name, parentId, id }),
   duplicateGroupStructure: (type, id, subfolder = '') => ipcRenderer.invoke('group:duplicate-structure', { type, id, subfolder }),
@@ -104,6 +106,8 @@ contextBridge.exposeInMainWorld('pigeon', {
   resetInlineEdits: (id) => ipcRenderer.invoke('asset:reset-inline-edits', id),
   saveImageEdits:(id,edits,annotations=[])=>ipcRenderer.invoke('asset:save-image-edits',{id,edits,annotations}),
   prepareImageEdit:(id)=>ipcRenderer.invoke('asset:prepare-image-edit',id),
+  enlargeImage:(id,scale=2)=>ipcRenderer.invoke('asset:ai-enlarge',{id,scale}),
+  setOmarchyThemeWallpaper:(id)=>ipcRenderer.invoke('asset:set-omarchy-wallpaper',id),
   previewAiRemoval:(id,maskDataUrl,previousToken=null)=>ipcRenderer.invoke('asset:ai-remove-preview',{id,maskDataUrl,previousToken}),
   acceptAiRemoval:(id,token)=>ipcRenderer.invoke('asset:ai-remove-accept',{id,token}),
   discardAiRemoval:(token)=>ipcRenderer.invoke('asset:ai-remove-discard',token),
@@ -111,6 +115,11 @@ contextBridge.exposeInMainWorld('pigeon', {
   duplicateAsset: (id) => ipcRenderer.invoke('asset:duplicate', id),
   exportAnnotated: (id, annotations, edits) => ipcRenderer.invoke('asset:export-annotated', { id, annotations, edits }),
   exportGroup: (type, id) => ipcRenderer.invoke('library:export-group', { type, id }),
+  describePigeonExport:(scope)=>ipcRenderer.invoke('pigeon-collection:describe-export',scope),
+  exportPigeonCollection:(scope,name)=>ipcRenderer.invoke('pigeon-collection:export',{scope,name}),
+  openPigeonCollection:(filePath='')=>ipcRenderer.invoke('pigeon-collection:open',filePath),
+  importPigeonCollection:(filePath,ids)=>ipcRenderer.invoke('pigeon-collection:import',{path:filePath,ids}),
+  onPigeonCollectionOpened:(callback)=>{const handler=(_event,collection)=>callback(collection);ipcRenderer.on('pigeon-collection:opened',handler);return()=>ipcRenderer.removeListener('pigeon-collection:opened',handler);},
   exportAsset: (id) => ipcRenderer.invoke('asset:export', id),
   readTextAsset: (id) => ipcRenderer.invoke('asset:read-text', id),
   exportContactSheet: (format, rect) => ipcRenderer.invoke('contact-sheet:export', { format, rect }),
@@ -139,6 +148,7 @@ contextBridge.exposeInMainWorld('pigeon', {
   openAsset: (id) => ipcRenderer.invoke('asset:open', id),
   openAssetWith: (id) => ipcRenderer.invoke('asset:open-with', id),
   platform: process.platform,
+  isOmarchy:process.platform==='linux'&&(process.env.DESKTOP_SESSION==='omarchy'||Boolean(process.env.OMARCHY_PATH)),
   minimizeWindow: () => ipcRenderer.invoke('window:minimize'),
   toggleMaximizeWindow: () => ipcRenderer.invoke('window:toggle-maximize'),
   setWindowZoom: (factor) => ipcRenderer.invoke('window:set-zoom', factor),
@@ -213,6 +223,11 @@ contextBridge.exposeInMainWorld('pigeon', {
     const handler = (_event, value) => callback(value);
     ipcRenderer.on('scan:assets', handler);
     return () => ipcRenderer.removeListener('scan:assets', handler);
+  },
+  onPermissionRequired: (callback) => {
+    const handler = (_event, value) => callback(value);
+    ipcRenderer.on('permissions:required', handler);
+    return () => ipcRenderer.removeListener('permissions:required', handler);
   },
   onLocationsChanged: (callback) => {
     const handler = (_event, value) => callback(value);
