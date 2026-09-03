@@ -47,7 +47,7 @@ test('keyed reconciliation preserves every unaffected card and thumbnail identit
   assert.deepEqual(plan.remove,['a']);assert.deepEqual(plan.create,['e']);assert.deepEqual(plan.update,['b']);assert.deepEqual(plan.reuse,['c','d']);assert.deepEqual(plan.order,['b','c','d','e']);
 });
 
-test('selection moves to nearest survivor without requesting scroll',()=>{
-  const assets=['a','b','c','d'].map((id)=>({id})),result=delta.selectionAfterRemoval({selectedId:'b',selectedIds:new Set(['b','c']),removedIds:['b'],previous:[0,1,2,3],next:[0,2,3],assets});
-  assert.equal(result.selectedId,'c');assert.deepEqual([...result.selectedIds],['c']);assert.equal(Object.hasOwn(result,'scrollTop'),false);
+test('selection moves to nearest survivor without embedding renderer scroll state',()=>{
+  const assets=['a','b','c','d','e'].map((id)=>({id})),result=delta.selectionAfterRemoval({selectedId:'b',selectedIds:new Set(['b','c','d']),removedIds:['b','c','d'],previous:[0,1,2,3,4],next:[0,4],assets});
+  assert.equal(result.selectedId,'e');assert.deepEqual([...result.selectedIds],['e']);assert.equal(Object.hasOwn(result,'scrollTop'),false);
 });

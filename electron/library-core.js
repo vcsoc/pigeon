@@ -220,13 +220,17 @@ function visualSimilarityScore(first, second) {
   else if (first.dominantColor && second.dominantColor) visualScore = Math.max(0, 100 - colorDistance(first.dominantColor, second.dominantColor) / 4.42);
   return Math.round(Math.min(ratioScore, visualScore));
 }
-function similarImageGroups(assets, accuracy = 78, sourceId = null) {
-  const images = assets.filter((asset) => asset.kind === 'image' && !asset.deletedAt && !asset.locked);
-  if (sourceId) { const source = images.find((asset) => asset.id === sourceId); if (!source) return []; const matches = images.filter((asset) => asset.id !== source.id && visualSimilarityScore(source, asset) >= accuracy).sort((a, b) => visualSimilarityScore(source, b) - visualSimilarityScore(source, a)); return matches.length ? [[source, ...matches]] : []; }
-  const parent = images.map((_, index) => index), root = (index) => { while (parent[index] !== index) { parent[index] = parent[parent[index]]; index = parent[index]; } return index; };
-  for (let first = 0; first < images.length; first += 1) for (let second = first + 1; second < images.length; second += 1) if (visualSimilarityScore(images[first], images[second]) >= accuracy) { const a = root(first), b = root(second); if (a !== b) parent[b] = a; }
-  const groups = new Map(); images.forEach((asset, index) => { const key = root(index); if (!groups.has(key)) groups.set(key, []); groups.get(key).push(asset); });
-  return [...groups.values()].filter((group) => group.length > 1).sort((a, b) => b.length - a.length);
+function similarImageGroups(assets, accuracy = 95, sourceId = null, options = {}) {
+  const images = assets.filter((asset) => asset.kind === 'image' && !asset.deletedAt && !asset.locked), report = typeof options.onProgress === 'function' ? options.onProgress : () => {};
+  if (sourceId) { const source = images.find((asset) => asset.id === sourceId); if (!source) return []; const matches=[];for(let index=0;index<images.length;index+=1){const asset=images[index];if(asset.id!==source.id&&visualSimilarityScore(source,asset)>=accuracy)matches.push(asset);if(index%256===0)report(index+1,images.length);}report(images.length,images.length);matches.sort((a,b)=>visualSimilarityScore(source,b)-visualSimilarityScore(source,a));return matches.length?[[source,...matches]]:[]; }
+  const parent=images.map((_,index)=>index),root=(index)=>{while(parent[index]!==index){parent[index]=parent[parent[index]];index=parent[index];}return index;},join=(first,second)=>{const a=root(first),b=root(second);if(a!==b)parent[b]=a;};
+  const exactHashes=new Map(),maximumHashDistance=(()=>{let maximum=0;for(let distance=0;distance<=64;distance+=1)if(Math.round(100-distance/64*100)>=accuracy)maximum=distance;return maximum;})(),hashTrees=new Map(),useHashBands=maximumHashDistance<=8,hashBandBuckets=new Map(),hashBandAllBuckets=new Map(),hashBandCount=maximumHashDistance+1,ratioBinWidth=Math.max(.0001,-Math.log(1-Math.min(.999,(100-accuracy+.5)/180)));
+  const hashBandParts=(hash)=>{const value=BigInt(`0x${hash}`),parts=[];let shift=0;for(let band=0;band<hashBandCount;band+=1){const size=Math.floor(64/hashBandCount)+(band<64%hashBandCount?1:0),mask=(1n<<BigInt(size))-1n;parts.push(`${band}:${(value>>BigInt(shift))&mask}`);shift+=size;}return parts;},ratioBin=(asset)=>asset.width&&asset.height?Math.floor(Math.log(asset.width/asset.height)/ratioBinWidth):null;
+  const searchHash=(hash,index,visit)=>{if(useHashBands){const candidates=new Set(),bin=ratioBin(images[index]);for(const part of hashBandParts(hash)){if(bin===null){for(const candidate of hashBandAllBuckets.get(part)||[])candidates.add(candidate);continue;}for(const candidateBin of [bin-1,bin,bin+1])for(const candidate of hashBandBuckets.get(`${part}:${candidateBin}`)||[])candidates.add(candidate);}for(const candidate of candidates)if(hashDistance(hash,images[candidate].perceptualHash)<=maximumHashDistance)visit(candidate);return;}const bin=ratioBin(images[index]),trees=bin===null?[...hashTrees.values()]:[hashTrees.get(bin-1),hashTrees.get(bin),hashTrees.get(bin+1),hashTrees.get('*')].filter(Boolean);for(const tree of trees){if(!tree.root)continue;const pending=[tree.root];while(pending.length){const node=pending.pop(),distance=hashDistance(hash,node.hash);if(distance<=maximumHashDistance)visit(node.index);for(const[edge,child]of node.children)if(edge>=distance-maximumHashDistance&&edge<=distance+maximumHashDistance)pending.push(child);}}},insertHash=(hash,index)=>{if(useHashBands){const bin=ratioBin(images[index]);for(const part of hashBandParts(hash)){const key=`${part}:${bin===null?'*':bin}`;if(!hashBandBuckets.has(key))hashBandBuckets.set(key,[]);hashBandBuckets.get(key).push(index);if(!hashBandAllBuckets.has(part))hashBandAllBuckets.set(part,[]);hashBandAllBuckets.get(part).push(index);}return;}const bin=ratioBin(images[index]),treeKey=bin===null?'*':bin,tree=hashTrees.get(treeKey)||{root:null};hashTrees.set(treeKey,tree);const node={hash,index,children:new Map()};if(!tree.root){tree.root=node;return;}let current=tree.root;while(true){const distance=hashDistance(hash,current.hash);if(!current.children.has(distance)){current.children.set(distance,node);return;}current=current.children.get(distance);}};
+  const withoutHashes=images.map((asset,index)=>/^[0-9a-f]{16}$/i.test(asset.perceptualHash||'')||!asset.dominantColor?null:index).filter((index)=>index!==null),workTotal=images.length+withoutHashes.length;
+  for(let index=0;index<images.length;index+=1){const asset=images[index];if(asset.contentHash){if(exactHashes.has(asset.contentHash))join(index,exactHashes.get(asset.contentHash));else exactHashes.set(asset.contentHash,index);}if(/^[0-9a-f]{16}$/i.test(asset.perceptualHash||'')){searchHash(asset.perceptualHash,index,(candidate)=>{if(visualSimilarityScore(asset,images[candidate])>=accuracy)join(index,candidate);});insertHash(asset.perceptualHash,index);}if(index%128===0)report(index+1,workTotal);}
+  for(let position=0;position<withoutHashes.length;position+=1){const index=withoutHashes[position];for(let candidate=0;candidate<images.length;candidate+=1)if(candidate!==index&&visualSimilarityScore(images[index],images[candidate])>=accuracy)join(index,candidate);if(position%8===0)report(images.length+position+1,workTotal);}
+  report(workTotal,workTotal);const groups=new Map();images.forEach((asset,index)=>{const key=root(index);if(!groups.has(key))groups.set(key,[]);groups.get(key).push(asset);});return[...groups.values()].filter((group)=>group.length>1).sort((a,b)=>b.length-a.length);
 }
 
 function matchesRule(asset, rule) {
@@ -268,6 +272,18 @@ function renameTag(library, from, to) {
   return replacement;
 }
 
+function replaceTags(library, requestedTags, to) {
+  const sources = new Set((Array.isArray(requestedTags) ? requestedTags : [requestedTags]).map((tag) => String(tag || '').trim().toLowerCase()).filter(Boolean));
+  const requested = String(to || '').trim();
+  if (!sources.size || !requested) throw new Error('Source tags and a replacement tag are required');
+  const existing = library.assets.flatMap((asset) => asset.tags || []).find((tag) => tag.toLowerCase() === requested.toLowerCase());
+  const replacement = existing || requested, assets = [];
+  const merge = (tags) => { const merged = []; for (const tag of tags || []) { const value = sources.has(String(tag).toLowerCase()) ? replacement : tag; if (!merged.some((item) => item.toLowerCase() === String(value).toLowerCase())) merged.push(value); } return merged; };
+  for (const asset of library.assets) { const current = asset.tags || []; if (!current.some((tag) => sources.has(String(tag).toLowerCase()))) continue; const next = merge(current); if (JSON.stringify(next) !== JSON.stringify(current)) { asset.tags = next; assets.push(asset); } }
+  for (const rules of [library.settings?.folderAutoTags, library.settings?.collectionAutoTags]) for (const rule of Object.values(rules || {})) rule.tags = merge(rule.tags);
+  return { replacement, replacedTags: [...sources], updatedAssets: assets.length, assets };
+}
+
 function deleteTags(library, requestedTags) {
   const targets = new Set((Array.isArray(requestedTags) ? requestedTags : [requestedTags]).map((tag) => String(tag || '').trim().toLowerCase()).filter(Boolean)), assets = [];
   for (const asset of library.assets) { const current = asset.tags || [], remaining = current.filter((tag) => !targets.has(tag.toLowerCase())); if (remaining.length !== current.length) { asset.tags = remaining; assets.push(asset); } }
@@ -292,4 +308,4 @@ function serializeLibrary(library) {
   return JSON.stringify(migrateLibrary(library), null, 2);
 }
 
-module.exports = { SCHEMA_VERSION, DEFAULT_LIBRARY, migrateLibrary, createCollection, renameCollection, moveCollection, removeCollection, createSmartFolder, renameSmartFolder, moveSmartFolder, removeSmartFolder, batchUpdateAssets, stackAssets, unstackAssets, exactDuplicateGroups, similarAssets, visualSimilarityScore, similarImageGroups, matchesFilters, matchesSmartFolder, evaluateSmartFolder, renameTag, deleteTags, suggestTags, serializeLibrary, colorDistance, hashDistance, idFor };
+module.exports = { SCHEMA_VERSION, DEFAULT_LIBRARY, migrateLibrary, createCollection, renameCollection, moveCollection, removeCollection, createSmartFolder, renameSmartFolder, moveSmartFolder, removeSmartFolder, batchUpdateAssets, stackAssets, unstackAssets, exactDuplicateGroups, similarAssets, visualSimilarityScore, similarImageGroups, matchesFilters, matchesSmartFolder, evaluateSmartFolder, renameTag, replaceTags, deleteTags, suggestTags, serializeLibrary, colorDistance, hashDistance, idFor };

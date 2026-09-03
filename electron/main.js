@@ -28,6 +28,7 @@ const { Readable } = require('node:stream');
 const chokidar = require('chokidar');
 const { autoUpdater } = require('electron-updater');
 const { createThumbnailScheduler } = require('./thumbnail-scheduler');
+const { rawCameraProxyRequired } = require('./thumbnail-requirements');
 const { createPerformanceRecorder, assetMix } = require('./performance-spans');
 const { lightweightAsset, assetDetails } = require('./asset-transport');
 const { youtubeVideoId, canonicalYouTubeUrl, safeVideoName, getYouTubeMetadata, downloadYouTubeVideo } = require('./youtube-import');
@@ -935,12 +936,12 @@ async function warmCompatibilityVideoCache() {
 
 function thumbnailWorkRequired(asset) {
   if (asset.linkedYouTube || asset.permissionDenied) return false;
-  const extension=path.extname(asset.path).toLowerCase(),heic=HEIC_IMAGE_EXTENSION_SET.has(extension),motion=asset.kind==='video'||ANIMATED_IMAGE_EXTENSIONS.has(extension);
+  const extension=path.extname(asset.path).toLowerCase(),heic=HEIC_IMAGE_EXTENSION_SET.has(extension),motion=asset.kind==='video'||ANIMATED_IMAGE_EXTENSIONS.has(extension),rawProxyRequired=rawCameraProxyRequired(asset,extension,RAW_IMAGE_EXTENSION_SET);
   if (asset.thumbnailFailedAt && asset.thumbnailFailedModified === asset.modified && !(asset.extension==='PDF'&&asset.thumbnailFailureVersion!==PDF_PREVIEW_VERSION) && !(heic&&asset.thumbnailFailureVersion!==HEIC_PREVIEW_VERSION) && !(motion&&asset.thumbnailFailureVersion!==MOTION_PREVIEW_VERSION)) return false;
   if (asset.kind === 'video') return !asset.thumbnailPath || !asset.width || !asset.height || !asset.duration;
   if (asset.kind === 'audio') return !asset.thumbnailPath || !asset.duration;
   if (PREVIEWABLE_DOCUMENT_EXTENSIONS.has(asset.extension)) return !asset.thumbnailPath || (asset.extension==='PDF'&&asset.pdfPreviewVersion!==PDF_PREVIEW_VERSION);
-  return asset.kind === 'image' && (!asset.thumbnailPath || heic&&asset.heicPreviewVersion!==HEIC_PREVIEW_VERSION || RAW_IMAGE_EXTENSION_SET.has(path.extname(asset.path).toLowerCase()) && (!asset.proxyPath || asset.proxyVersion!==3) || !asset.width || !asset.height || !asset.dominantColor || !asset.histogram || !asset.palette || !asset.perceptualHash || !asset.technicalMetadata);
+  return asset.kind === 'image' && (!asset.thumbnailPath || heic&&asset.heicPreviewVersion!==HEIC_PREVIEW_VERSION || rawProxyRequired && (!asset.proxyPath || asset.proxyVersion!==3) || !asset.width || !asset.height || !asset.dominantColor || !asset.histogram || !asset.palette || !asset.perceptualHash || !asset.technicalMetadata);
 }
 async function generateScheduledThumbnail(job){
   const asset=mainAssetIndex.get(job.id);if(!asset||Number(asset.modified||0)!==job.version||!thumbnailWorkRequired(asset)||asset.sourcePending||asset.sourceMissing)return;
@@ -1644,9 +1645,9 @@ function createWindow() {
           document.querySelector('[data-view="duplicates"]')?.click(); await new Promise((resolve) => setTimeout(resolve, 80));
           const duplicateGrouping = !document.querySelector('#duplicate-controls').classList.contains('hidden') && document.querySelectorAll('.duplicate-group .duplicate-row .asset-card').length >= 2;
           const duplicateImages = [...document.querySelectorAll('.duplicate-row .asset-preview img')], duplicateImagesFit = duplicateImages.length >= 2 && duplicateImages.every((image) => getComputedStyle(image).objectFit === 'contain' && Math.abs(image.getBoundingClientRect().width - image.closest('.asset-preview').getBoundingClientRect().width) < 3 && Math.abs(image.getBoundingClientRect().height - image.closest('.asset-preview').getBoundingClientRect().height) < 3);
-          const duplicateControls = document.querySelector('#duplicate-controls'), duplicateControlsRect = duplicateControls.getBoundingClientRect(), duplicateWrapRect = document.querySelector('#grid-wrap').getBoundingClientRect(); const duplicateControlsPinned = getComputedStyle(duplicateControls).position === 'sticky' && Math.abs(duplicateControlsRect.top - duplicateWrapRect.top) < 3 && getComputedStyle(duplicateControls).boxShadow === 'none';
+          const duplicateControls = document.querySelector('#duplicate-controls'); const duplicateControlsPinned = duplicateControls.parentElement?.id === 'inspector-details-panel' && getComputedStyle(duplicateControls).position !== 'sticky' && getComputedStyle(duplicateControls).boxShadow === 'none';
           const duplicateSourceCard = document.querySelector('.duplicate-row .asset-card'); duplicateSourceCard?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 260, clientY: 190 })); document.querySelector('[data-context-action="similar"]')?.click(); await new Promise((resolve) => setTimeout(resolve, 80));
-          const sourceSimilarityView = !document.querySelector('#show-all-duplicate-groups').classList.contains('hidden') && document.querySelector('#duplicate-similarity').value === '78';
+          const sourceSimilarityView = !document.querySelector('#show-all-duplicate-groups').classList.contains('hidden') && document.querySelector('#duplicate-similarity').value === '95';
           document.querySelector('[data-view="all"]')?.click();
           const imageCard = document.querySelector('[data-asset-kind="image"]');
           const gridWrap = document.querySelector('#grid-wrap');
@@ -2271,16 +2272,19 @@ ipcMain.handle('assets:similar', (_event, id) => {
   const asset = library.assets.find((item) => item.id === id);
   return asset ? libraryCore.similarAssets(library.assets, asset).map((item) => item.id) : [];
 });
-ipcMain.handle('assets:similar-groups', (_event, { accuracy = 78, sourceId = null } = {}) => new Promise((resolve) => {
+ipcMain.handle('assets:similar-groups', (_event, { accuracy = 95, sourceId = null, assetIds = null } = {}) => new Promise((resolve) => {
   if(activeSimilarityJob){activeSimilarityJob.resolve([]);activeSimilarityJob.worker.terminate().catch(()=>{});activeSimilarityJob=null;}
-  const images=library.assets.filter((asset)=>asset.kind==='image'&&!asset.deletedAt&&!isAssetLocked(asset)).map(({id,kind,contentHash,perceptualHash,dominantColor,width,height})=>({id,kind,contentHash,perceptualHash,dominantColor,width,height})),worker=new Worker(path.join(__dirname,'similarity-worker.js'),{workerData:{assets:images,accuracy:Math.max(35,Math.min(100,Number(accuracy)||78)),sourceId},resourceLimits:{maxOldGenerationSizeMb:192}}),telemetry=trackWorker(worker,'similarity',{filesTotal:images.length});let settled=false;
-  const finish=(groups=[])=>{if(settled)return;settled=true;telemetry.filesCompleted=images.length;telemetry.status='completed';if(activeSimilarityJob?.worker===worker)activeSimilarityJob=null;resolve(groups);worker.terminate().catch(()=>{});};activeSimilarityJob={worker,resolve:finish};worker.once('message',(message)=>finish(message.groups||[]));worker.once('error',(error)=>{recordDiagnostic('error','Similarity worker failed',error);finish([]);});worker.once('exit',()=>finish([]));
+  const scopedIds=Array.isArray(assetIds)?new Set(assetIds.slice(0,250000).map(String)):null,images=library.assets.filter((asset)=>asset.kind==='image'&&!asset.deletedAt&&!isAssetLocked(asset)&&(!scopedIds||scopedIds.has(asset.id))).map(({id,kind,contentHash,perceptualHash,dominantColor,width,height})=>({id,kind,contentHash,perceptualHash,dominantColor,width,height})),worker=new Worker(path.join(__dirname,'similarity-worker.js'),{workerData:{assets:images,accuracy:Math.max(35,Math.min(100,Number(accuracy)||95)),sourceId},resourceLimits:{maxOldGenerationSizeMb:192}}),telemetry=trackWorker(worker,'similarity',{filesTotal:images.length});let settled=false;
+  const finish=(groups=[])=>{if(settled)return;settled=true;telemetry.filesCompleted=telemetry.filesTotal;telemetry.status='completed';telemetry.expectedExit=true;if(activeSimilarityJob?.worker===worker)activeSimilarityJob=null;resolve(groups);worker.terminate().catch(()=>{});};activeSimilarityJob={worker,resolve:finish};worker.on('message',(message)=>{if(message.progress){telemetry.filesTotal=Math.max(images.length,Number(message.progress.total)||images.length);telemetry.filesCompleted=Math.min(telemetry.filesTotal,Number(message.progress.completed)||0);telemetry.currentFile=`Comparing ${telemetry.filesCompleted.toLocaleString()} of ${telemetry.filesTotal.toLocaleString()} steps`;reportBackgroundProgress(telemetry.progressId,{label:'Similarity worker',detail:telemetry.currentFile,completed:telemetry.filesCompleted,total:telemetry.filesTotal,pauseSupported:false});return;}if(message.error){recordDiagnostic('error','Similarity worker failed',message.error);finish([]);return;}if(message.groups)finish(message.groups);});worker.once('error',(error)=>{recordDiagnostic('error','Similarity worker failed',error);finish([]);});worker.once('exit',()=>finish([]));
 }));
 ipcMain.handle('assets:set-order',(_event,{scope,order})=>{if(!/^(collection|smart|location|view):/.test(String(scope))||!['modified','indexedAt','name','size','rating'].includes(order?.field)||!['asc','desc'].includes(order?.direction))throw new Error('Invalid item order');library.settings.assetOrders={...(library.settings.assetOrders||{}),[scope]:{field:order.field,direction:order.direction}};scheduleSave();return library.settings.assetOrders[scope];});
 ipcMain.handle('assets:auto-tag',(_event,ids)=>{const selected=new Set(ids);applyTagsInBackground((asset)=>selected.has(asset.id),(asset)=>libraryCore.suggestTags(asset),'Generating local tags');return{pending:true,count:selected.size};});
 ipcMain.handle('tags:rename', (_event, { from, to }) => {
   const changed=library.assets.filter((asset)=>(asset.tags||[]).some((tag)=>tag.toLowerCase()===String(from).toLowerCase())),replacement = libraryCore.renameTag(library, from, to);
   scheduleAssetSave(changed);broadcastAssetPatches(changed.map((asset)=>({id:asset.id,tags:asset.tags})));return replacement;
+});
+ipcMain.handle('tags:replace', async (_event, { from, to } = {}) => {
+  const result=libraryCore.replaceTags(library,from,to);if(result.assets.length)await persistAssetBatch(result.assets);scheduleSave();broadcastAssetPatches(result.assets.map((asset)=>({id:asset.id,tags:asset.tags})));return{replacement:result.replacement,replacedTags:result.replacedTags,updatedAssets:result.updatedAssets};
 });
 ipcMain.handle('tags:delete', async (_event, requestedTags) => {
   const result=libraryCore.deleteTags(library,requestedTags);if(result.assets.length)await persistAssetBatch(result.assets);scheduleSave();return{deletedTags:result.deletedTags,updatedAssets:result.updatedAssets};

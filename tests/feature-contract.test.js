@@ -103,7 +103,7 @@ test('text and PDF documents generate thumbnails and open in inspector, preview 
 });
 
 test('privacy shortcuts paint before persistence and do not animate behind key input',()=>{
-  assert.match(renderer,/paintThumbnailEffectImmediately\(assets,enabled\);showToast/);assert.ok(renderer.indexOf('paintThumbnailEffectImmediately(assets,enabled);showToast')<renderer.indexOf('await window.pigeon.batchUpdateAssets(ids,{thumbnailEffect:enabled}'));assert.match(renderer,/requestAnimationFrame\(draw\)/);assert.match(styles,/\.privacy-effect-view :is\(img,video,iframe\)\{transition:none\}/);assert.match(styles,/thumbnail-effect-applied \.asset-preview>img[^}]*transition:none/);
+  assert.match(renderer,/paintThumbnailEffectImmediately\(assets,enabled\);applyMetadataViewDelta/);assert.ok(renderer.indexOf('paintThumbnailEffectImmediately(assets,enabled);applyMetadataViewDelta')<renderer.indexOf('await window.pigeon.batchUpdateAssets(ids,{thumbnailEffect:enabled}'));assert.match(renderer,/requestAnimationFrame\(draw\)/);assert.match(styles,/\.privacy-effect-view :is\(img,video,iframe\)\{transition:none\}/);assert.match(styles,/thumbnail-effect-applied \.asset-preview>img[^}]*transition:none/);
 });
 
 test('targeted thumbnail rebuild, virtual full scroll, cover previews, metadata copy and native drag are wired',()=>{
@@ -144,7 +144,7 @@ test('hovered video uses hold-Control or Alt sound and tree screenshots have ter
 
 test('polished tree, stable post-move reveal and configurable thumbnail privacy effects are wired',()=>{
   assert.match(styles,/isolation:isolate/);assert.match(styles,/linear-gradient\(90deg,color-mix/);assert.match(styles,/border-radius:0 0 0 5px/);assert.match(styles,/\.folder-tree-toggle \{[^}]*background:transparent[^}]*box-shadow:none/);
-  assert.match(renderer,/postMoveRevealUntil=Date\.now\(\)\+900/);assert.match(renderer,/focusSelectedAsset\(\{lockScroll:true\}\)/);assert.match(renderer,/delays=lockScroll\?\[0,60,140,260,480\]/);assert.match(renderer,/interaction!==gridScrollInteractionVersion/);
+  assert.match(renderer,/postMoveRevealUntil=Date\.now\(\)\+900/);assert.match(renderer,/focusSelectedAsset\(\{lockScroll:true\}\)/);assert.match(renderer,/delays=lockScroll&&block==='center'\?\[0,80,200,500,1000,1800,3000,5000\]/);assert.match(renderer,/interaction!==gridScrollInteractionVersion/);
   assert.match(html,/id="thumbnail-effect-shortcut"/);assert.match(html,/id="thumbnail-effect-strength"/);assert.match(html,/id="blur-effect-preview"/);assert.match(renderer,/function toggleThumbnailEffect/);assert.match(renderer,/thumbnailEffectRevealKey/);assert.match(html,/id="thumbnail-effect-reveal-shortcut"/);assert.match(renderer,/revealShortcutPressed/);assert.match(renderer,/thumbnail-effect-reveal/);assert.match(styles,/thumbnail-effect-applied/);assert.match(libraryCore,/thumbnailEffect/);assert.match(main,/'thumbnailEffect'/);
 });
 
@@ -195,7 +195,7 @@ test('startup restores scoped layout before reveal and automatic updates use act
 test('clean hierarchy, delayed fit preview, move continuity and contact sheets are wired',()=>{
   assert.doesNotMatch(styles,/background-image:repeating-linear-gradient\(to right/);assert.match(styles,/border-left:1px solid #4d5561/);assert.match(styles,/\.location-folder-item\.active::before/);
   assert.match(renderer,/hoverFitPreviewTimer=setTimeout/);assert.match(renderer,/,300\)/);assert.match(styles,/clip-path:polygon\(100% 0,100% 100%,0 100%\)/);assert.match(styles,/max-width:100%!important/);assert.match(styles,/object-fit:contain!important/);
-  assert.match(renderer,/function successorAfterRemoving/);assert.match(renderer,/function selectAndRevealSuccessor/);assert.match(renderer,/successorId=leavesCurrent\?successorAfterRemoving/);assert.match(renderer,/delays=lockScroll\?\[0,60,140,260,480\]:\[0,90,240\]/);assert.match(renderer,/focusSelectedAsset\(\)/);assert.match(html,/id="contact-sheet-view"/);assert.match(renderer,/function openContactSheet/);assert.match(renderer,/function renderContactSheet/);assert.match(renderer,/data-folder-action="contact-sheet"/);assert.match(renderer,/data-location-action="contact-sheet"/);assert.match(renderer,/data-context-action="contact-sheet"/);assert.match(styles,/@media print/);
+  assert.match(renderer,/function successorAfterRemoving/);assert.match(renderer,/function selectAndRevealSuccessor/);assert.match(renderer,/successorId=leavesCurrent\?successorAfterRemoving/);assert.match(renderer,/lockScroll\?\[0,60,140,260,480\]:\[0,90,240\]/);assert.match(renderer,/focusSelectedAsset\(\)/);assert.match(html,/id="contact-sheet-view"/);assert.match(renderer,/function openContactSheet/);assert.match(renderer,/function renderContactSheet/);assert.match(renderer,/data-folder-action="contact-sheet"/);assert.match(renderer,/data-location-action="contact-sheet"/);assert.match(renderer,/data-context-action="contact-sheet"/);assert.match(styles,/@media print/);
 });
 
 test('structure duplication, broad zoom, cursor viewer zoom, sticky trees, hover preview and topbar actions are wired',()=>{
@@ -258,12 +258,14 @@ test('inspector actions live in the thumbnail menu and annotations edit inline',
   assert.match(styles,/\.annotation-view \{/);
 });
 
-test('thumbnail Find Similar supersedes global grouping and remains scoped to its source image',()=>{
+test('thumbnail Find Similar supersedes global grouping and preserves source and optional scope',()=>{
   assert.match(renderer,/sourceId=state\.duplicateSourceId/);
   assert.match(renderer,/sourceId!==state\.duplicateSourceId/);
+  assert.match(renderer,/scopeKey!==JSON\.stringify\(state\.duplicateScope\)/);
   assert.match(renderer,/similarityRefreshGeneration\+=1;state\.duplicateGroups=\[\];state\.duplicateIds\.clear\(\)/);
   assert.doesNotMatch(renderer,/if \(similarityRefreshPromise\) return similarityRefreshPromise/);
-  assert.match(renderer,/action === 'similar'\) selectView\('duplicates'.*sourceId: id/);
+  assert.match(renderer,/action === 'similar'\) openSimilarityResults\(id,null/);
+  assert.match(renderer,/action === 'similar-here'\) openSimilarityResults\(id,similarityScope/);
 });
 
 test('common interactions paint immediately and defer expensive renderer work',()=>{
@@ -359,7 +361,7 @@ test('Rows is the default layout and layout names stay concise', () => {
   assert.match(renderer, /grid: \['layout', 'Masonry'\], justified: \['all', 'Rows'\], list: \['menu', 'List'\]/);
   assert.match(renderer, /\['Masonry','Alt\+1'\],\['Rows','Alt\+2'\],\['List','Alt\+4'\]/);
   assert.doesNotMatch(renderer, /Masonry thumbnails|Equal-height rows|List view/);
-  assert.match(packageJson, /"version": "0\.2\.69"/);
+  assert.match(packageJson, /"version": "0\.2\.71"/);
 });
 
 test('justified rows, tag autocomplete, and viewer editing controls are wired', () => {
@@ -601,15 +603,19 @@ test('rotated justified thumbnails, centered metadata, untagged view, and durabl
   assert.match(renderer, /setCollectionAutoTags\(collection\.id,tags\)\.catch/);
 });
 
-test('duplicates view groups similar images and supports source-based accuracy', () => {
-  assert.match(preload, /findSimilarGroups/);
+test('similarity search supports portfolio and scoped workflows in the Details panel', () => {
+  assert.match(preload, /findSimilarGroups: \(accuracy, sourceId = null, assetIds = null\)/);
   assert.match(main, /assets:similar-groups/);
+  assert.match(main, /message\.progress/);
   assert.match(renderer, /refreshSimilarityGroups/);
+  assert.match(renderer, /function similarityScopeAssetIds/);
+  assert.match(renderer, /data-context-action="similar-here"/);
+  assert.match(renderer, /data-(?:folder|smart|location)-action="scan-similar"/);
   assert.match(renderer, /duplicate-group-title/);
-  assert.match(renderer, /sourceId: id/);
   assert.match(styles, /duplicate-row/);
   assert.match(styles, /\.duplicates-layout \.duplicate-row \.asset-preview img[^}]*object-fit: contain/);
-  assert.match(styles, /\.duplicate-controls \{[^}]*position: sticky; top: 0[^}]*box-shadow: none/);
+  assert.ok(html.indexOf('id="duplicate-controls"') > html.indexOf('id="inspector-details-panel"'));
+  assert.match(html, /id="duplicate-similarity"[^>]*value="95"/);
 });
 
 test('tag assignment snapshots multi-selection and expands complete stacks', () => {
@@ -653,7 +659,7 @@ test('thumbnail rotation patches affected cards without rebuilding the grid',()=
   assert.match(renderer,/card\.style\.setProperty\('--asset-ratio',ratio\)/);
   assert.match(renderer,/batchUpdateAssets\(ids,\{rotateBy:direction\},\{silent:true,returnAssets:true\}\)/);
   assert.match(renderer,/patchRotatedThumbnail\(asset\)/);
-  const helper=renderer.match(/async function rotateThumbnailsWithoutGridRefresh[\s\S]*?\n\}/)?.[0]||'';
+  const helper=renderer.slice(renderer.indexOf('async function rotateThumbnailsWithoutGridRefresh'),renderer.indexOf('function ensureVirtualSelectedAssetWindow'));
   assert.doesNotMatch(helper,/renderGrid\(/);
   assert.match(helper,/scheduleVirtualLayoutRefresh\(anchor\)/);
 });
@@ -1380,8 +1386,8 @@ test('medium portfolio switches keep completed thumbnail results inside the virt
 });
 
 test('Smart Folder metadata patches reconcile changed IDs without rebuilding the active view',()=>{
-  assert.match(renderer,/function applyMetadataViewDelta\(changes,options=\{\}\)/);assert.match(renderer,/PigeonMetadataViewDelta\.reconcileIndices/);assert.match(renderer,/PigeonMetadataViewDelta\.keyedCardPlan/);assert.match(renderer,/PigeonMetadataViewDelta\.updateCounts/);assert.match(renderer,/deltaHandled=viewChanged&&applyMetadataViewDelta\(changes\)/);assert.match(renderer,/if\(viewChanged&&!deltaHandled\)\{invalidateTagCache\(\);invalidateAssetViewCache\(\);scheduleStreamGridRender\(\);\}/);
-  const deltaBody=renderer.slice(renderer.indexOf('function reconcileActiveSmartFolderMetadataDelta'),renderer.indexOf('function applyMetadataViewDelta'));assert.doesNotMatch(deltaBody,/invalidateAssetViewCache|startCooperativeAssetView|renderGrid\(/);assert.match(deltaBody,/host\.appendChild\(card\)/);assert.match(deltaBody,/for\(const id of plan\.remove\)existingById\.get\(id\)\?\.remove\(\)/);
+  assert.match(renderer,/function applyMetadataViewDelta\(changes,options=\{\}\)/);assert.match(renderer,/PigeonMetadataViewDelta\.reconcileIndices/);assert.match(renderer,/PigeonMetadataViewDelta\.keyedCardPlan/);assert.match(renderer,/PigeonMetadataViewDelta\.updateCounts/);assert.match(renderer,/deltaHandled=viewChanged&&applyMetadataViewDelta\(changes,\{reconcileAnyView:true\}\)/);assert.match(renderer,/if\(viewChanged&&!deltaHandled\)\{invalidateTagCache\(\);invalidateAssetViewCache\(\);scheduleStreamGridRender\(\);\}/);
+  const deltaBody=renderer.slice(renderer.indexOf('function reconcileActiveSmartFolderMetadataDelta'),renderer.indexOf('function applyMetadataViewDelta'));assert.doesNotMatch(deltaBody,/invalidateAssetViewCache|startCooperativeAssetView|renderGrid\(/);assert.match(deltaBody,/if\(card!==cursor\)host\.insertBefore\(card,cursor\)/);assert.doesNotMatch(deltaBody,/host\.appendChild\(card\)/);assert.match(deltaBody,/for\(const id of plan\.remove\)\{const card=existingById\.get\(id\);[^}]*thumbnailVisibilityObserver\.unobserve\(card\);[^}]*activeThumbnailLoads\.get\(card\)\?\.cancel\(\);card\.remove\(\)/);
 });
 
 test('multi-selection ratings share the changed-ID delta path',()=>{

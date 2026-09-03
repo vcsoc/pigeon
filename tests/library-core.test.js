@@ -146,6 +146,23 @@ test('renaming a tag to an existing tag merges memberships case-insensitively', 
   assert.deepEqual(data.assets[1].tags, ['landscape']);
 });
 
+test('replacing multiple tags merges every linked asset and automatic-tag rule', () => {
+  const data = library();
+  data.assets[0].tags = ['Travel', 'Landscape', 'Keep'];
+  data.assets[1].tags = ['trip', 'keep'];
+  data.assets[2].tags = ['LANDSCAPE'];
+  data.settings.folderAutoTags = { folder: { tags: ['travel', 'trip', 'folder-only'] } };
+  data.settings.collectionAutoTags = { collection: { tags: ['TRIP', 'collection-only'] } };
+  const result = core.replaceTags(data, ['travel', 'trip'], 'landscape');
+  assert.equal(result.replacement, 'Landscape');
+  assert.equal(result.updatedAssets, 2);
+  assert.deepEqual(data.assets[0].tags, ['Landscape', 'Keep']);
+  assert.deepEqual(data.assets[1].tags, ['Landscape', 'keep']);
+  assert.deepEqual(data.assets[2].tags, ['LANDSCAPE']);
+  assert.deepEqual(data.settings.folderAutoTags.folder.tags, ['Landscape', 'folder-only']);
+  assert.deepEqual(data.settings.collectionAutoTags.collection.tags, ['Landscape', 'collection-only']);
+});
+
 test('tag deletion removes asset tags and automatic-tag regeneration rules', () => {
   const data = library(); data.assets[1].tags = ['Travel', 'keep'];
   data.settings.folderAutoTags = { folder: { tags: ['travel', 'folder-only'] } };
