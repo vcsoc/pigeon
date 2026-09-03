@@ -1968,7 +1968,7 @@ function renderInternalViewer() {
     if (sourceUnavailable) { elements.viewerVideo.pause(); elements.viewerVideo.removeAttribute('src'); elements.viewerVideo.load(); clearTimeout(viewerVideoLoadTimer); setViewerVideoStatus(true, asset.sourcePending ? 'Source is stored online' : 'Source is unavailable'); }
     else {
     elements.viewerVideo.muted = preferences.videoMuted; elements.viewerVideo.defaultMuted = preferences.videoMuted; elements.viewerVideo.loop = Boolean(preferences.videoLoopShort && Number.isFinite(elements.viewerVideo.duration) && elements.viewerVideo.duration < 30);
-    if (elements.viewerVideo.getAttribute('src') !== asset.mediaUrl) { elements.viewerVideo.src = asset.mediaUrl; setViewerVideoStatus(true, asset.mediaUrl.includes('proxy=1') ? 'Loading seekable video…' : 'Loading video…'); elements.viewerVideo.load(); clearTimeout(viewerVideoLoadTimer); viewerVideoLoadTimer = setTimeout(() => { if (elements.viewerVideo.readyState < 2 && !asset.mediaUrl.includes('proxy=1')) recoverViewerVideo(asset.id, 'timeout'); }, 2500); }
+    if (elements.viewerVideo.getAttribute('src') !== asset.mediaUrl) { elements.viewerVideo.src = asset.mediaUrl; setViewerVideoStatus(true, asset.mediaUrl.includes('proxy=1') ? 'Loading seekable video…' : 'Loading video…'); elements.viewerVideo.load(); clearTimeout(viewerVideoLoadTimer); viewerVideoLoadTimer = setTimeout(() => { if (elements.viewerVideo.readyState < 2 && !asset.mediaUrl.includes('proxy=1')) setViewerVideoStatus(true, 'Loading video from external drive…'); }, 2500); }
     if (elements.viewerVideo.readyState >= 2 && preferences.videoAutoplay) elements.viewerVideo.play().catch(() => {});
     }
   } else { elements.viewerVideo.pause(); clearTimeout(viewerVideoLoadTimer); setViewerVideoStatus(false); }
@@ -1998,7 +1998,7 @@ elements.viewerVideo.addEventListener('play', () => { elements.viewerVideo.datas
 elements.viewerVideo.addEventListener('canplay', () => { clearTimeout(viewerVideoLoadTimer); delete elements.viewerVideo.dataset.recovering; setViewerVideoStatus(false); if (elements.viewerVideo.dataset.userRequested === 'true' || preferences.videoAutoplay) elements.viewerVideo.play().catch(() => {}); });
 elements.viewerVideo.addEventListener('playing', () => setViewerVideoStatus(false));
 elements.viewerVideo.addEventListener('error', () => { if (elements.viewerVideo.src.includes('proxy=1') && elements.viewerVideo.dataset.recovering === state.viewerAssetId) { delete elements.viewerVideo.dataset.recovering; setViewerVideoStatus(true, 'Compatibility playback failed'); return; } recoverViewerVideo(state.viewerAssetId, 'codec'); });
-elements.viewerVideo.addEventListener('stalled', () => { if (elements.viewerVideo.readyState < 2 && elements.viewerVideo.currentTime === 0) recoverViewerVideo(state.viewerAssetId, 'timeout'); });
+elements.viewerVideo.addEventListener('stalled', () => { if (elements.viewerVideo.readyState < 2 && elements.viewerVideo.currentTime === 0) setViewerVideoStatus(true, 'Waiting for external drive…'); });
 function navigateViewer(direction) {
   cancelViewerCrop();
   const visibleIndices=currentViewIndices();
