@@ -361,7 +361,7 @@ test('Rows is the default layout and layout names stay concise', () => {
   assert.match(renderer, /grid: \['layout', 'Masonry'\], justified: \['all', 'Rows'\], list: \['menu', 'List'\]/);
   assert.match(renderer, /\['Masonry','Alt\+1'\],\['Rows','Alt\+2'\],\['List','Alt\+4'\]/);
   assert.doesNotMatch(renderer, /Masonry thumbnails|Equal-height rows|List view/);
-  assert.match(packageJson, /"version": "0\.2\.75"/);
+  assert.match(packageJson, /"version": "0\.2\.76"/);
 });
 
 test('justified rows, tag autocomplete, and viewer editing controls are wired', () => {
@@ -1366,9 +1366,11 @@ test('thumbnail magnifier dismisses on pointer departure or browsing scroll with
   const hideStart=renderer.indexOf('function hideDelegatedMagnifier'),hideEnd=renderer.indexOf('let pointerSelectedAssetId',hideStart),hideBody=renderer.slice(hideStart,hideEnd),openStart=renderer.indexOf("elements.grid.addEventListener('pointerover'"),openEnd=renderer.indexOf("elements.grid.addEventListener('pointerout'",openStart),openBody=renderer.slice(openStart,openEnd);
   assert.match(renderer,/for\(const eventName of \['wheel','scroll'\]\)elements\.gridWrap\.addEventListener\(eventName,hideDelegatedMagnifier,\{passive:true\}\)/);
   assert.match(renderer,/function pointerInsideActiveMagnifier\(event\)/);
-  assert.match(renderer,/window\.addEventListener\('pointermove',\(event\)=>\{if\(activeMagnifierCard&&!pointerInsideActiveMagnifier\(event\)\)hideDelegatedMagnifier\(\);\},true\)/);
+  assert.match(renderer,/window\.addEventListener\('pointermove',\(event\)=>\{if\(!activeMagnifierCard\)return;if\(pointerInsideActiveMagnifier\(event\)\)cancelMagnifierDismiss\(\);else scheduleMagnifierDismiss\(\);\},true\)/);
+  assert.match(renderer,/const bounds=magnifier\.getBoundingClientRect\(\),slop=8/);
+  assert.match(renderer,/hoverFitPreviewDismissTimer=setTimeout\([\s\S]*?\},140\)/);
   assert.match(styles,/\.hover-fit-preview[^}]*pointer-events:none/);
-  assert.match(hideBody,/activeMagnifierCard=null;clearTimeout\(hoverFitPreviewTimer\);hoverFitPreviewTimer=null/);
+  assert.match(hideBody,/activeMagnifierCard=null;cancelMagnifierDismiss\(\);clearTimeout\(hoverFitPreviewTimer\);hoverFitPreviewTimer=null/);
   assert.match(hideBody,/image\.onload=null;image\.removeAttribute\('src'\)/);
   assert.match(openBody,/if\(activeMagnifierCard===card&&loaded&&delayDone\)hoverPreview\.classList\.remove\('hidden'\)/);
 });
