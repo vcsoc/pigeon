@@ -48,3 +48,15 @@ test('effective evaluation supplies the same counts as effective result filterin
   const counts=new Map(library.smartFolders.map((folder)=>[folder.id,library.assets.filter((asset)=>rules.matchesResolved(asset,resolutions.get(folder.id),core.matchesFilters)).length]));
   assert.equal(counts.get(parent.id),core.evaluateSmartFolder(library,parent).length);assert.equal(counts.get(child.id),core.evaluateSmartFolder(library,child).length);
 });
+
+test('one rule can include or exclude multiple pill values',()=>{
+  assert.deepEqual(rules.ruleValues({value:'Legacy'}),['Legacy']);
+  assert.deepEqual(rules.ruleValues({values:['ComfyUI','asmr','comfyui']}),['ComfyUI','asmr']);
+  assert.equal(rules.matchesRuleValues(['people','travel'],{operator:'contains',values:['family','travel']}),true);
+  assert.equal(rules.matchesRuleValues(['people','travel'],{operator:'excludes',values:['comfyui','asmr']}),true);
+  assert.equal(rules.matchesRuleValues(['people','ComfyUI'],{operator:'excludes',values:['comfyui','asmr']}),false);
+  const asset={id:'multi',filename:'holiday-render.jpg',kind:'image',tags:['travel'],path:'/photos/holiday/render.jpg',collectionIds:['collection-a']};
+  assert.equal(core.matchesFilters(asset,{rules:[{field:'name',operator:'contains',values:['portrait','holiday']}]}),true);
+  assert.equal(core.matchesFilters(asset,{rules:[{field:'folder',operator:'excludes',values:['private','drafts']}]}),true);
+  assert.equal(core.matchesFilters(asset,{rules:[{field:'collection',operator:'equals',values:['collection-a','collection-b']}]}),true);
+});

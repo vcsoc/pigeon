@@ -575,8 +575,9 @@ textarea { resize: vertical; min-height: 68px; padding: 8px; line-height: 1.5; }
 .smart-inherited-rule { padding:6px 8px; border-radius:4px; background:#181b21; color:var(--muted); font-size:calc(11px * var(--app-font-scale)); }
 .smart-inheritance-warning { color:#efb36e; font-size:calc(11px * var(--app-font-scale)); }
 .smart-local-rules-label { margin-top:13px; }
-.smart-rule { display: grid; grid-template-columns: 120px 120px minmax(0,1fr) 30px; gap: 7px; }
+.smart-rule { display: grid; grid-template-columns: 120px 120px minmax(0,1fr) 30px; align-items:start; gap: 7px; }
 .smart-rule button { border: 1px solid #454951; border-radius: 5px; background: #292c32; color: var(--text); }
+.smart-rule-pill-editor{min-width:0;min-height:30px;box-sizing:border-box;display:flex;align-items:center;flex-wrap:wrap;gap:4px;padding:3px 5px;border:1px solid #454951;border-radius:5px;background:#181a1e;cursor:text}.smart-rule-pill-editor:focus-within{border-color:#638bd2;box-shadow:0 0 0 1px #638bd2}.smart-rule-pill-editor input{flex:1 1 90px;width:80px;min-width:50px;height:22px!important;padding:0 3px!important;border:0!important;background:transparent!important;box-shadow:none!important;outline:0}.smart-rule-pill-editor .smart-rule-pill{max-width:100%;min-height:22px;padding:1px 5px 1px 7px;display:inline-flex;align-items:center;gap:5px;border-color:#465675;border-radius:11px;background:#303b50;color:#e1e8f7;font-size:calc(9px * var(--app-font-scale));cursor:pointer}.smart-rule-pill span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.smart-rule-pill b{color:#9eabc0;font-size:calc(11px * var(--app-font-scale));font-weight:500}
 .smart-folder-found { margin-top: 14px; color: var(--muted); }
 .thumbnail-title-settings { display: grid; grid-template-columns: 60px minmax(0,1fr); align-items: center; gap: 7px 10px; }
 .thumbnail-title-settings label { color: var(--muted); font-size:calc(10.5px * var(--app-font-scale)); font-weight: 400; }

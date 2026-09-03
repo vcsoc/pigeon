@@ -235,11 +235,9 @@ function similarImageGroups(assets, accuracy = 95, sourceId = null, options = {}
 
 function matchesRule(asset, rule) {
   const values = rule.field === 'tags' ? asset.tags || [] : rule.field === 'collection' ? asset.collectionIds || [] : [rule.field === 'name' ? asset.filename || asset.name : rule.field === 'type' ? asset.kind : rule.field === 'folder' ? asset.path : rule.field === 'rating' ? Number(asset.rating) || 0 : rule.field === 'favorite' ? String(Boolean(asset.favorite)) : rule.field === 'privacyEffect' ? String(Boolean(asset.thumbnailEffect)) : ''];
-  const expected = String(rule.value || '').toLowerCase(), operator = rule.operator || 'contains';
-  if (operator === 'null') return values.length === 0 || values.every((value) => !String(value).trim()); if (operator === 'not-null') return values.some((value) => String(value).trim());
+  const operator = rule.operator || 'contains';
   if (rule.field === 'rating' && ['less-than','less-than-equal','greater-than','greater-than-equal'].includes(operator)) { const actual = Number(values[0]), target = Number(rule.value); if (!Number.isFinite(target)) return false; if (operator === 'less-than') return actual < target; if (operator === 'less-than-equal') return actual <= target; if (operator === 'greater-than') return actual > target; return actual >= target; }
-  const tests = values.map((value) => { const actual = String(value).toLowerCase(); if (operator === 'equals') return actual === expected; if (operator === 'excludes') return !actual.includes(expected); if (operator === 'begins') return actual.startsWith(expected); if (operator === 'ends') return actual.endsWith(expected); if (operator === 'regex') { try { return new RegExp(rule.value, 'i').test(String(value)); } catch { return false; } } return actual.includes(expected); });
-  return operator === 'excludes' ? tests.every(Boolean) : tests.some(Boolean);
+  return smartFolderRules.matchesRuleValues(values,rule);
 }
 function matchesFilters(asset, filters = {}) {
   if (filters.rules?.length) { const matches = filters.rules.map((rule) => matchesRule(asset, rule)); if (filters.ruleMatch === 'any' ? !matches.some(Boolean) : !matches.every(Boolean)) return false; }
