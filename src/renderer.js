@@ -1949,7 +1949,17 @@ function recoverViewerVideo(id, reason = 'codec') {
 }
 function escapeSyntax(value){return escapeHtml(value).replace(/(&quot;.*?&quot;|&#39;.*?&#39;)/g,'<span class="syntax-string">$1</span>').replace(/\b(true|false|null)\b/g,'<span class="syntax-literal">$1</span>').replace(/(^|\s)([#\/]{1,2}.*)$/gm,'$1<span class="syntax-comment">$2</span>').replace(/(&quot;[^&]+&quot;)(\s*:)/g,'<span class="syntax-key">$1</span>$2');}
 async function loadTextReader(asset){const token=asset.id;try{const result=await window.pigeon.readTextAsset(asset.id);if(state.viewerAssetId!==token||!result)return;$('#viewer-text-name').textContent=result.filename;elements.viewerTextContent.dataset.extension=result.extension;elements.viewerTextContent.innerHTML=result.content.split(/\r?\n/).map((line,index)=>`<span data-line="${index+1}">${escapeSyntax(line)}</span>`).join('\n');}catch(error){elements.viewerTextContent.textContent=error.message;}}
+let multiPlaybackIds=[],multiPlaybackPlaying=false,multiPlaybackAltPressed=false;
+function isMultiPlaybackAsset(asset){return Boolean(asset&&!isOffline(asset)&&(asset.kind==='video'||asset.kind==='image'&&['GIF','WEBP'].includes(String(asset.extension).toUpperCase())));}
+function isMultiPlaybackOpen(){return multiPlaybackIds.length>1&&isInternalViewerOpen()&&!$('#viewer-multi-playback').classList.contains('hidden');}
+function selectedMultiPlaybackAssets(id){if(!state.selectedIds.has(id))return[];return[id,...state.selectedIds].filter((value,index,list)=>list.indexOf(value)===index).map(assetById).filter(isMultiPlaybackAsset).slice(0,6);}
+function setMultiPlaybackPlaying(playing){multiPlaybackPlaying=Boolean(playing);for(const video of $('#viewer-multi-grid').querySelectorAll('video')){video.muted=true;video.loop=true;if(multiPlaybackPlaying)video.play().catch(()=>{});else video.pause();}for(const image of $('#viewer-multi-grid').querySelectorAll('img')){const source=multiPlaybackPlaying?image.dataset.motionSrc:image.dataset.stillSrc;if(source&&image.getAttribute('src')!==source)image.src=source;}$('#viewer-position').textContent=`${multiPlaybackIds.length} synchronized items · Space ${multiPlaybackPlaying?'pauses':'plays'} all · Alt + seek synchronizes videos`;}
+function syncMultiPlaybackSeek(source){if(!multiPlaybackAltPressed||source.dataset.syncedSeek==='true'||!Number.isFinite(source.currentTime))return;for(const video of $('#viewer-multi-grid').querySelectorAll('video'))if(video!==source){video.dataset.syncedSeek='true';video.currentTime=Math.max(0,Math.min(source.currentTime,Number.isFinite(video.duration)?video.duration:source.currentTime));setTimeout(()=>delete video.dataset.syncedSeek,0);}}
+function renderMultiPlayback(assets){const host=$('#viewer-multi-playback'),grid=$('#viewer-multi-grid'),count=assets.length,columns=count<=2?count:count<=4?2:3,rows=Math.ceil(count/columns);host.style.setProperty('--multi-columns',columns);host.style.setProperty('--multi-rows',rows);grid.innerHTML=assets.map((asset)=>`<figure class="viewer-multi-item ${asset.thumbnailEffect?'privacy-effect-view':''}" data-multi-asset-id="${escapeHtml(asset.id)}">${asset.kind==='video'?`<video controls muted loop playsinline preload="auto" src="${escapeHtml(asset.mediaUrl)}"></video>`:`<img src="${escapeHtml(protectedUrl(asset.mediaUrl))}" data-motion-src="${escapeHtml(protectedUrl(asset.mediaUrl))}" data-still-src="${escapeHtml(protectedUrl(asset.previewUrl))}" alt="${escapeHtml(asset.name)}" />`}<figcaption title="${escapeHtml(asset.filename)}">${escapeHtml(asset.filename)}</figcaption></figure>`).join('');for(const video of grid.querySelectorAll('video')){video.muted=true;video.defaultMuted=true;video.loop=true;video.addEventListener('seeking',()=>syncMultiPlaybackSeek(video));video.addEventListener('error',()=>{const id=video.closest('[data-multi-asset-id]')?.dataset.multiAssetId,asset=assetById(id);if(!asset||video.dataset.recovering)return;video.dataset.recovering='true';window.pigeon.ensurePlayable(id).then((url)=>{if(!url)return;asset.mediaUrl=url;video.src=url;video.load();if(multiPlaybackPlaying)video.play().catch(()=>{});}).catch(()=>{});});}host.classList.remove('hidden');multiPlaybackPlaying=true;setMultiPlaybackPlaying(true);}
+function openMultiPlaybackViewer(assets,id){multiPlaybackIds=assets.map((asset)=>asset.id);state.viewerAssetId=id;state.viewerReturnScrollTop=elements.gridWrap.scrollTop||state.gridScrollTop;elements.mediaViewer.classList.remove('hidden');elements.mediaViewer.classList.add('multi-playback');$('#filter-bar').classList.add('viewer-hidden-filter');for(const element of [$('#viewer-image-surface'),elements.viewerVideo,elements.viewerYoutube,elements.viewerAudio,elements.viewerFile,elements.viewerTextReader,$('#viewer-video-status'),elements.viewerMinimap])element.classList.add('hidden');elements.grid.classList.add('hidden');elements.empty.classList.add('hidden');elements.tagBrowser.classList.add('hidden');elements.sentinel.classList.add('hidden');renderMultiPlayback(assets);}
+function toggleMultiPlayback(){if(isMultiPlaybackOpen())setMultiPlaybackPlaying(!multiPlaybackPlaying);}
 function renderInternalViewer() {
+  if(isMultiPlaybackOpen())return;
   const asset = assetById(state.viewerAssetId);
   if (!asset) return;
   const image = asset.kind === 'image' || isImagePreviewDocument(asset), linkedYouTube=Boolean(asset.linkedYouTube&&asset.youtubeVideoId), video = asset.kind === 'video'&&!linkedYouTube, audio = asset.kind === 'audio',text=isTextPreviewDocument(asset);
@@ -1983,6 +1993,8 @@ function renderInternalViewer() {
   requestAnimationFrame(() => { applyViewerImageFit(); if (state.viewerFit) { $('.viewer-stage').scrollTo(0, 0); } updateViewerMinimap(); updateViewerCropOverlay();renderViewerPrivacySurface(asset); });
 }
 function openInternalViewer(id) {
+  const multiAssets=selectedMultiPlaybackAssets(id);if(multiAssets.length>1){if([...state.selectedIds].map(assetById).filter(isMultiPlaybackAsset).length>6)showToast('Multi-playback is limited to 6 items');openMultiPlaybackViewer(multiAssets,id);return;}
+  multiPlaybackIds=[];elements.mediaViewer.classList.remove('multi-playback');$('#viewer-multi-playback').classList.add('hidden');
   const selectionChanged=state.selectedId!==id||state.selectedIds.size!==1||!state.selectedIds.has(id);
   state.selectedId = id; state.selectedIds = new Set([id]);
   if(selectionChanged){updateCardSelectionStyles();renderInspector();}
@@ -2010,7 +2022,7 @@ function navigateViewer(direction) {
   updateCardSelectionStyles(); renderInspector(); renderInternalViewer();
 }
 function hideInternalViewer() {
-  cancelViewerCrop();
+  cancelViewerCrop();multiPlaybackPlaying=false;multiPlaybackIds=[];multiPlaybackAltPressed=false;for(const media of $('#viewer-multi-grid').querySelectorAll('video,audio')){media.pause();media.removeAttribute('src');media.load();}$('#viewer-multi-grid').innerHTML='';$('#viewer-multi-playback').classList.add('hidden');elements.mediaViewer.classList.remove('multi-playback');
   elements.viewerVideo.pause(); elements.viewerAudio.pause();
   elements.viewerVideo.removeAttribute('src'); elements.viewerVideo.removeAttribute('poster'); elements.viewerYoutube.removeAttribute('src'); elements.viewerAudio.removeAttribute('src');elements.viewerImage.removeAttribute('src');elements.viewerMinimapImage.removeAttribute('src');
   elements.mediaViewer.classList.add('hidden');
@@ -2693,6 +2705,7 @@ $('#pin-button').addEventListener('click', async (event) => {
 });
 $('#sidebar-collapse').addEventListener('click', () => showToast('Portfolio navigation'));
 let lastEscapeShortcutAt=0;
+window.addEventListener('keydown',(event)=>{if(event.key==='Alt'&&isMultiPlaybackOpen())multiPlaybackAltPressed=true;},true);window.addEventListener('keyup',(event)=>{if(event.key==='Alt')multiPlaybackAltPressed=false;},true);window.addEventListener('blur',()=>{multiPlaybackAltPressed=false;});
 window.addEventListener('keydown',(event)=>{if(event.key!=='Escape'||event.repeat||!isInternalViewerOpen())return;const overlayOpen=!elements.annotationView.classList.contains('hidden')||isImageCompareOpen()||!elements.contactSheetView.classList.contains('hidden')||Boolean(document.querySelector('dialog[open]'));if(overlayOpen)return;event.preventDefault();event.stopImmediatePropagation();lastEscapeShortcutAt=0;closeInternalViewer();},true);
 document.addEventListener('keydown', (event) => {
   const editing = event.target instanceof Element && event.target.closest('input, textarea, [contenteditable="true"]');
@@ -2737,7 +2750,7 @@ document.addEventListener('keydown', (event) => {
   if(builtInShortcut==='Ctrl+T'&&state.selectedIds.size){event.preventDefault();$('#batch-tag').click();return;}
   if(!editing&&state.thumbnailEffectShortcut&&shortcutFromEvent(event)===state.thumbnailEffectShortcut){event.preventDefault();toggleThumbnailEffect().catch((error)=>showToast(error.message));return;}
   if (state.mapOpen) return;
-  if (!editing && !commandKey && event.code === 'Space') { if(isInternalViewerOpen()||preferences.spacebar==='preview'){event.preventDefault();if(isInternalViewerOpen())closeInternalViewer();else if(state.selectedId)openInternalViewer(state.selectedId);return;} }
+  if (!editing && !commandKey && event.code === 'Space') { if(isInternalViewerOpen()||preferences.spacebar==='preview'){event.preventDefault();if(isMultiPlaybackOpen())toggleMultiPlayback();else if(isInternalViewerOpen())closeInternalViewer();else if(state.selectedId)openInternalViewer(state.selectedId);return;} }
   if (!editing && !commandKey && !event.altKey && event.key === 'Delete' && !isInternalViewerOpen()) { event.preventDefault(); handleDeleteSelection().catch((error)=>showToast(error.message)); return; }
   if (!editing && !commandKey && !event.altKey && /^[1-5]$/.test(event.key)) {
     const assetId = isInternalViewerOpen() ? state.viewerAssetId : state.selectedId;
@@ -2755,7 +2768,7 @@ document.addEventListener('keydown', (event) => {
   if (commandKey && event.key.toLowerCase() === 'k') { event.preventDefault(); elements.search.focus(); }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'o') { event.preventDefault(); addFolder(); }
   if (!editing && configuredShortcut && configuredShortcut === (preferences.fullscreenViewerShortcut||'`')) { event.preventDefault(); toggleBackquoteFullscreenViewer().catch((error)=>{backquoteFullscreenViewer=false;if(isInternalViewerOpen())closeInternalViewer();showToast(error.message);});return; }
-  else if (!editing && isInternalViewerOpen() && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) { event.preventDefault(); navigateViewer(event.key === 'ArrowLeft' ? -1 : 1); }
+  else if (!editing && isInternalViewerOpen() && !isMultiPlaybackOpen() && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) { event.preventDefault(); navigateViewer(event.key === 'ArrowLeft' ? -1 : 1); }
   else if (!editing && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) { event.preventDefault(); navigateAssets(event.key); }
   else if(!editing&&event.key==='Home'){event.preventDefault();elements.gridWrap.scrollTo({top:0,behavior:'smooth'});}
   else if(!editing&&event.key==='End'){event.preventDefault();elements.gridWrap.scrollTo({top:elements.gridWrap.scrollHeight,behavior:'smooth'});}
