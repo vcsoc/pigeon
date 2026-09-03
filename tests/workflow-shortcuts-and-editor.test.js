@@ -18,6 +18,13 @@ test('tag replacement preserves scroll and reveals the selected replacement tag'
   assert.match(source, /row\.scrollIntoView\(\{block:'center'/);
 });
 
+test('Escape reliably exits the internal viewer before global shortcuts run', () => {
+  assert.match(renderer, /window\.addEventListener\('keydown',\(event\)=>\{if\(event\.key!==\'Escape\'/);
+  assert.match(renderer, /event\.stopImmediatePropagation\(\);lastEscapeShortcutAt=0;closeInternalViewer\(\)/);
+  const capture=renderer.indexOf("window.addEventListener('keydown',(event)=>{if(event.key!=='Escape'");
+  assert.ok(capture >= 0 && capture < renderer.indexOf("document.addEventListener('keydown', (event) => {",capture));
+});
+
 test('double Escape opens the virtual Pigeon-tag view and Alt+P tags selected thumbnails', () => {
   assert.match(renderer, /function openPigeonTaggedView\(\)/);
   assert.match(renderer, /state\.view='pigeon-tag'/);

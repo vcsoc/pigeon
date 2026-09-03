@@ -361,7 +361,7 @@ test('Rows is the default layout and layout names stay concise', () => {
   assert.match(renderer, /grid: \['layout', 'Masonry'\], justified: \['all', 'Rows'\], list: \['menu', 'List'\]/);
   assert.match(renderer, /\['Masonry','Alt\+1'\],\['Rows','Alt\+2'\],\['List','Alt\+4'\]/);
   assert.doesNotMatch(renderer, /Masonry thumbnails|Equal-height rows|List view/);
-  assert.match(packageJson, /"version": "0\.2\.73"/);
+  assert.match(packageJson, /"version": "0\.2\.74"/);
 });
 
 test('justified rows, tag autocomplete, and viewer editing controls are wired', () => {

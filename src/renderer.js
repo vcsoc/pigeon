@@ -2693,6 +2693,7 @@ $('#pin-button').addEventListener('click', async (event) => {
 });
 $('#sidebar-collapse').addEventListener('click', () => showToast('Portfolio navigation'));
 let lastEscapeShortcutAt=0;
+window.addEventListener('keydown',(event)=>{if(event.key!=='Escape'||event.repeat||!isInternalViewerOpen())return;const overlayOpen=!elements.annotationView.classList.contains('hidden')||isImageCompareOpen()||!elements.contactSheetView.classList.contains('hidden')||Boolean(document.querySelector('dialog[open]'));if(overlayOpen)return;event.preventDefault();event.stopImmediatePropagation();lastEscapeShortcutAt=0;closeInternalViewer();},true);
 document.addEventListener('keydown', (event) => {
   const editing = event.target instanceof Element && event.target.closest('input, textarea, [contenteditable="true"]');
   if(!editing&&event.key==='Escape'&&!event.repeat){const now=Date.now(),doubleEscape=now-lastEscapeShortcutAt<=500;lastEscapeShortcutAt=doubleEscape?0:now;if(doubleEscape){event.preventDefault();event.stopImmediatePropagation();openPigeonTaggedView();return;}}
