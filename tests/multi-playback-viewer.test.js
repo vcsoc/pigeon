@@ -26,8 +26,14 @@ test('multi-playback synchronizes Alt-seeking and toggles every item with Space'
   assert.match(renderer,/pointerdown[^\n]+event\.altKey[^\n]+multiPlaybackAltSeekUntil=performance\.now\(\)\+1500/);
   assert.match(renderer,/video\.currentTime=Math\.max\(0,Math\.min\(source\.currentTime/);
   assert.match(renderer,/event\.key==='Alt'&&isMultiPlaybackOpen\(\)/);
-  assert.match(renderer,/if\(isMultiPlaybackOpen\(\)\)toggleMultiPlayback\(\)/);
-  assert.match(renderer,/Space \$\{multiPlaybackPlaying\?'pauses':'plays'\} all/);
+  assert.match(renderer,/isMultiPlaybackOpen\(\)&&event\.key==='Enter'[^\n]+toggleMultiPlayback\(\)/);
+  assert.match(renderer,/Enter\/Space \$\{multiPlaybackPlaying\?'pauses':'plays'\} all/);
   assert.match(renderer,/data-motion-src/);
   assert.match(renderer,/data-still-src/);
+});
+
+test('multi-playback keeps manual audio choices and Escape always returns to the grid',()=>{
+  const playback=renderer.slice(renderer.indexOf('function setMultiPlaybackPlaying'),renderer.indexOf('function syncMultiPlaybackSeek'));
+  assert.doesNotMatch(playback,/video\.muted=true/);
+  assert.match(renderer,/if\(isMultiPlaybackOpen\(\)\)\{event\.preventDefault\(\);event\.stopImmediatePropagation\(\);lastEscapeShortcutAt=0;closeInternalViewer\(\);return;\}/);
 });
