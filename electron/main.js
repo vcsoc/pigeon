@@ -1279,7 +1279,7 @@ async function duplicateAsset(id) {
     library.locations.push(location);watchLocation(location);
   }
   const duplicate=await inspectFile(target,location,null);if(!duplicate)throw new Error('The duplicate could not be indexed');
-  duplicate.collectionIds=[...(source.collectionIds||[])];duplicate.tags=[...(source.tags||[])];duplicate.rating=source.rating||0;duplicate.rotation=source.rotation||0;applyConfiguredCollectionTags(duplicate);
+  duplicate.collectionIds=[...(source.collectionIds||[])];duplicate.tags=[...(source.tags||[])];duplicate.rating=source.rating||0;duplicate.rotation=source.rotation||0;duplicate.thumbnailEffect=Boolean(source.thumbnailEffect);applyConfiguredCollectionTags(duplicate);
   const previewCopied=await copyDuplicatePreview(source,duplicate);library.assets.push(duplicate);mainAssetIndex.set(duplicate.id,duplicate);location.assetCount=(location.assetCount||0)+1;
   scheduleAssetSave(duplicate);scheduleMetadataSave();broadcastLocations();if(!previewCopied)schedulePortfolioBackground(warmThumbnailCache,0);
   return publicAssetForRenderer(duplicate,location);

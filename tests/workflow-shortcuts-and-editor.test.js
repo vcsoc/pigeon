@@ -7,6 +7,7 @@ const path = require('node:path');
 
 const read = (file) => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
 const renderer = read('src/renderer.js');
+const main = read('electron/main.js');
 const html = read('src/index.html');
 const styles = read('src/styles.css');
 
@@ -41,6 +42,14 @@ test('duplicates remain adjacent to their original in immediate and rebuilt view
   assert.match(renderer, /function placeDuplicatesNextToSources/);
   assert.match(renderer, /finalIndices=placeDuplicatesNextToSources\(finalIndices/);
   assert.match(renderer, /result\.next=placeDuplicatesNextToSources\(result\.next/);
+});
+
+test('duplicates inherit and immediately display the source privacy effect', () => {
+  const duplicate = main.slice(main.indexOf('async function duplicateAsset'), main.indexOf('const EDITABLE_PREVIEW_EXTENSIONS'));
+  const stage = renderer.slice(renderer.indexOf('function stageDuplicatedAssetCard'), renderer.indexOf('async function duplicateAssetsWithoutGridRefresh'));
+  assert.match(duplicate, /duplicate\.thumbnailEffect=Boolean\(source\.thumbnailEffect\)/);
+  assert.match(stage, /classList\.toggle\('thumbnail-effect-applied',Boolean\(duplicate\.thumbnailEffect\)\)/);
+  assert.match(stage, /renderPixelatedCard\(card\)/);
 });
 
 test('an idle Threads panel returns to Details when an asset is selected', () => {

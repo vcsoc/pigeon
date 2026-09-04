@@ -22,7 +22,8 @@ test('viewer opens up to six selected videos or animated images in a looping mut
 
 test('multi-playback synchronizes Alt-seeking and toggles every item with Space',()=>{
   assert.match(renderer,/function syncMultiPlaybackSeek/);
-  assert.match(renderer,/if\(!multiPlaybackAltPressed/);
+  assert.match(renderer,/multiPlaybackAltPressed\|\|performance\.now\(\)<multiPlaybackAltSeekUntil/);
+  assert.match(renderer,/pointerdown[^\n]+event\.altKey[^\n]+multiPlaybackAltSeekUntil=performance\.now\(\)\+1500/);
   assert.match(renderer,/video\.currentTime=Math\.max\(0,Math\.min\(source\.currentTime/);
   assert.match(renderer,/event\.key==='Alt'&&isMultiPlaybackOpen\(\)/);
   assert.match(renderer,/if\(isMultiPlaybackOpen\(\)\)toggleMultiPlayback\(\)/);
