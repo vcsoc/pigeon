@@ -53,6 +53,7 @@ contextBridge.exposeInMainWorld('pigeon', {
   removeLocation: (id) => ipcRenderer.invoke('library:remove-location', id),
   rescan: (id, subfolder = '') => ipcRenderer.invoke('library:rescan', { id, subfolder }),
   refreshSources: () => ipcRenderer.invoke('library:refresh-sources'),
+  createSidebarGroup: (type,name,parentId=null) => ipcRenderer.invoke('sidebar:create-group',{type,name,parentId}),
   createCollection: (name, parentId, id = null) => ipcRenderer.invoke('collection:create', { name, parentId, id }),
   duplicateGroupStructure: (type, id, subfolder = '') => ipcRenderer.invoke('group:duplicate-structure', { type, id, subfolder }),
   createPhysicalSubfolder: (locationId, subfolder, name) => ipcRenderer.invoke('folder:create-physical', { locationId, subfolder, name }),
@@ -200,8 +201,10 @@ contextBridge.exposeInMainWorld('pigeon', {
     ipcRenderer.on('sidebar:changed', handler);
     return () => ipcRenderer.removeListener('sidebar:changed', handler);
   },
-  onLibraryAssets: (callback) => {
-    const handler = (_event, value) => callback(value);
+  onLibraryAssets: (callback, { serialized = false } = {}) => {
+    // A string crosses contextBridge without recursively copying/freezing every
+    // asset property. Keep object delivery for existing consumers.
+    const handler = (_event, value) => callback(serialized ? (typeof value === 'string' ? value : JSON.stringify(value)) : (typeof value === 'string' ? JSON.parse(value) : value));
     ipcRenderer.on('library:assets', handler);
     return () => ipcRenderer.removeListener('library:assets', handler);
   },

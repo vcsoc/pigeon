@@ -41,7 +41,8 @@ parentPort.on('message', async ({source,target,rawProxyTarget,metadataOnly=false
     if(metadataOnly){parentPort.postMessage({ok:true,embeddedMetadata:await pngTextMetadata(source)});return;}
     const extension=require('node:path').extname(source).toLowerCase(),rawCamera=await isRawCameraSource(source,extension),heic=HEIC_IMAGE_EXTENSION_SET.has(extension),rawPreview=rawCamera?await decodeRawCamera(source,rawProxyTarget):null,heicPreview=heic?await decodeHeicToRaw(source):null;
     const imageSource=rawPreview?.path||source;
-    const image = heicPreview?sharp(heicPreview.data,{raw:{width:heicPreview.width,height:heicPreview.height,channels:heicPreview.channels},failOn:'none'}):sharp(imageSource, { failOn: 'none', limitInputPixels: 268402689 });
+    const sharedInput=!rawCamera&&!heic&&require('./rescan-access').networkScanTimeout(source,0)>0?await require('./network-image-buffer').readNetworkImageOnce(source):null;
+    const image = heicPreview?sharp(heicPreview.data,{raw:{width:heicPreview.width,height:heicPreview.height,channels:heicPreview.channels},failOn:'none'}):sharp(sharedInput||imageSource, { failOn: 'none', limitInputPixels: 268402689 });
     const [metadata, stats, sample] = await Promise.all([
       image.metadata(),
       image.clone().stats(),

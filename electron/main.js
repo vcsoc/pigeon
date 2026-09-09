@@ -1,7 +1,8 @@
-const { app, BrowserWindow, dialog, ipcMain, protocol, shell, clipboard, desktopCapturer, crashReporter, utilityProcess, screen, nativeImage } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, protocol, shell, clipboard, desktopCapturer, crashReporter, utilityProcess, screen, nativeImage, net } = require('electron');
 const fsp = require('node:fs/promises');
 const fs = require('node:fs');
 const path = require('node:path');
+const { pathToFileURL } = require('node:url');
 const http = require('node:http');
 const crypto = require('node:crypto');
 const sharp = require('sharp');
@@ -45,6 +46,7 @@ const { createBackgroundThreadManager } = require('./background-thread-manager')
 const { isPermissionError, pathIsInside, grantReadAccess } = require('./permission-access');
 const { createPluginManager, isLoopbackEndpoint } = require('./plugin-manager');
 const { serveMediaFile } = require('./media-stream');
+const { networkScanTimeout } = require('./rescan-access');
 const { createCollection: createPigeonCollectionArchive, inspectCollection: inspectPigeonCollectionArchive, extractCollectionFiles } = require('./pigeon-collection');
 const omarchyDesktop=process.platform==='linux'&&(process.env.DESKTOP_SESSION==='omarchy'||Boolean(process.env.OMARCHY_PATH)||(()=>{try{return /^ID=omarchy$/m.test(fs.readFileSync('/etc/os-release','utf8'));}catch{return false;}})());
 autoUpdater.disableWebInstaller = true;
@@ -115,7 +117,7 @@ const BACKGROUND_HASH_WORKERS = 2;
 const PDF_WORKER_LIMIT = 1,PDF_PREVIEW_VERSION=3,HEIC_PREVIEW_VERSION=1,MOTION_PREVIEW_VERSION=1;
 const ANIMATED_IMAGE_EXTENSIONS=new Set(['.gif','.webp']);
 const LARGE_SCAN_WORKER_LIMIT = 2;
-const ASSET_STREAM_BATCH_SIZE=Math.max(500,Math.min(4000,Number(process.env.PIGEON_ASSET_BATCH_SIZE)||500));
+const ASSET_STREAM_BATCH_SIZE=Math.max(500,Math.min(4000,Number(process.env.PIGEON_ASSET_BATCH_SIZE)||1000));
 const THUMBNAIL_IDLE_DELAY_MS=Math.max(250,Math.min(5000,Number(process.env.PIGEON_THUMBNAIL_IDLE_MS)||900));
 const MIN_FREE_MEMORY_BYTES = 2 * 1024 * 1024 * 1024;
 let activePdfWorkers = 0;
@@ -221,7 +223,7 @@ function publicCollections() {return library.collections.map((collection)=>{cons
 function publicFolderLocks(){return Object.fromEntries(folderLocks().map((rule)=>[folderLockKey(rule.locationId,rule.subfolder),{locationId:rule.locationId,subfolder:rule.subfolder,locked:!unlockedFolders.has(folderLockKey(rule.locationId,rule.subfolder))}]));}
 function publicLibrarySummary() {
   const { assets, collections, locations=[], settings={}, ...metadata } = library;
-  return { ...metadata,locations:visibleLocations(locations),settings:{...settings,folderLocks:publicFolderLocks()},collections:publicCollections(),portfolios:portfolios.map(({ id, name })=>({ id, name })),activePortfolioId,totalAssets:assets.length,assetStreamPending:!library.loading };
+  return { ...metadata,locations:visibleLocations(locations),settings:{...settings,preferences:{...settings.preferences,...(typeof runtimePreferences.hardwareAcceleration==='boolean'?{hardwareAcceleration:runtimePreferences.hardwareAcceleration}:{})},folderLocks:publicFolderLocks()},collections:publicCollections(),portfolios:portfolios.map(({ id, name })=>({ id, name })),activePortfolioId,totalAssets:assets.length,assetStreamPending:!library.loading };
 }
 function passwordKey(password, salt) { return crypto.pbkdf2Sync(String(password), salt, 120000, 32, 'sha256'); }
 function passwordDigest(key) { return crypto.createHash('sha256').update(key).digest('hex'); }
@@ -308,7 +310,7 @@ function broadcast() {
     const assets=[];let examined=0;while(stream.sourceIndex<library.assets.length&&examined<ASSET_STREAM_BATCH_SIZE){const asset=library.assets[stream.sourceIndex++];examined+=1;if(isAssetLocked(asset))continue;assets.push(publicAssetForRenderer(asset,stream.locationsById.get(asset.locationId),false));}
     stream.visibleCount+=assets.length;for(const asset of assets)stream.visibleIds.add(asset.id);stream.batchCount+=1;stream.sequence+=1;stream.sourceDone=stream.sourceIndex>=library.assets.length;
     if(!examined&&stream.sourceDone){complete();return;}
-    stream.awaitingAck=true;stream.sentAt=performance.now();stream.lastBatchSize=assets.length;mainWindow.webContents.send('library:assets',{generation,sequence:stream.sequence,assets});
+    stream.awaitingAck=true;stream.sentAt=performance.now();stream.lastBatchSize=assets.length;mainWindow.webContents.send('library:assets',JSON.stringify({generation,sequence:stream.sequence,assets}));
     if(stream.batchCount===1)performanceRecorder.record('first-metadata-chunk-sent',{portfolioId:activePortfolioId,portfolioSize:library.assets.length,generation,sequence:stream.sequence,batchSize:assets.length,assetMix:assetMix(assets)});
     stream.ackTimer=setTimeout(acknowledge,500);
   };
@@ -541,14 +543,14 @@ function startThumbnailWorker() {
 }
 
 function dispatchThumbnailJobs() {
-  const concurrency=scanWorkActive()?1:THUMBNAIL_WORKER_COUNT;
+  const concurrency=THUMBNAIL_WORKER_COUNT;
   while (thumbnailWorkers.length < concurrency) startThumbnailWorker();
   let dispatched=thumbnailWorkers.filter((worker)=>worker.busy).length;
   for (const worker of [...thumbnailWorkers]) {
     if (dispatched>=concurrency||worker.busy || !thumbnailQueue.length) continue;
     dispatched+=1;
     const job = thumbnailQueue.shift(); worker.busy = true; worker.currentJob = job; if (worker.telemetry) { worker.telemetry.filesTotal += 1; worker.telemetry.currentFile = job.source; worker.telemetry.status = 'running'; }
-    const extension=path.extname(job.source).toLowerCase(),rawCamera=RAW_IMAGE_EXTENSION_SET.has(extension),heic=HEIC_IMAGE_EXTENSION_SET.has(extension),timeout=rawCamera?90000:heic?30000:10000,rawProxyTarget=rawCamera?path.join(path.dirname(job.target),`${path.parse(job.target).name}.raw-preview.jpg`):null;
+    const extension=path.extname(job.source).toLowerCase(),rawCamera=RAW_IMAGE_EXTENSION_SET.has(extension),heic=HEIC_IMAGE_EXTENSION_SET.has(extension),timeout=rawCamera?90000:heic?30000:networkScanTimeout(job.source,10000),rawProxyTarget=rawCamera?path.join(path.dirname(job.target),`${path.parse(job.target).name}.raw-preview.jpg`):null;
     worker.jobTimer = setTimeout(() => { recordDiagnostic('warning', 'Preview worker timed out', { source: job.source, timeout }); finishThumbnailWorkerJob(worker, { ok: false, message: 'Preview generation timed out' }, true); }, timeout);
     worker.postMessage({source:job.source,target:job.target,rawProxyTarget,metadataOnly:Boolean(job.metadataOnly)});
   }
@@ -753,7 +755,7 @@ async function inspectFile(filePath, location, existing, { deferHash = false, in
       sourcePending,
       missingSince: null
     };
-    if (library.settings?.autoTag && !asset.needsOrganization && !asset.tags.length) asset.tags = libraryCore.suggestTags(asset);
+    if (library.settings?.autoTag && !asset.needsOrganization && !asset.tags.length) asset.tags = libraryCore.suggestTags(asset,library.settings?.preferences||{});
     asset.tags = [...new Set([...asset.tags, ...configuredFolderTags(location, asset.path)])];
     return asset;
   } catch {
@@ -769,7 +771,7 @@ async function inspectScanBatch(batch, location, previous, run, batchNumber) {
   const localBatch = batch.filter((filePath) => !cloudStates.get(filePath)?.placeholder);
   if (!localBatch.length) return placeholders;
   return new Promise((resolve) => {
-    const worker = new Worker(path.join(__dirname, 'scan-worker.js'), { workerData: { batch: localBatch.map((filePath) => ({ filePath, existing: previous.get(path.resolve(filePath)) ? { size: previous.get(path.resolve(filePath)).size, modified: previous.get(path.resolve(filePath)).modified, contentHash: previous.get(path.resolve(filePath)).contentHash } : null })), deferHash: location.unstable, inlineHashMaxBytes: SCAN_INLINE_HASH_MAX_BYTES, dutyCycle: Math.max(0.08, (INDEX_CPU_LIMIT / 100) / INDEX_WORKER_COUNT) }, resourceLimits: { maxOldGenerationSizeMb: 128 } });
+    const worker = new Worker(path.join(__dirname, 'scan-worker.js'), { workerData: { batch: localBatch.map((filePath) => ({ filePath, existing: previous.get(path.resolve(filePath)) ? { size: previous.get(path.resolve(filePath)).size, modified: previous.get(path.resolve(filePath)).modified, contentHash: previous.get(path.resolve(filePath)).contentHash } : null })), deferHash: location.unstable||networkScanTimeout(location.path,0)>0, inlineHashMaxBytes: SCAN_INLINE_HASH_MAX_BYTES, dutyCycle: Math.max(0.08, (INDEX_CPU_LIMIT / 100) / INDEX_WORKER_COUNT) }, resourceLimits: { maxOldGenerationSizeMb: 128 } });
     const telemetry = trackWorker(worker, 'index-scan', { portfolioId: run.portfolioId, filesTotal: batch.length, batch: batchNumber }); telemetry.currentFile = batch[0] || '';
     let settled = false,job; const finish = (result) => { if (settled) return; settled = true; clearTimeout(timer);activeScanJobs.delete(job); telemetry.filesCompleted = placeholders.length + (result?.results?.length || 0); telemetry.status = result?.cancelled?'cancelled':result?.error ? 'failed' : 'completed'; telemetry.expectedExit = true; try { telemetry.memoryBytes = worker.resourceLimits?.maxOldGenerationSizeMb ? worker.resourceLimits.maxOldGenerationSizeMb * 1024 * 1024 : 0; } catch { /* unavailable */ } resolve(result?.cancelled?[]:[...placeholders, ...(result?.results || [])]);worker.terminate().catch(()=>{}); };
     job={run,worker,cancel:()=>finish({cancelled:true})};activeScanJobs.add(job);if(!backgroundRunActive(run)){job.cancel();return;}
@@ -778,71 +780,75 @@ async function inspectScanBatch(batch, location, previous, run, batchNumber) {
   });
 }
 
-async function walkFolder(folderPath, callback, timeout = 8000, progressId = '') {
+async function walkFolder(folderPath, callback, timeout = 8000, progressId = '', isActive = () => true) {
   const queue = [folderPath],permissionDeniedDirectories=[]; let cursor=0,processedEntries=0, complete = true;
-  while (cursor<queue.length) {
-    const current = queue[cursor++];
-    let entries;
+  while (cursor<queue.length&&isActive()) {
+    const current = queue[cursor++];let directory,closed=false;
     try {
-      entries = await withTimeout(fsp.readdir(current, { withFileTypes: true }), timeout, 'Folder read timed out');
-    } catch(error) {
-      complete = false;if(isPermissionError(error)){permissionDeniedDirectories.push(current);recordDiagnostic('warning','Folder scan requires permission',{folder:current,error:error.message});}continue;
-    }
-    for (const entry of entries) {
-      if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
-      const fullPath = path.join(current, entry.name);
-      if (entry.isDirectory()) queue.push(fullPath);
-      else if (entry.isFile()) callback(fullPath);
-      processedEntries+=1; if(processedEntries%512===0){if(progressId)await waitForBackgroundThread(progressId);await new Promise((resolve)=>setImmediate(resolve));}
-    }
+      const opening=fsp.opendir(current,{bufferSize:32});opening.then(handle=>{if(closed)handle.close().catch(()=>{});},()=>{});
+      directory=await withTimeout(opening,timeout,'Folder open timed out');
+      while(isActive()){
+        if(progressId&&!(await waitForBackgroundThread(progressId))){complete=false;break;}
+        const entry=await withTimeout(directory.read(),timeout,'Folder read timed out');if(!entry)break;
+        if(entry.name.startsWith('.')||entry.name==='node_modules')continue;
+        const fullPath=path.join(current,entry.name);if(entry.isDirectory())queue.push(fullPath);else if(entry.isFile())callback(fullPath);
+        processedEntries++;if(processedEntries%64===0)await new Promise(resolve=>setImmediate(resolve));
+      }
+    }catch(error){complete=false;if(isPermissionError(error)){permissionDeniedDirectories.push(current);recordDiagnostic('warning','Folder scan requires permission',{folder:current,error:error.message});}else recordDiagnostic('warning','Folder discovery incomplete',{folder:current,error:error.message});}
+    finally{closed=true;if(directory)directory.close().catch(()=>{});}
   }
-  return { complete, permissionDeniedDirectories };
+  return { complete:complete&&isActive(), permissionDeniedDirectories };
 }
 
-async function scanLocation(locationId, { notify = true, resume = false, rebuildPreviews = false, subfolder = '' } = {}) {
+async function scanLocation(locationId, { notify = true, resume = false, rebuildPreviews = false, subfolder = '', reason = 'requested' } = {}) {
   const location = library.locations.find((item) => item.id === locationId); if (!location) return;
   let scanSubfolder=normalizedSubfolder(subfolder);if(location.rebuildPreviewsRequested){rebuildPreviews=true;scanSubfolder=normalizedSubfolder(location.rescanSubfolderRequested||scanSubfolder);}const scanRoot=path.resolve(location.path,scanSubfolder);if(!pathIsInside(location.path,scanRoot))throw new Error('The selected folder is outside its indexed root');
   if (location.scanning) { location.rescanRequested = true;if(rebuildPreviews){location.rebuildPreviewsRequested=true;location.rescanSubfolderRequested=scanSubfolder;}return; }
   location.rebuildPreviewsRequested=false;location.rescanSubfolderRequested='';
   const run = beginBackgroundRun('scan', location.id); if (!run) { location.rescanRequested = true;if(rebuildPreviews){location.rebuildPreviewsRequested=true;location.rescanSubfolderRequested=scanSubfolder;}return; }
+  recordDiagnostic('info','Folder scan started',{locationId,subfolder:scanSubfolder,reason,resume,rebuildPreviews,previouslyScanned:Boolean(location.lastScanned)});
+  const previewQueue=createScanPreviewQueue(run,location);let discovery=null;
   const jobLibrary = run.library, progressId = run.progressId,scanName=scanSubfolder?path.basename(scanRoot):location.name,assetInScanScope=(asset)=>asset.locationId===location.id&&pathIsInside(scanRoot,asset.path); location.unstable = Boolean(location.unstable || location.removable || /[\\/]OneDrive[\\/]|[\\/]Dropbox[\\/]|[\\/]Google Drive[\\/]/i.test(location.path));
   if (!resume) location.scanCheckpoint = null;
-  const checkpoint = resume && location.scanCheckpoint?.root === scanRoot ? location.scanCheckpoint : null;
+  const checkpoint = resume && location.scanCheckpoint?.root === scanRoot && location.scanCheckpoint.discoveryDone!==false ? location.scanCheckpoint : null;
   location.scanning = true; location.scanProgress = { discovered: checkpoint?.discovered || 0, inspected: checkpoint?.nextIndex || 0, resumed: Boolean(checkpoint) }; reportBackgroundProgress(progressId, { label: `Scanning ${scanName}`, detail: checkpoint ? `Resuming at file ${(checkpoint.nextIndex || 0).toLocaleString()}…` : 'Discovering files…' }); location.checking = true; if (notify) broadcastLocations();
   try {
-    const scanRootAvailable=await pathAvailable(scanRoot);if(!scanSubfolder)location.online=scanRootAvailable;location.checking=false;
+    const scanRootAvailable=await pathAvailable(scanRoot,networkScanTimeout(scanRoot,1800));if(!scanSubfolder)location.online=scanRootAvailable;location.checking=false;
     if (!backgroundRunActive(run)) return;
     if (!scanSubfolder&&!location.online) { reportBackgroundProgress(progressId, { label: `Scanning ${scanName}`, detail: 'Location is offline', done: true }); scheduleSave(); if (notify) broadcastLocations(); return; }
     const indexingPreferences=jobLibrary.settings?.preferences||{},locationAssets=jobLibrary.assets.filter((asset)=>asset.locationId===location.id),previousAssets=locationAssets.filter(assetInScanScope),previous=new Map(previousAssets.map((asset)=>[asset.path,asset])),globalByPath=new Map(jobLibrary.assets.map((asset)=>[normalizedPathKey(asset.path),asset])),scanLocations=visibleLocations(jobLibrary.locations),assetIndexes=new Map(jobLibrary.assets.map((asset,index)=>[asset.id,index]));let locationAssetCount=locationAssets.length,scanComplete=checkpoint?.complete!==false;
     let permissionDeniedCount=0,filePaths = checkpoint ? await loadScanQueue(run.portfolioId,location.id) : null;
     if (!filePaths) {
       filePaths = [];
-      if (location.type === 'folder'&&scanRootAvailable) { const walked = await walkFolder(scanRoot, (filePath) => { if (backgroundRunActive(run)&&shouldIndexFile(filePath,indexingPreferences)&&owningLocation(scanLocations,filePath)?.id===location.id) { const relativeFolder = normalizedSubfolder(path.dirname(path.relative(location.path, filePath))); if (!folderExcluded(location.id, relativeFolder)) { filePaths.push(filePath); location.scanProgress.discovered += 1; } } }, location.unstable ? 3500 : 8000, progressId); scanComplete = walked.complete;permissionDeniedCount+=walked.permissionDeniedDirectories.length; }
+      if (location.type === 'folder'&&scanRootAvailable) { discovery=require('./scan-discovery').createScanDiscovery(filePaths,async(append)=>{const walked=await walkFolder(scanRoot,(filePath)=>{if(backgroundRunActive(run)&&shouldIndexFile(filePath,indexingPreferences)&&owningLocation(scanLocations,filePath)?.id===location.id){const relativeFolder=normalizedSubfolder(path.dirname(path.relative(location.path,filePath)));if(!folderExcluded(location.id,relativeFolder)){append(filePath);location.scanProgress.discovered+=1;}}},networkScanTimeout(scanRoot,location.unstable?3500:8000),progressId,()=>backgroundRunActive(run));scanComplete=walked.complete;permissionDeniedCount+=walked.permissionDeniedDirectories.length;}); }
       else if(!scanSubfolder&&shouldIndexFile(location.path,indexingPreferences)&&owningLocation(scanLocations,location.path)?.id===location.id)filePaths.push(location.path);
       if (!backgroundRunActive(run)) return;
-      await saveScanQueue(run.portfolioId,location.id,filePaths); location.scanCheckpoint = { root: scanRoot,subfolder:scanSubfolder,nextIndex:0,discovered:filePaths.length,complete:scanComplete,startedAt:Date.now() }; await persistScanBatch(location,[]);
+      await saveScanQueue(run.portfolioId,location.id,filePaths); location.scanCheckpoint = { root: scanRoot,subfolder:scanSubfolder,nextIndex:0,discovered:filePaths.length,complete:discovery&&!discovery.done?false:scanComplete,discoveryDone:!discovery,startedAt:Date.now() }; await persistScanBatch(location,[]);
     }
-    const workerCount = location.unstable ? 2 : Math.min(filePaths.length>=10000?LARGE_SCAN_WORKER_LIMIT:INDEX_WORKER_COUNT, Math.ceil(Math.max(1, filePaths.length - location.scanCheckpoint.nextIndex) / INDEX_BATCH_SIZE));
-    reportBackgroundProgress(progressId, { label: `Adding files from ${location.name}`, detail: `${filePaths.length.toLocaleString()} files · ${workerCount} index threads · ${INDEX_CPU_LIMIT}% CPU ceiling`, completed: location.scanCheckpoint.nextIndex, total: filePaths.length });
+    const networkScan=networkScanTimeout(scanRoot,0)>0,batchSize=networkScan?1:INDEX_BATCH_SIZE,workerCount = networkScan||location.unstable ? 2 : Math.min(filePaths.length>=10000?LARGE_SCAN_WORKER_LIMIT:INDEX_WORKER_COUNT, Math.ceil(Math.max(1, filePaths.length - location.scanCheckpoint.nextIndex) / batchSize));
+    const indexingLabel=previousAssets.length||location.lastScanned?`Checking for changes in ${scanName}`:`Indexing ${scanName}`;
+    reportBackgroundProgress(progressId, { label: indexingLabel, detail: `${filePaths.length.toLocaleString()} files · ${workerCount} index threads · ${INDEX_CPU_LIMIT}% CPU ceiling`, completed: location.scanCheckpoint.nextIndex, total: filePaths.length });
     let lastCheckpointAt = Date.now(), assetsSinceCheckpoint=[];
-    while (location.scanCheckpoint.nextIndex < filePaths.length && backgroundRunActive(run)) {
+    while ((location.scanCheckpoint.nextIndex < filePaths.length || discovery&&!discovery.done) && backgroundRunActive(run)) {
       if (!(await waitForIndexCpuBudget(run))) break;
+      if(location.scanCheckpoint.nextIndex>=filePaths.length){await discovery.wait(location.scanCheckpoint.nextIndex);if(!backgroundRunActive(run))break;if(location.scanCheckpoint.nextIndex>=filePaths.length&&discovery.done)break;}
       const waveStart = location.scanCheckpoint.nextIndex, batches = [];
-      for (let slot = 0; slot < workerCount; slot += 1) { const start = waveStart + slot * INDEX_BATCH_SIZE; if (start >= filePaths.length) break; batches.push(filePaths.slice(start, start + INDEX_BATCH_SIZE)); }
-      const inspectedBatches = await Promise.all(batches.map((batch, index) => inspectScanBatch(batch, location, previous, run, Math.floor(waveStart / INDEX_BATCH_SIZE) + index + 1)));
+      for (let slot = 0; slot < workerCount; slot += 1) { const start = waveStart + slot * batchSize; if (start >= filePaths.length) break; batches.push(filePaths.slice(start, start + batchSize)); }
+      const inspectedBatches = await Promise.all(batches.map((batch, index) => inspectScanBatch(batch, location, previous, run, Math.floor(waveStart / batchSize) + index + 1)));
       if (!backgroundRunActive(run)) break;
-      const waveAssets=[]; for (const result of inspectedBatches.flat()) { const permissionDenied=isPermissionError(result);if(result.error&&!permissionDenied){recordDiagnostic('warning','File inspection failed during scan',{file:result.filePath,error:result.error,code:result.errorCode||''});continue;}const resolvedFile=path.resolve(result.filePath),owner=owningLocation(scanLocations,resolvedFile);if(owner&&owner.id!==location.id)continue; const existing = globalByPath.get(normalizedPathKey(resolvedFile))||previous.get(resolvedFile), asset = await inspectFile(result.filePath, location, existing, { deferHash: location.unstable, inspection: result }); if (!asset) continue;if(permissionDenied){permissionDeniedCount+=1;asset.permissionDenied=true;asset.permissionError=result.error||'Permission denied';asset.thumbnailPath=null;asset.thumbnailFailedAt=null;asset.thumbnailFailedModified=null;asset.thumbnailError=null;}else{asset.permissionDenied=false;asset.permissionError=null;} const index=assetIndexes.get(asset.id); if(index!==undefined){const current=jobLibrary.assets[index];if(current.locationId!==location.id)locationAssetCount+=1;asset.tags=current.tags||[];asset.note=current.note||'';asset.rating=current.rating||0;asset.favorite=Boolean(current.favorite);asset.collectionIds=current.collectionIds||[];asset.deletedAt=current.deletedAt||null;asset.quickChecked=Boolean(current.quickChecked);asset.thumbnailEffect=Boolean(current.thumbnailEffect);jobLibrary.assets[index]=asset;}else{assetIndexes.set(asset.id,jobLibrary.assets.length);jobLibrary.assets.push(asset);locationAssetCount+=1;} mainAssetIndex.set(asset.id,asset);previous.set(asset.path, asset);globalByPath.set(normalizedPathKey(asset.path),asset); assetsSinceCheckpoint.push(asset); waveAssets.push(asset); }
-      location.scanCheckpoint.nextIndex = Math.min(filePaths.length, waveStart + batches.reduce((sum, batch) => sum + batch.length, 0)); location.scanProgress.inspected = location.scanCheckpoint.nextIndex; location.assetCount = locationAssetCount; if(notify)broadcastScanAssets(location,waveAssets);
-      if (Date.now() - lastCheckpointAt >= 5000) { lastCheckpointAt = Date.now(); const checkpointAssets=assetsSinceCheckpoint.splice(0); await persistScanBatch(location,checkpointAssets); }
-      reportBackgroundProgress(progressId, { label: `Adding files from ${location.name}`, detail: `${location.scanProgress.inspected.toLocaleString()} of ${filePaths.length.toLocaleString()} · ${workerCount} threads`, completed: location.scanProgress.inspected, total: filePaths.length }); if (notify) scheduleBroadcast(250); await new Promise((resolve) => setImmediate(resolve));
+      const waveAssets=[]; for (const result of inspectedBatches.flat()) { const permissionDenied=isPermissionError(result);if(result.error&&!permissionDenied){recordDiagnostic('warning','File inspection failed during scan',{file:result.filePath,error:result.error,code:result.errorCode||''});continue;}const resolvedFile=path.resolve(result.filePath),owner=owningLocation(scanLocations,resolvedFile);if(owner&&owner.id!==location.id)continue; const existing = globalByPath.get(normalizedPathKey(resolvedFile))||previous.get(resolvedFile), asset = await inspectFile(result.filePath, location, existing, { deferHash: location.unstable, inspection: result }); if (!asset) continue;if(rebuildPreviews&&!permissionDenied&&!asset.thumbnailPath){asset.thumbnailFailedAt=null;asset.thumbnailFailedModified=null;asset.thumbnailError=null;asset.thumbnailFailureVersion=null;}if(permissionDenied){permissionDeniedCount+=1;asset.permissionDenied=true;asset.permissionError=result.error||'Permission denied';asset.thumbnailPath=null;asset.thumbnailFailedAt=null;asset.thumbnailFailedModified=null;asset.thumbnailError=null;}else{asset.permissionDenied=false;asset.permissionError=null;} const index=assetIndexes.get(asset.id); if(index!==undefined){const current=jobLibrary.assets[index];if(current.locationId!==location.id)locationAssetCount+=1;asset.tags=current.tags||[];asset.note=current.note||'';asset.rating=current.rating||0;asset.favorite=Boolean(current.favorite);asset.collectionIds=current.collectionIds||[];asset.deletedAt=current.deletedAt||null;asset.quickChecked=Boolean(current.quickChecked);asset.thumbnailEffect=Boolean(current.thumbnailEffect);jobLibrary.assets[index]=asset;}else{assetIndexes.set(asset.id,jobLibrary.assets.length);jobLibrary.assets.push(asset);locationAssetCount+=1;} mainAssetIndex.set(asset.id,asset);previous.set(asset.path, asset);globalByPath.set(normalizedPathKey(asset.path),asset); assetsSinceCheckpoint.push(asset); waveAssets.push(asset); }
+      location.scanCheckpoint.nextIndex = Math.min(filePaths.length, waveStart + batches.reduce((sum, batch) => sum + batch.length, 0)); location.scanProgress.inspected = location.scanCheckpoint.nextIndex;location.scanCheckpoint.discovered=filePaths.length;location.scanCheckpoint.discoveryDone=!discovery;location.scanCheckpoint.complete=location.scanCheckpoint.discoveryDone&&scanComplete; location.assetCount = locationAssetCount; if(notify)broadcastScanAssets(location,waveAssets);previewQueue.add(waveAssets);
+      if (Date.now() - lastCheckpointAt >= 5000) { lastCheckpointAt = Date.now(); const checkpointAssets=assetsSinceCheckpoint.splice(0);await saveScanQueue(run.portfolioId,location.id,filePaths); await persistScanBatch(location,checkpointAssets); }
+      reportBackgroundProgress(progressId, { label: indexingLabel, detail: `${location.scanProgress.inspected.toLocaleString()} of ${filePaths.length.toLocaleString()} · ${workerCount} threads`, completed: location.scanProgress.inspected, total: filePaths.length }); if (notify) scheduleBroadcast(250); await new Promise((resolve) => setImmediate(resolve));
     }
     if (!backgroundRunActive(run)) return;
+    if(discovery)await discovery.finish();
     const foundPaths=new Set([...filePaths.map((filePath)=>path.resolve(filePath)),...previousAssets.filter((asset)=>!shouldIndexFile(asset.path,indexingPreferences)).map((asset)=>asset.path)]),currentAssets=jobLibrary.assets.filter(assetInScanScope),retained=currentAssets.map((asset)=>foundPaths.has(asset.path)?asset:scanComplete?({...asset,sourceMissing: true,sourcePending:false,missingSince: asset.missingSince || Date.now()}):({...asset,sourcePending:true,sourceMissing: false}));
     jobLibrary.assets=jobLibrary.assets.filter((asset)=>!assetInScanScope(asset)).concat(retained);mainAssetIndex=new Map(jobLibrary.assets.map((asset)=>[asset.id,asset]));location.partialScan=scanSubfolder?Boolean(location.partialScan||!scanComplete):!scanComplete;location.assetCount=jobLibrary.assets.filter((asset)=>asset.locationId===location.id).length;location.lastScanned=Date.now();location.scanProgress.done=true;location.scanCheckpoint=null;await removeScanQueue(run.portfolioId,location.id);
     reportBackgroundProgress(progressId,{label:`${scanName} scan complete`,detail:`${foundPaths.size.toLocaleString()} files indexed`,completed:filePaths.length,total:filePaths.length,done:true});
-    const finalAssets=[...new Map([...assetsSinceCheckpoint,...retained.filter((asset)=>asset.sourceMissing||asset.sourcePending)].map((asset)=>[asset.id,asset])).values()],rerun=location.rescanRequested,rerunRebuild=Boolean(location.rebuildPreviewsRequested),rerunSubfolder=normalizedSubfolder(location.rescanSubfolderRequested||'');location.rescanRequested=false;location.rebuildPreviewsRequested=false;location.rescanSubfolderRequested='';await persistScanBatch(location,finalAssets);if(notify){broadcastScanAssets(location,retained.filter((asset)=>asset.sourceMissing||asset.sourcePending),true);broadcastLocations();}if(permissionDeniedCount&&!permissionPromptLocations.has(location.id)&&mainWindow&&!mainWindow.isDestroyed()){permissionPromptLocations.add(location.id);mainWindow.webContents.send('permissions:required',{portfolioId:activePortfolioId,locationId:location.id,count:permissionDeniedCount,locationName:scanName});}if(rebuildPreviews&&backgroundRunActive(run)){const rebuildIds=retained.filter((asset)=>!asset.sourceMissing&&!asset.sourcePending&&!asset.permissionDenied&&['image','video','audio','document'].includes(asset.kind)).map((asset)=>asset.id);await rebuildThumbnails(rebuildIds);}else schedulePortfolioBackground(warmThumbnailCache, 0);schedulePortfolioBackground(warmContentHashes, 500);if(rerun)schedulePortfolioBackground(()=>scanLocation(location.id,{rebuildPreviews:rerunRebuild,subfolder:rerunSubfolder}),location.unstable?1200:250);
+    const finalAssets=[...new Map([...assetsSinceCheckpoint,...retained.filter((asset)=>asset.sourceMissing||asset.sourcePending)].map((asset)=>[asset.id,asset])).values()],rerun=location.rescanRequested,rerunRebuild=Boolean(location.rebuildPreviewsRequested),rerunSubfolder=normalizedSubfolder(location.rescanSubfolderRequested||'');location.rescanRequested=false;location.rebuildPreviewsRequested=false;location.rescanSubfolderRequested='';await persistScanBatch(location,finalAssets);if(notify){broadcastScanAssets(location,retained.filter((asset)=>asset.sourceMissing||asset.sourcePending),true);broadcastLocations();}if(permissionDeniedCount&&!permissionPromptLocations.has(location.id)&&mainWindow&&!mainWindow.isDestroyed()){permissionPromptLocations.add(location.id);mainWindow.webContents.send('permissions:required',{portfolioId:activePortfolioId,locationId:location.id,count:permissionDeniedCount,locationName:scanName});}await previewQueue.finish();if(rebuildPreviews&&backgroundRunActive(run)){const rebuildIds=retained.filter((asset)=>!previewQueue.has(asset)&&!asset.sourceMissing&&!asset.sourcePending&&!asset.permissionDenied&&['image','video','audio','document'].includes(asset.kind)).map((asset)=>asset.id);await rebuildThumbnails(rebuildIds);}else schedulePortfolioBackground(warmThumbnailCache, 0);schedulePortfolioBackground(warmContentHashes, 500);if(rerun)schedulePortfolioBackground(()=>scanLocation(location.id,{rebuildPreviews:rerunRebuild,subfolder:rerunSubfolder}),location.unstable?1200:250);
   } catch (error) { recordDiagnostic('error', `Scan failed for ${location.name}`, error); reportBackgroundProgress(progressId, { label: `Scan failed: ${location.name}`, detail: error.message, done: true, status: 'failed' }); }
-  finally { location.scanning = false; location.checking = false; finishBackgroundRun(run); }
+  finally { if(discovery)await discovery.finish().catch(()=>{});await previewQueue.finish();location.scanning = false; location.checking = false; finishBackgroundRun(run); }
 }
 function resumePendingScans() { for (const location of library.locations.filter((item) => !item.autoImportLegacyRoot&&(item.scanCheckpoint?.discovered || item.scanCheckpoint?.nextIndex))) schedulePortfolioBackground(() => scanLocation(location.id, { notify: true, resume: true,subfolder:location.scanCheckpoint?.subfolder||'' }), 150); }
 const INDEXING_POLICY_VERSION=2;
@@ -853,14 +859,18 @@ function watchLocation(location) {
   if (!location.online) return;
   const watcher = chokidar.watch(location.path, {
     ignoreInitial: true,
+    alwaysStat: true,
     persistent: true,
     depth: 20,
     ignored: /(^|[\\/])\../
   });
-  const refresh = () => {
+  const knownAssets=new Map(library.assets.filter((asset)=>asset.locationId===location.id).map((asset)=>[normalizedPathKey(asset.path),asset.id]));
+  const refresh = (filePath,stat) => {
     if ((watcherIgnoreUntil.get(location.id) || 0) > Date.now()) return;
+    const known=mainAssetIndex.get(knownAssets.get(normalizedPathKey(filePath)));
+    if(known?.locationId===location.id&&require('./scan-watch-events').unchangedWatchFile(known,filePath,stat))return;
     clearTimeout(watcherRefreshTimers.get(location.id));
-    watcherRefreshTimers.set(location.id, setTimeout(() => { watcherRefreshTimers.delete(location.id); scanLocation(location.id); }, location.unstable ? 2200 : 700));
+    watcherRefreshTimers.set(location.id, setTimeout(() => { watcherRefreshTimers.delete(location.id); scanLocation(location.id,{reason:'filesystem-change'}); }, location.unstable ? 2200 : 700));
   };
   watcher.on('add', refresh).on('change', refresh).on('unlink', refresh).on('addDir', refresh).on('unlinkDir', refresh);
   watchers.set(location.id, watcher);
@@ -903,7 +913,7 @@ function markAssetSourcePending(asset) {
 }
 async function warmContentHashes() {
   const run = beginBackgroundRun('content-hashes'); if (!run) return;
-  const jobLibrary = run.library, pending = jobLibrary.assets.filter((asset) => !asset.contentHash && !asset.sourcePending && !asset.sourceMissing && jobLibrary.locations.find((location) => location.id === asset.locationId)?.online === true && !jobLibrary.locations.find((location) => location.id === asset.locationId)?.unstable), total = pending.length, progressId = run.progressId;
+  const jobLibrary = run.library,networkPreviewLocations=new Set(jobLibrary.assets.filter(asset=>networkScanTimeout(asset.path,0)>0&&!asset.sourcePending&&!asset.sourceMissing&&!isAssetLocked(asset)&&thumbnailWorkRequired(asset)).map(asset=>asset.locationId)), pending = jobLibrary.assets.filter((asset) => !networkPreviewLocations.has(asset.locationId)&&!asset.contentHash && !asset.sourcePending && !asset.sourceMissing && jobLibrary.locations.find((location) => location.id === asset.locationId)?.online === true && !jobLibrary.locations.find((location) => location.id === asset.locationId)?.unstable), total = pending.length, progressId = run.progressId;
   if (!total) { finishBackgroundRun(run); return; } reportBackgroundProgress(progressId, { label: 'Analyzing file fingerprints', detail: `${total.toLocaleString()} files`, total });
   let completed = 0, failed = 0, changedAssets=[];
   try {
@@ -943,19 +953,26 @@ function thumbnailWorkRequired(asset) {
   if (PREVIEWABLE_DOCUMENT_EXTENSIONS.has(asset.extension)) return !asset.thumbnailPath || (asset.extension==='PDF'&&asset.pdfPreviewVersion!==PDF_PREVIEW_VERSION);
   return asset.kind === 'image' && (!asset.thumbnailPath || heic&&asset.heicPreviewVersion!==HEIC_PREVIEW_VERSION || rawProxyRequired && (!asset.proxyPath || asset.proxyVersion!==3) || !asset.width || !asset.height || !asset.dominantColor || !asset.histogram || !asset.palette || !asset.perceptualHash || !asset.technicalMetadata);
 }
+function createScanPreviewQueue(scanRun,location){
+  let queue=null,run=null,finished=false;
+  return{add(assets){const eligible=assets.filter(asset=>!asset.deletedAt&&!isAssetLocked(asset)&&!asset.permissionDenied&&!asset.sourceMissing&&!asset.sourcePending&&thumbnailWorkRequired(asset));if(!eligible.length||!backgroundRunActive(scanRun)||finished)return;
+    if(!queue){run=beginBackgroundRun('scan-previews',location.id);if(!run)return;queue=require('./incremental-work-queue').createIncrementalWorkQueue({maxConcurrency:THUMBNAIL_WORKER_COUNT,isActive:()=>backgroundRunActive(scanRun)&&backgroundRunActive(run),processItem:job=>generateScheduledThumbnail({...job,previewRun:run,progressId:run.progressId,scanRun,reason:'scan',enqueuedAt:Date.now()}),onError:(error,job)=>recordDiagnostic('warning','Scan preview failed',{id:job.id,error:error.message}),onProgress:({completed,total,done})=>reportBackgroundProgress(run.progressId,{label:`Generating thumbnails · ${location.name}`,detail:`${completed.toLocaleString()} of ${total.toLocaleString()} processed${done?'':' · indexing can continue'}`,completed,total,done,...(!backgroundRunActive(run)?{status:'cancelled'}:done?{status:'completed'}:{})})});}
+    queue.add(eligible.map(asset=>({id:asset.id,version:Number(asset.modified)||0})));
+  },has:asset=>Boolean(queue?.has(asset.id,Number(asset.modified)||0)),async finish(){if(finished)return;finished=true;if(queue){try{await queue.close();}finally{finishBackgroundRun(run);}}}};
+}
 async function generateScheduledThumbnail(job){
   const asset=mainAssetIndex.get(job.id);if(!asset||Number(asset.modified||0)!==job.version||!thumbnailWorkRequired(asset)||asset.sourcePending||asset.sourceMissing)return;
   const location=library.locations.find((item)=>item.id===asset.locationId);if(location&&location.online!==true)return;
-  if(!(await pathAvailable(asset.path))){markAssetSourcePending(asset);return;}
-  const run={epoch:backgroundEpoch,portfolioId:activePortfolioId,library,progressId:`${activePortfolioId}:thumbnail:${asset.id}`,reportPauses:false};if(!(await waitForIndexCpuBudget(run)))return;
+  if(!(await pathAvailable(asset.path,networkScanTimeout(asset.path,1800)))){markAssetSourcePending(asset);return;}
+  const run=job.previewRun||{epoch:backgroundEpoch,portfolioId:activePortfolioId,library,progressId:job.progressId||`${activePortfolioId}:thumbnail:${asset.id}`,reportPauses:false};if(job.scanRun&&!backgroundRunActive(job.scanRun))return;if(!(await waitForIndexCpuBudget(run)))return;
   const span=performanceRecorder.start('thumbnail-generation',{portfolioId:activePortfolioId,portfolioSize:library.assets.length,queueWaitMs:Date.now()-job.enqueuedAt,phase:job.reason,assetMix:{[asset.kind||'other']:1}});
-  const extension=path.extname(asset.path).toLowerCase(),heic=HEIC_IMAGE_EXTENSION_SET.has(extension),motion=asset.kind==='video'||ANIMATED_IMAGE_EXTENSIONS.has(extension),thumbnail=await retryBackground(async()=>{const value=asset.kind==='video'?await prepareVideoFiles(asset):await createThumbnail(asset);if(!value?.ok)throw new Error(value?.message||'Preview unavailable');return value;},run,{attempts:3,timeout:asset.extension==='PDF'?35000:RAW_IMAGE_EXTENSION_SET.has(extension)?95000:heic||motion?35000:11000,baseDelay:120,label:`Preview ${asset.filename}`});
+  const extension=path.extname(asset.path).toLowerCase(),heic=HEIC_IMAGE_EXTENSION_SET.has(extension),motion=asset.kind==='video'||ANIMATED_IMAGE_EXTENSIONS.has(extension),thumbnail=await retryBackground(async()=>{const value=asset.kind==='video'?await prepareVideoFiles(asset):await createThumbnail(asset);if(!value?.ok)throw new Error(value?.message||'Preview unavailable');return value;},run,{attempts:3,timeout:asset.extension==='PDF'?35000:RAW_IMAGE_EXTENSION_SET.has(extension)?95000:heic||motion||networkScanTimeout(asset.path,0)>0?35000:11000,baseDelay:120,label:`Preview ${asset.filename}`});
   if(!backgroundRunActive(run))return;
   if(!thumbnail?.ok){const permissionDenied=isPermissionError(thumbnail);recordDiagnostic('error','Thumbnail generation exhausted retries',{file:asset.path,filename:asset.filename,kind:asset.kind,extension:asset.extension,modified:asset.modified,attempts:3,permissionDenied,error:thumbnail?.message||'This format could not be previewed'});asset.permissionDenied=permissionDenied;asset.permissionError=permissionDenied?(thumbnail?.message||'Permission denied'):null;asset.thumbnailFailedAt=Date.now();asset.thumbnailFailedModified=asset.modified;asset.thumbnailError=thumbnail?.message||'This format could not be previewed';asset.thumbnailFailureVersion=asset.extension==='PDF'?PDF_PREVIEW_VERSION:heic?HEIC_PREVIEW_VERSION:asset.kind==='video'||ANIMATED_IMAGE_EXTENSIONS.has(path.extname(asset.path).toLowerCase())?MOTION_PREVIEW_VERSION:null;scheduleAssetSave(asset);if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('thumbnail:ready',{id:asset.id,failed:true,error:asset.thumbnailError,permissionDenied:asset.permissionDenied,permissionError:asset.permissionError,generatedAt:Date.now()});performanceRecorder.end(span,{phase:'failed'});return;}
-  asset.permissionDenied=false;asset.permissionError=null;asset.thumbnailFailedAt=null;asset.thumbnailFailedModified=null;asset.thumbnailError=null;asset.thumbnailFailureVersion=null;asset.thumbnailPath=thumbnail.target;if(asset.extension==='PDF')asset.pdfPreviewVersion=PDF_PREVIEW_VERSION;if(heic)asset.heicPreviewVersion=HEIC_PREVIEW_VERSION;if(asset.kind==='video'||ANIMATED_IMAGE_EXTENSIONS.has(path.extname(asset.path).toLowerCase()))asset.motionPreviewVersion=MOTION_PREVIEW_VERSION;asset.proxyPath=thumbnail.proxyPath||asset.proxyPath||null;asset.proxyVersion=thumbnail.proxyVersion||asset.proxyVersion||null;asset.width=thumbnail.width||asset.width||null;asset.height=thumbnail.height||asset.height||null;asset.duration=thumbnail.duration||asset.duration||null;asset.dominantColor=thumbnail.dominantColor||asset.dominantColor||null;asset.histogram=thumbnail.histogram||asset.histogram||null;asset.palette=thumbnail.palette||asset.palette||null;asset.perceptualHash=thumbnail.perceptualHash||asset.perceptualHash||null;asset.exif=thumbnail.exif||asset.exif||null;asset.hasEmbeddedWorkflow=Boolean(thumbnail.embeddedMetadata);asset.embeddedMetadata=null;asset.technicalMetadata=thumbnail.technicalMetadata||asset.technicalMetadata||null;if(library.settings?.autoTag&&!asset.needsOrganization)asset.tags=[...new Set([...(asset.tags||[]),...libraryCore.suggestTags(asset)])];scheduleAssetSave(asset);
+  asset.permissionDenied=false;asset.permissionError=null;asset.thumbnailFailedAt=null;asset.thumbnailFailedModified=null;asset.thumbnailError=null;asset.thumbnailFailureVersion=null;asset.thumbnailPath=thumbnail.target;if(asset.extension==='PDF')asset.pdfPreviewVersion=PDF_PREVIEW_VERSION;if(heic)asset.heicPreviewVersion=HEIC_PREVIEW_VERSION;if(asset.kind==='video'||ANIMATED_IMAGE_EXTENSIONS.has(path.extname(asset.path).toLowerCase()))asset.motionPreviewVersion=MOTION_PREVIEW_VERSION;asset.proxyPath=thumbnail.proxyPath||asset.proxyPath||null;asset.proxyVersion=thumbnail.proxyVersion||asset.proxyVersion||null;asset.width=thumbnail.width||asset.width||null;asset.height=thumbnail.height||asset.height||null;asset.duration=thumbnail.duration||asset.duration||null;asset.dominantColor=thumbnail.dominantColor||asset.dominantColor||null;asset.histogram=thumbnail.histogram||asset.histogram||null;asset.palette=thumbnail.palette||asset.palette||null;asset.perceptualHash=thumbnail.perceptualHash||asset.perceptualHash||null;asset.exif=thumbnail.exif||asset.exif||null;asset.hasEmbeddedWorkflow=Boolean(thumbnail.embeddedMetadata);asset.embeddedMetadata=null;asset.technicalMetadata=thumbnail.technicalMetadata||asset.technicalMetadata||null;if(library.settings?.autoTag&&!asset.needsOrganization)asset.tags=[...new Set([...(asset.tags||[]),...libraryCore.suggestTags(asset,library.settings?.preferences||{})])];scheduleAssetSave(asset);
   const generatedAt=Date.now();if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('thumbnail:ready',{id:asset.id,previewUrl:previewUrlFor(asset),mediaUrl:mediaUrlFor(asset),proxyPath:asset.proxyPath,proxyVersion:asset.proxyVersion,width:asset.width,height:asset.height,duration:asset.duration,dominantColor:asset.dominantColor,perceptualHash:asset.perceptualHash,detailsDeferred:Boolean(asset.histogram||asset.palette||asset.exif||asset.technicalMetadata),generatedAt});performanceRecorder.end(span,{phase:'ready'});
 }
-function reportThumbnailWarmJob(job){const progress=thumbnailWarmProgress;if(!progress||progress.portfolioId!==activePortfolioId||!progress.pending.delete(job.id))return;progress.completed+=1;reportBackgroundProgress(progress.id,{label:'Generating previews',detail:`${progress.completed.toLocaleString()} of ${progress.total.toLocaleString()} previews`,completed:progress.completed,total:progress.total,pauseSupported:false,done:progress.completed>=progress.total});if(progress.completed>=progress.total)thumbnailWarmProgress=null;}
+function reportThumbnailWarmJob(job){const progress=thumbnailWarmProgress;if(!progress||progress.portfolioId!==activePortfolioId||!progress.pending.delete(job.id))return;progress.completed+=1;reportBackgroundProgress(progress.id,{label:'Generating previews',detail:`${progress.completed.toLocaleString()} of ${progress.total.toLocaleString()} previews`,completed:progress.completed,total:progress.total,pauseSupported:false,done:progress.completed>=progress.total});if(progress.completed>=progress.total){thumbnailWarmProgress=null;schedulePortfolioBackground(warmContentHashes,500);}}
 function ensureThumbnailGenerationScheduler(){if(thumbnailGenerationScheduler)return thumbnailGenerationScheduler;thumbnailGenerationScheduler=createThumbnailScheduler({maxConcurrency:THUMBNAIL_WORKER_COUNT,idleDelayMs:THUMBNAIL_IDLE_DELAY_MS,processJob:async(job)=>{try{return await generateScheduledThumbnail(job);}finally{reportThumbnailWarmJob(job);}}});thumbnailGenerationScheduler.setContext({portfolioId:activePortfolioId,generation:libraryStreamGeneration});return thumbnailGenerationScheduler;}
 async function warmThumbnailCache(){
   const scheduler=ensureThumbnailGenerationScheduler(),assets=library.assets,locations=new Map(library.locations.map((location)=>[location.id,location])),context={portfolioId:activePortfolioId,generation:libraryStreamGeneration},eligible=assets.filter((asset)=>!asset.sourcePending&&!asset.sourceMissing&&thumbnailWorkRequired(asset)&&(!locations.has(asset.locationId)||locations.get(asset.locationId)?.online===true));let cursor=0;
@@ -1095,6 +1112,8 @@ async function registerProtocol() {
     for (const candidate of candidates) {
       try {
         const originalSource = candidate === asset.path;
+        // Cached previews must not queue behind SMB I/O in Node's shared filesystem pool.
+        if(!wantsOriginal&&!originalSource){const cached=await net.fetch(pathToFileURL(candidate).href);if(cached.ok)return cached;continue;}
         if (originalSource && (asset.sourceMissing || asset.sourcePending || !await pathAvailable(candidate))) { markAssetSourcePending(asset); continue; }
         const stat = await fsp.stat(candidate);
         const mime = await mimeTypeForFile(candidate);
@@ -1776,6 +1795,11 @@ function createWindow() {
           const smartFolder = await window.pigeon.createSmartFolder('Smoke smart folder', { tags: ['smoke-batch'] });
           const duplicateGroups = await window.pigeon.findDuplicates();
           const autoTagged = await window.pigeon.autoTag(ids);
+          const backupReadyDeadline = Date.now() + 20000;
+          while ((await window.pigeon.getLibrary()).locations.some((location) => location.scanning)) {
+            if (Date.now() >= backupReadyDeadline) throw new Error('Smoke backup prerequisite failed: indexing did not finish');
+            await new Promise((resolve) => setTimeout(resolve, 100));
+          }
           const backupPath = await window.pigeon.backupLibrary();
           await window.pigeon.updateAsset(ids[0], { annotations: [{ type: 'rect', x: 1, y: 1, width: 10, height: 10, color: '#ff0000' }] });
           const plugins = await window.pigeon.listPlugins();
@@ -1875,7 +1899,7 @@ ipcMain.on('performance:renderer-span',(_event,span={})=>performanceRecorder.rec
 ipcMain.on('library:assets-consumed',(event,{generation,sequence}={})=>{if(event.sender!==mainWindow?.webContents||Number(generation)!==activeLibraryStream?.generation)return;activeLibraryStream.acknowledge(Number(sequence));});
 ipcMain.on('thumbnails:prioritize',(_event,payload={})=>{if(payload.portfolioId!==activePortfolioId||Number(payload.generation)!==libraryStreamGeneration)return;ensureThumbnailGenerationScheduler().updatePriority({...payload,portfolioId:activePortfolioId,generation:libraryStreamGeneration});});
 function projectFolderTreeAssetsCooperatively(){const source=library.assets,result=new Array(source.length),span=performanceRecorder.start('folder-tree-projection',{portfolioId:activePortfolioId,portfolioSize:source.length});let cursor=0;return new Promise((resolve)=>{const step=()=>{const startedAt=performance.now();while(cursor<source.length&&performance.now()-startedAt<6){const{locationId,path,created,modified,indexedAt}=source[cursor];result[cursor++]={locationId,path,created,modified,indexedAt};}if(cursor<source.length){setImmediate(step);return;}performanceRecorder.end(span,{size:result.length});resolve(result);};setImmediate(step);});}
-ipcMain.handle('folder-tree:build', async(_event, { collapsedKeys = [], limits = {} }) => {const locations=visibleLocations(library.locations).map(({id,path,type})=>({id,path,type})),assets=await projectFolderTreeAssetsCooperatively(),emptyFolders=library.settings?.emptyFolders||{};return new Promise((resolve)=>{const worker=new Worker(path.join(__dirname,'folder-tree-worker.js'),{workerData:{locations,assets,emptyFolders,collapsedKeys,limits}}),telemetry=trackWorker(worker,'folder-tree',{filesTotal:assets.length});let settled=false;const finish=(value)=>{if(settled)return;settled=true;telemetry.filesCompleted=assets.length;worker.terminate().catch(()=>{});resolve(value||[]);};worker.once('message',finish);worker.once('error',(error)=>{recordDiagnostic('error','Folder tree worker failed',error);finish([]);});worker.once('exit',()=>finish([]));});});
+ipcMain.handle('folder-tree:build', async(_event, { collapsedKeys = [], limits = {}, metadataOnly = false }) => {const locations=visibleLocations(library.locations).map(({id,path,type})=>({id,path,type})),assets=await projectFolderTreeAssetsCooperatively(),emptyFolders=library.settings?.emptyFolders||{};return new Promise((resolve)=>{const worker=new Worker(path.join(__dirname,'folder-tree-worker.js'),{workerData:{locations,assets,emptyFolders,collapsedKeys,limits,metadataOnly}}),telemetry=trackWorker(worker,'folder-tree',{filesTotal:assets.length});let settled=false;const finish=(value)=>{if(settled)return;settled=true;telemetry.filesCompleted=assets.length;telemetry.expectedExit=true;worker.terminate().catch(()=>{});resolve(value||[]);};worker.once('message',finish);worker.once('error',(error)=>{recordDiagnostic('error','Folder tree worker failed',error);finish([]);});worker.once('exit',()=>finish([]));});});
 ipcMain.handle('diagnostics:log', (_event, { level = 'error', message, context }) => recordDiagnostic(['info','warning','error'].includes(level) ? level : 'error', message, context));
 ipcMain.handle('diagnostics:clear', async () => { diagnosticEntries = []; if (diagnosticsFile) await fsp.writeFile(diagnosticsFile, ''); return true; });
 ipcMain.handle('diagnostics:remove', async (_event, id) => { diagnosticEntries = diagnosticEntries.filter((entry) => entry.id !== id); if (diagnosticsFile) await fsp.writeFile(diagnosticsFile, diagnosticEntries.map((entry) => JSON.stringify(entry)).join('\n') + (diagnosticEntries.length ? '\n' : '')); return true; });
@@ -2041,7 +2065,15 @@ ipcMain.handle('library:remove-location', async (_event, id) => {
 });
 ipcMain.handle('library:rescan', async (_event, request) => {
   const id=typeof request==='string'?request:request?.id,subfolder=typeof request==='string'?'':normalizedSubfolder(request?.subfolder||'');
-  if (id) await scanLocation(id,{rebuildPreviews:true,subfolder});
+  if (id) {
+    const location=library.locations.find(item=>item.id===id),portfolioId=activePortfolioId,progressId=`${portfolioId}:scan:${id}`,label=`Scanning ${subfolder?path.basename(subfolder):location?.name||'folder'}`;
+    if(!location?.scanning){
+      reportBackgroundProgress(progressId,{label,detail:'Checking folder access…',completed:0,done:false,status:'running'});
+      try{await require('./rescan-access').checkRescanSource(location,subfolder);}catch(error){reportBackgroundProgress(progressId,{label,detail:error.message,done:true,status:'failed'});throw error;}
+      if(portfolioId!==activePortfolioId||!(await waitForBackgroundThread(progressId)))return publicLibrarySummary();
+    }
+    if(portfolioId===activePortfolioId)await scanLocation(id,{rebuildPreviews:true,subfolder});
+  }
   else for (const location of library.locations.filter((item)=>!item.autoImportLegacyRoot)) await scanLocation(location.id,{notify:false,rebuildPreviews:true});
   broadcast();
   return publicLibrarySummary();
@@ -2148,6 +2180,7 @@ ipcMain.handle('folder:move-physical', async (_event, { sourceLocationId, source
     return { ...moved, sourceLocationId, destinationLocationId, assets: changedAssets.map((asset) => ({ ...asset, previewUrl: previewUrlFor(asset), mediaUrl: mediaUrlFor(asset) })), locations, settings: { folderAutoTags: library.settings.folderAutoTags || {}, folderLocks: publicFolderLocks(), itemIcons: library.settings.itemIcons || {}, excludedFolders: library.settings.excludedFolders || [], sidebarBranchSort: library.settings.sidebarBranchSort || {} } };
   }catch(error){report(error.message||'Folder move failed',100,{done:true,status:'failed'});throw error;}
 });
+ipcMain.handle('sidebar:create-group',(_event,{type,name,parentId=null})=>{const group=require('./sidebar-groups').createSidebarGroup(library,type,name,parentId);scheduleSave();broadcastSidebar();return group;});
 ipcMain.handle('collection:create', (_event, { name, parentId, id }) => {
   const collection = libraryCore.createCollection(library, name, parentId, id);
   scheduleSave(); broadcastSidebar(); return collection;
@@ -2278,7 +2311,7 @@ ipcMain.handle('assets:similar-groups', (_event, { accuracy = 95, sourceId = nul
   const finish=(groups=[])=>{if(settled)return;settled=true;telemetry.filesCompleted=telemetry.filesTotal;telemetry.status='completed';telemetry.expectedExit=true;if(activeSimilarityJob?.worker===worker)activeSimilarityJob=null;resolve(groups);worker.terminate().catch(()=>{});};activeSimilarityJob={worker,resolve:finish};worker.on('message',(message)=>{if(message.progress){telemetry.filesTotal=Math.max(images.length,Number(message.progress.total)||images.length);telemetry.filesCompleted=Math.min(telemetry.filesTotal,Number(message.progress.completed)||0);telemetry.currentFile=`Comparing ${telemetry.filesCompleted.toLocaleString()} of ${telemetry.filesTotal.toLocaleString()} steps`;reportBackgroundProgress(telemetry.progressId,{label:'Similarity worker',detail:telemetry.currentFile,completed:telemetry.filesCompleted,total:telemetry.filesTotal,pauseSupported:false});return;}if(message.error){recordDiagnostic('error','Similarity worker failed',message.error);finish([]);return;}if(message.groups)finish(message.groups);});worker.once('error',(error)=>{recordDiagnostic('error','Similarity worker failed',error);finish([]);});worker.once('exit',()=>finish([]));
 }));
 ipcMain.handle('assets:set-order',(_event,{scope,order})=>{if(!/^(collection|smart|location|view):/.test(String(scope))||!['modified','indexedAt','name','size','rating'].includes(order?.field)||!['asc','desc'].includes(order?.direction))throw new Error('Invalid item order');library.settings.assetOrders={...(library.settings.assetOrders||{}),[scope]:{field:order.field,direction:order.direction}};scheduleSave();return library.settings.assetOrders[scope];});
-ipcMain.handle('assets:auto-tag',(_event,ids)=>{const selected=new Set(ids);applyTagsInBackground((asset)=>selected.has(asset.id),(asset)=>libraryCore.suggestTags(asset),'Generating local tags');return{pending:true,count:selected.size};});
+ipcMain.handle('assets:auto-tag',(_event,ids)=>{const selected=new Set(ids);applyTagsInBackground((asset)=>selected.has(asset.id),(asset)=>libraryCore.suggestTags(asset,library.settings?.preferences||{},false),'Generating local tags');return{pending:true,count:selected.size};});
 ipcMain.handle('tags:rename', (_event, { from, to }) => {
   const changed=library.assets.filter((asset)=>(asset.tags||[]).some((tag)=>tag.toLowerCase()===String(from).toLowerCase())),replacement = libraryCore.renameTag(library, from, to);
   scheduleAssetSave(changed);broadcastAssetPatches(changed.map((asset)=>({id:asset.id,tags:asset.tags})));return replacement;

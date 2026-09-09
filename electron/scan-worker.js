@@ -11,7 +11,7 @@ async function hashFile(filePath) {
   try {
     const hash = crypto.createHash('sha256'), buffer = Buffer.allocUnsafe(1024 * 1024);
     let position = 0;
-    while (true) { const started = performance.now(), { bytesRead } = await handle.read(buffer, 0, buffer.length, position); if (!bytesRead) break; hash.update(buffer.subarray(0, bytesRead)); position += bytesRead; const busy = performance.now() - started, rest = busy * (1 / dutyCycle - 1); if (rest >= 1) await delay(rest); }
+    while (true) { const { bytesRead } = await handle.read(buffer, 0, buffer.length, position); if (!bytesRead) break; const started = performance.now(); hash.update(buffer.subarray(0, bytesRead)); position += bytesRead; const busy = performance.now() - started, rest = busy * (1 / dutyCycle - 1); if (rest >= 1) await delay(rest); }
     return hash.digest('hex');
   } finally { await handle.close(); }
 }

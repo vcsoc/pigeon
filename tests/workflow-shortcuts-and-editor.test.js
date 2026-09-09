@@ -15,7 +15,7 @@ test('tag replacement preserves scroll and reveals the selected replacement tag'
   const source = renderer.slice(renderer.indexOf('function revealSelectedTag'), renderer.indexOf("elements.tagBrowser.addEventListener('click'"));
   assert.match(source, /previousScrollTop=elements\.gridWrap\.scrollTop/);
   assert.match(source, /selectedTagNames=new Set\(\[String\(resolved\)\.toLowerCase\(\)\]\)/);
-  assert.match(source, /revealSelectedTag\(resolved,previousScrollTop\)/);
+  assert.match(source, /revealSelectedTag\(canonical,previousScrollTop\)/);
   assert.match(source, /row\.scrollIntoView\(\{block:'center'/);
 });
 

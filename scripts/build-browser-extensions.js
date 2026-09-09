@@ -1,5 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const { ZipFile } = require('yazl');
+const { pipeline } = require('node:stream/promises');
 
 const root = path.resolve(__dirname, '..');
 const source = path.join(root, 'browser-extension');
@@ -25,6 +27,23 @@ for (const browser of targets) {
   manifest.name = `Pigeon for ${browserNames[browser]}`;
   fs.writeFileSync(path.join(destination, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 }
+
+async function packageFirefox() {
+  const directory = path.join(output, 'firefox');
+  const manifest = JSON.parse(fs.readFileSync(path.join(directory, 'manifest.json'), 'utf8'));
+  const archive = path.join(output, `Pigeon-${manifest.version}-firefox-unsigned.xpi`);
+  const zip = new ZipFile();
+  for (const name of fs.readdirSync(directory, { recursive: true }).sort()) {
+    const file = path.join(directory, name);
+    if (fs.statSync(file).isFile()) zip.addFile(file, name.split(path.sep).join('/'));
+  }
+  const complete = pipeline(zip.outputStream, fs.createWriteStream(`${archive}.partial`));
+  zip.end();
+  await complete;
+  fs.renameSync(`${archive}.partial`, archive);
+  console.log(`Firefox unsigned XPI: ${path.relative(root, archive)}`);
+}
+packageFirefox().catch((error) => { console.error(error); process.exitCode = 1; });
 
 console.log(`Built ${targets.length} browser packages in ${path.relative(root, output)}`);
 console.log('Safari: run xcrun safari-web-extension-converter release/browser-extensions/safari on macOS to create the signed Xcode wrapper.');

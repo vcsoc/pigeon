@@ -29,8 +29,8 @@ function migrateLibrary(input = {}) {
     trash: Array.isArray(source.trash) ? source.trash : [],
     settings: { ...DEFAULT_LIBRARY.settings, ...(source.settings || {}) }
   };
-  library.collections = library.collections.map((collection,index) => ({ id: collection.id || idFor('collection'), name: collection.name || 'Untitled', parentId: collection.parentId || null, createdAt: collection.createdAt || Date.now(), updatedAt:collection.updatedAt||collection.createdAt||Date.now(),order:Number.isFinite(collection.order)?collection.order:index, lock: collection.lock || null, icon: collection.icon || null }));
-  library.smartFolders = library.smartFolders.map((folder,index) => ({ id: folder.id || idFor('smart-folder'), name: folder.name || 'Saved filter', parentId: folder.parentId || null, filters: folder.filters || {}, createdAt: folder.createdAt || Date.now(),updatedAt:folder.updatedAt||folder.createdAt||Date.now(),order:Number.isFinite(folder.order)?folder.order:index, icon: folder.icon || null }));
+  library.collections = library.collections.map((collection,index) => ({ ...(collection.isGroup===true?{isGroup:true}:{}), id: collection.id || idFor('collection'), name: collection.name || 'Untitled', parentId: collection.parentId || null, createdAt: collection.createdAt || Date.now(), updatedAt:collection.updatedAt||collection.createdAt||Date.now(),order:Number.isFinite(collection.order)?collection.order:index, lock: collection.lock || null, icon: collection.icon || null }));
+  library.smartFolders = library.smartFolders.map((folder,index) => ({ ...(folder.isGroup===true?{isGroup:true}:{}), id: folder.id || idFor('smart-folder'), name: folder.name || 'Saved filter', parentId: folder.parentId || null, filters: folder.isGroup===true?{}:folder.filters || {}, createdAt: folder.createdAt || Date.now(),updatedAt:folder.updatedAt||folder.createdAt||Date.now(),order:Number.isFinite(folder.order)?folder.order:index, icon: folder.icon || null }));
   library.assets = library.assets.map((asset) => ({
     ...asset,
     kind: String(asset.extension||'').toUpperCase()==='PNJ'?'image':asset.kind,
@@ -274,9 +274,10 @@ function replaceTags(library, requestedTags, to) {
   const sources = new Set((Array.isArray(requestedTags) ? requestedTags : [requestedTags]).map((tag) => String(tag || '').trim().toLowerCase()).filter(Boolean));
   const requested = String(to || '').trim();
   if (!sources.size || !requested) throw new Error('Source tags and a replacement tag are required');
-  const existing = library.assets.flatMap((asset) => asset.tags || []).find((tag) => tag.toLowerCase() === requested.toLowerCase());
+  const requestedKey=requested.toLowerCase();let existing;
+  for(const asset of library.assets){existing=(asset.tags||[]).find((tag)=>tag.toLowerCase()===requestedKey);if(existing)break;}
   const replacement = existing || requested, assets = [];
-  const merge = (tags) => { const merged = []; for (const tag of tags || []) { const value = sources.has(String(tag).toLowerCase()) ? replacement : tag; if (!merged.some((item) => item.toLowerCase() === String(value).toLowerCase())) merged.push(value); } return merged; };
+  const merge = (tags) => { const merged = [],seen=new Set(); for (const tag of tags || []) { const value = sources.has(String(tag).toLowerCase()) ? replacement : tag,key=String(value).toLowerCase(); if (!seen.has(key)){seen.add(key);merged.push(value);} } return merged; };
   for (const asset of library.assets) { const current = asset.tags || []; if (!current.some((tag) => sources.has(String(tag).toLowerCase()))) continue; const next = merge(current); if (JSON.stringify(next) !== JSON.stringify(current)) { asset.tags = next; assets.push(asset); } }
   for (const rules of [library.settings?.folderAutoTags, library.settings?.collectionAutoTags]) for (const rule of Object.values(rules || {})) rule.tags = merge(rule.tags);
   return { replacement, replacedTags: [...sources], updatedAssets: assets.length, assets };
@@ -289,7 +290,8 @@ function deleteTags(library, requestedTags) {
   return { deletedTags: [...targets], updatedAssets: assets.length, assets };
 }
 
-function suggestTags(asset) {
+function suggestTags(asset,config,automatic=true) {
+  if(config)return require('../src/auto-tag-rules').generate(asset,config,automatic);
   const words = `${asset.name || ''} ${asset.filename || ''}`.toLowerCase().split(/[^a-z0-9]+/).filter((word) => word.length >= 3 && word.length <= 24);
   const suggestions = new Set(words);
   if (asset.kind) suggestions.add(asset.kind);
