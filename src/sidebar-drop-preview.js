@@ -66,7 +66,7 @@
     marker.hidden=Boolean(viewport&&(box.top<viewport.top||box.top>viewport.bottom));
     marker.dataset.depth=String(box.depth);Object.assign(marker.style,{left:`${box.left}px`,top:`${box.top}px`,width:`${Math.max(20,box.right-box.left)}px`});
   }
-  document.addEventListener('dragstart',event=>{source=metadata(event.target.closest(selector));hide();},true);
+  document.addEventListener('dragstart',event=>{const row=event.target.closest(selector);if(row)hideContextMenu();source=metadata(row);hide();},true);
   document.addEventListener('dragend',()=>{source=null;reset();},true);
   document.addEventListener('drop',()=>{source=null;hide();queueMicrotask(reset);},true);
   document.addEventListener('dragleave',event=>{if(!event.relatedTarget||!event.relatedTarget.closest?.('#sidebar-tree-scroll'))reset();},true);
