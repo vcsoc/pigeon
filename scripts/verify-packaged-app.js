@@ -16,6 +16,8 @@ const criticalFiles = [
   'src/renderer.js',
   'src/sidebar-hierarchy-drag.js',
   'src/sidebar-drop-preview.js',
+  'src/asset-view-change.js',
+  'src/portfolio-navigation.js',
   'src/image-composition-layout.js',
   'src/combine-images.js',
   'electron/combine-images.js',

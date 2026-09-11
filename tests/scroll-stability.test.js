@@ -17,7 +17,7 @@ test('queued virtual relayouts discard stale anchors after direct scroll input',
 test('thumbnail completion relayouts only when logical geometry changes', () => {
   assert.match(renderer, /previousLayoutRatio=assetLayoutRatio\(asset\)/);
   assert.match(renderer, /layoutGeometryChanged=Math\.abs\(assetLayoutRatio\(asset\)-previousLayoutRatio\)>\.0005/);
-  assert.match(renderer, /if\(layoutGeometryChanged\)scheduleThumbnailGeometryRefresh\(layoutAnchor\)/);
+  assert.match(renderer, /if\(layoutGeometryChanged&&\(wasInView\|\|nowInView\)\)scheduleThumbnailGeometryRefresh\(layoutAnchor\)/);
   assert.match(renderer, /if\(Date\.now\(\)>=thumbnailScrollUntil\).*scheduleVirtualLayoutRefresh\(anchor\)/);
   assert.match(renderer, /setTimeout\(\(\)=>\{thumbnailGeometrySettleTimer=null;scheduleThumbnailGeometryRefresh\(captureVirtualLayoutAnchor\(\)\);\}/);
 });

@@ -361,7 +361,7 @@ test('Rows is the default layout and layout names stay concise', () => {
   assert.match(renderer, /grid: \['layout', 'Masonry'\], justified: \['all', 'Rows'\], list: \['menu', 'List'\]/);
   assert.match(renderer, /\['Masonry','Alt\+1'\],\['Rows','Alt\+2'\],\['List','Alt\+4'\]/);
   assert.doesNotMatch(renderer, /Masonry thumbnails|Equal-height rows|List view/);
-  assert.match(packageJson, /"version": "0\.2\.83"/);
+  assert.match(packageJson, /"version": "0\.2\.84"/);
 });
 
 test('justified rows, tag autocomplete, and viewer editing controls are wired', () => {
@@ -905,7 +905,7 @@ test('indexing keeps main and renderer interaction paths responsive', () => {
   assert.match(renderer,/requestIdleCallback/);
   assert.match(renderer,/lastUserInteractionAt/);
   assert.match(renderer,/if\(done\).*scheduleScanGridRender/);
-  assert.match(renderer,/else if\(assets\.length\)scheduleScanGridRender/);
+  assert.match(renderer,/else if\(assets\.length&&result\.affectsView\)scheduleScanGridRender/);
   assert.match(renderer,/view\.preserveCards=true/);
   assert.match(renderer,/!view\.forceFreshCards&&/);
   assert.match(renderer,/rendererAssetIndexes/);
@@ -1262,7 +1262,7 @@ test('Analytics and All Tags preserve the previous library position for back and
   assert.match(renderer,/selectedTagNames/);assert.match(renderer,/event\.shiftKey&&tagSelectionAnchor/);assert.match(renderer,/event\.ctrlKey\|\|event\.metaKey/);assert.match(renderer,/setTagRowSelection\(row,selected\)/);assert.match(renderer,/elements\.tagBrowser\.addEventListener\('pointerdown'/);assert.match(renderer,/selectTagRowWithEvent/);assert.match(renderer,/elements\.tagBrowser\.addEventListener\('click'/);assert.match(renderer,/renderedTagBrowserCatalog===catalog/);assert.match(renderer,/scheduleTagBrowserPrewarm/);assert.match(renderer,/confirmAndDeleteTags/);assert.match(renderer,/removeTagBrowserRows/);assert.match(preload,/deleteTags:/);assert.match(libraryCore,/function deleteTags/);assert.match(main,/persistAssetBatch\(result\.assets\)/);assert.match(styles,/tag-browser:not\(\.hidden\)[^}]*grid-template-columns/);
   assert.match(renderer,/function openAnalytics[^\n]*rememberTemporaryViewOrigin\(\)/);
   assert.match(renderer,/gridScrollTop:Math\.max\(0,Number\(elements\.gridWrap\.scrollTop\)\|\|0\)/);
-  assert.match(renderer,/\['analytics','tags'\]\.includes\(state\.view\)&&navigationReturnState/);
+  assert.match(renderer,/function rememberTemporaryViewOrigin\(/); // Back/forward retains its snapshot; startup now saves the actual selected sidebar view.
   assert.match(renderer,/navigation-back'\)\.addEventListener\('click',returnFromTemporaryView\)/);
   assert.match(renderer,/navigation-forward'\)\.addEventListener\('click',forwardToTemporaryView\)/);
   assert.match(renderer,/close-analytics'\)\.addEventListener\('click',\(\)=>\{if\(!returnFromTemporaryView\(\)\)/);

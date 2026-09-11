@@ -13,7 +13,7 @@
   }
   if(typeof module==='object'&&module.exports){module.exports={destination,geometry};return;}
   const selector='.collection-item,.smart-folder-item,.location-root-button,.location-folder-item';
-  let source=null,marker=null,active=null;
+  let source=null,marker=null,hint=null,active=null,pointer={x:0,y:0};
   function metadata(row){
     if(!row)return null;
     const kind=row.matches('.collection-item')?'collections':row.matches('.smart-folder-item')?'smartFolders':'folders';
@@ -25,7 +25,7 @@
     while(parent&&!seen.has(parent)){seen.add(parent);ancestors.push(parent);parent=byId.get(parent)?.parentId;}
     return {kind,id,item,parent:item?.parentId??null,ancestors};
   }
-  function hide(owner){if(owner&&active?.row!==owner)return;marker?.remove();marker=null;active=null;}
+  function hide(owner){if(owner&&active?.row!==owner)return;marker?.remove();hint?.remove();marker=null;hint=null;active=null;}
   function reset(){hide();for(const row of document.querySelectorAll('[data-drop-zone],#sidebar-tree-scroll .drag-over')){row.classList.remove('drop-before','drop-after','drop-inside','drag-over');delete row.dataset.dropZone;}}
   function show(row,requested='inside',options={}){
     const zone=options.explicit?requested:destination(source,metadata(row),requested);
@@ -33,9 +33,10 @@
     hide();active={row,zone,options};
     marker=document.createElement('div');marker.className='sidebar-placement-placeholder';marker.setAttribute('role','status');marker.dataset.zone=zone;
     const name=(row.querySelector('.location-name')||row.querySelector('.nav-icon + span')||row).textContent.trim();
-    marker.textContent=options.label||`${zone==='inside'?'Inside':zone==='before'?'Before':'After'} ${name}`;
-    document.body.append(marker);position();return zone;
+    const label=options.label||`${zone==='inside'?'Inside':zone==='before'?'Before':'After'} ${name}`;marker.setAttribute('aria-label',label);
+    hint=document.createElement('div');hint.className='sidebar-drag-destination';hint.textContent=label;hint.setAttribute('aria-hidden','true');document.body.append(marker,hint);position();positionHint();return zone;
   }
+  function positionHint(){if(!hint)return;const width=hint.getBoundingClientRect().width;hint.style.left=`${Math.max(8,Math.min(pointer.x+12,innerWidth-width-8))}px`;hint.style.top=`${pointer.y+36}px`;}
   function position(){
     if(!active||!marker)return;
     const {row,zone,options}=active;if(!row.isConnected||!row.getClientRects().length){hide();return;}
@@ -66,7 +67,8 @@
     marker.hidden=Boolean(viewport&&(box.top<viewport.top||box.top>viewport.bottom));
     marker.dataset.depth=String(box.depth);Object.assign(marker.style,{left:`${box.left}px`,top:`${box.top}px`,width:`${Math.max(20,box.right-box.left)}px`});
   }
-  document.addEventListener('dragstart',event=>{const row=event.target.closest(selector);if(row)hideContextMenu();source=metadata(row);hide();},true);
+  document.addEventListener('dragstart',event=>{const row=event.target.closest(selector);if(row)hideContextMenu();pointer={x:event.clientX,y:event.clientY};source=metadata(row);hide();},true);
+  document.addEventListener('dragover',event=>{pointer={x:event.clientX,y:event.clientY};positionHint();},true);
   document.addEventListener('dragend',()=>{source=null;reset();},true);
   document.addEventListener('drop',()=>{source=null;hide();queueMicrotask(reset);},true);
   document.addEventListener('dragleave',event=>{if(!event.relatedTarget||!event.relatedTarget.closest?.('#sidebar-tree-scroll'))reset();},true);
