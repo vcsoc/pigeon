@@ -8,6 +8,8 @@ window.addEventListener('DOMContentLoaded',()=>{const target=document.getElement
 
 contextBridge.exposeInMainWorld('pigeon', {
   getLibrary: () => ipcRenderer.invoke('library:get'),
+  combineImages: (payload) => ipcRenderer.invoke('images:combine',payload),
+  cancelCombineImages: () => ipcRenderer.invoke('images:cancel-combine'),
   rendererReady: () => ipcRenderer.invoke('renderer:ready'),
   getAppInfo: () => ipcRenderer.invoke('app:info'),
   getLegalDocuments: () => ipcRenderer.invoke('app:legal-documents'),

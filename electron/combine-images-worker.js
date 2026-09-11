@@ -1,0 +1,13 @@
+'use strict';
+const {parentPort,workerData}=require('node:worker_threads'),fs=require('node:fs/promises'),sharp=require('sharp'),{layout}=require('../src/image-composition-layout');
+const escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c]));
+(async()=>{
+ const {images,options,target}=workerData;if(!Array.isArray(images)||images.length<2||images.length>64)throw Error('Select 2–64 images');
+ const dimensions=[];for(const image of images){const meta=await sharp(image.source,{limitInputPixels:100000000,animated:false}).metadata();if(!['jpeg','png','webp','tiff','gif','heif','avif'].includes(meta.format))throw Error('Combine Images supports raster images (JPEG, PNG, WebP, TIFF, GIF and supported HEIF/AVIF), not vector or RAW originals');let width=meta.width,height=meta.pageHeight||meta.height;if(meta.orientation>=5)[width,height]=[height,width];if(Math.abs(image.rotation||0)%180===90)[width,height]=[height,width];dimensions.push({width,height});}
+ const plan=layout(dimensions,options),background=/^#[0-9a-f]{6}$/i.test(options.background||'')?options.background:'#ffffff',overlays=[],color=parseInt(background.slice(1),16),foreground=((color>>16)*.299+((color>>8)&255)*.587+(color&255)*.114)>128?'#222222':'#f5f5f5';
+ for(const cell of plan.cells){const image=images[cell.index],buffer=await sharp(image.source,{limitInputPixels:100000000,animated:false}).autoOrient().rotate(Number(image.rotation)||0).resize(cell.width,cell.imageHeight,{fit:'contain',background}).png().toBuffer();overlays.push({input:buffer,left:cell.x,top:cell.y});
+  if(cell.labelHeight){const font=Math.max(1,Math.floor(cell.labelHeight*.6)),maxChars=Math.max(1,Math.floor(cell.width/(font*.65))),raw=String(image.filename||'').replace(/\s+/g,' ').slice(0,240),label=raw.length>maxChars?raw.slice(0,Math.max(0,maxChars-1))+'…':raw,svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${cell.width}" height="${cell.labelHeight}"><rect width="100%" height="100%" fill="${background}"/><text x="50%" y="70%" text-anchor="middle" font-family="sans-serif" font-size="${font}" fill="${foreground}">${escape(label)}</text></svg>`;overlays.push({input:Buffer.from(svg),left:cell.x,top:cell.y+cell.imageHeight});}
+  parentPort.postMessage({progress:overlays.length,total:plan.cells.length*(options.filenames?2:1)});
+ }
+ const buffer=await sharp({create:{width:plan.width,height:plan.height,channels:3,background}}).composite(overlays).png().toBuffer();await fs.writeFile(target,buffer,{flag:'wx'});parentPort.postMessage({done:true,width:plan.width,height:plan.height,count:images.length});
+})().catch(error=>parentPort.postMessage({error:error.message}));

@@ -6,7 +6,7 @@ const source=fs.readFileSync(require('node:path').join(__dirname,'../src/rendere
 test('double Escape round trip restores folder, filters, selection and scroll',()=>{
   const state={library:{activePortfolioId:'portfolio'},view:'all',locationId:'usb',locationSubfolder:'pictures/travel',collectionId:null,smartFolderId:null,selectedId:'photo',selectedIds:new Set(['photo','other']),selectionAnchorId:'photo',similarIds:null,showCheckedOnly:false,includeSubfolderContent:false,kind:'image',query:'trip',filters:{tags:new Set(['travel']),ratings:new Set([5])},gridScrollTop:1234};
   const elements={search:{value:'trip'},title:{textContent:'Travel'},gridWrap:{scrollTop:1234}};
-  const context={state,elements,Set,hideInternalViewer(){},clearInlinePasswordDraft(){},resetRenderLimit(){},updateFilterChips(){},renderNavigationDestination(){},clearSelection(){state.selectedIds.clear();state.selectionAnchorId=null;},captureNavigationSnapshot:undefined};
+  const context={state,elements,Set,cooperativeAssetView:null,libraryAggregateRevision:0,assetViewSignature:()=>'',hideInternalViewer(){},clearInlinePasswordDraft(){},resetRenderLimit(){},updateFilterChips(){},renderNavigationDestination(){},clearSelection(){state.selectedIds.clear();state.selectionAnchorId=null;},captureNavigationSnapshot:undefined};
   const start=source.indexOf('let pigeonTaggedReturnState=');
   // The original compact final line terminates the toggle.
   const match=source.slice(start).match(/^[\s\S]*?renderNavigationDestination\(\);\}/);
