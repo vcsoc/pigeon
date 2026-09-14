@@ -10,12 +10,14 @@ function createIncrementalWorkQueue({
     Math.min(8, Math.trunc(Number(maxConcurrency)) || 1),
   );
   const seen = new Set(),
+    completedKeys = new Set(),
     queue = [],
     activeIds = new Set();
   let cursor = 0,
     active = 0,
     closed = false,
     completed = 0,
+    total = 0,
     resolveDone;
   const done = new Promise((resolve) => {
     resolveDone = resolve;
@@ -23,7 +25,7 @@ function createIncrementalWorkQueue({
   const report = () =>
     onProgress({
       completed,
-      total: seen.size,
+      total,
       done: closed && !active && cursor >= queue.length,
     });
 
@@ -33,6 +35,7 @@ function createIncrementalWorkQueue({
     } catch (error) {
       onError(error, item);
     } finally {
+      completedKeys.add(item.id + ':' + item.version);
       activeIds.delete(item.id);
       active--;
       completed++;
@@ -64,12 +67,14 @@ function createIncrementalWorkQueue({
     if (closed && !active && cursor >= queue.length) resolveDone();
   }
   return {
-    add(items) {
+    add(items, { retryCompleted = false } = {}) {
       if (closed || !isActive()) return;
       for (const item of items) {
         const key = item.id + ":" + item.version;
-        if (seen.has(key)) continue;
+        if (seen.has(key) && (!retryCompleted || !completedKeys.has(key))) continue;
+        completedKeys.delete(key);
         seen.add(key);
+        total++;
         queue.push(item);
       }
       pump();

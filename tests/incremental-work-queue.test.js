@@ -161,6 +161,6 @@ test("scan waves feed the preview queue without awaiting generation", () => {
     main,
     /broadcastScanAssets\(location,waveAssets\);previewQueue.add\(waveAssets\)/,
   );
-  assert.match(main, /!previewQueue.has\(asset\)/);
+  assert.match(main, /&&thumbnailWorkRequired\(asset\)/);
   assert.match(main, /progressId:job.progressId\|\|/);
 });
