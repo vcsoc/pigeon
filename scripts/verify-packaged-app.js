@@ -26,6 +26,8 @@ const criticalFiles = [
   'electron/main.js',
   'electron/rescan-requests.js',
   'electron/sidebar-placement.js',
+  'electron/region-effects.js',
+  'src/editor-region-effects.js',
   'electron/scan-preview-sessions.js',
   'electron/incremental-work-queue.js',
   'electron/preload.js',

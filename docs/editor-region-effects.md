@@ -1,0 +1,13 @@
+# Blur and pixelate image regions
+
+1. Open an image in the editor.
+2. Choose **Blur region** or **Pixelate region**, then drag a rectangle over the image.
+3. The new region is selected automatically. Drag it to move it, use its corner handle to resize it, or edit its X/Y/width/height fields.
+4. Adjust **Effect strength** (1–100) under Selected layer. Each region has its own strength. Select an existing region with Select or the Layers list; Delete layer removes it before saving.
+5. Add more regions of either type as needed. Save commits their pixels to Pigeon's edited version; Save copy renders them into the exported image. The original file is not modified.
+
+Live previews are scaled for responsiveness; saving uses full-resolution image pixels. Regions remain axis-aligned in source coordinates and follow whole-image rotation/flip/resize. Later overlapping regions take precedence; text and rectangle annotations appear above image effects. Up to 32 effect regions are supported, with an 80-megapixel input/combined-region-area limit. Excessive requests fail rather than silently dropping regions.
+
+Saved effects are committed pixels, not individually adjustable saved filter layers. After Save, their temporary layer controls are removed to avoid applying them twice when reopening. Restore original can discard the edited version. Export an edited copy—not the original—when sharing the result.
+
+**Blur and pixelation are visual effects, not guaranteed secure redaction.**

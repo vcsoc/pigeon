@@ -36,7 +36,8 @@ async function renderImageDerivative(source,target,options={}){
   const adjustments=normalizedAdjustments(options),format=outputFormat(options.format,target);
   let pipeline=sharp(source,{limitInputPixels:200*1024*1024,animated:false}).rotate();
   const sourceMetadata=await pipeline.metadata();let width=sourceMetadata.autoOrient?.width||sourceMetadata.width,height=sourceMetadata.autoOrient?.height||sourceMetadata.height;
-  if(options.annotations?.length){const shapes=options.annotations.map(annotationSvg).join(''),annotated=await pipeline.composite([{input:Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">${shapes}</svg>`)}]).png().toBuffer();pipeline=sharp(annotated,{limitInputPixels:200*1024*1024});}
+  if(options.annotations?.some(require('../src/editor-region-effects').isEffect))pipeline=await require('./region-effects').applyRegionEffects(pipeline,options.annotations,width,height);
+  if(options.annotations?.length){const shapes=options.annotations.map(annotationSvg).join('');if(shapes){const annotated=await pipeline.composite([{input:Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">${shapes}</svg>`)}]).png().toBuffer();pipeline=sharp(annotated,{limitInputPixels:200*1024*1024});}}
   if(adjustments.rotate){pipeline=pipeline.rotate(adjustments.rotate);if(adjustments.rotate%180)[width,height]=[height,width];}
   if(adjustments.flip)pipeline=pipeline.flop();
   const crop=normalizedCrop(options.crop,width,height);if(crop){pipeline=pipeline.extract(crop);width=crop.width;height=crop.height;}
