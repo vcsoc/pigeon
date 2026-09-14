@@ -4,7 +4,7 @@
     if(!source||!target)return 'inside';
     if(source.kind===target.kind){
       if(source.id===target.id||target.ancestors?.includes(source.id)||source.kind==='folders'&&source.parent===target.id)return null;
-      if(source.kind!=='folders'&&source.parent===target.parent&&requested!=='inside')return requested;
+      if(source.kind!=='folders'&&['before','after'].includes(requested))return requested;
     }
     return 'inside';
   }

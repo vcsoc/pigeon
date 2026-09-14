@@ -25,6 +25,7 @@ const criticalFiles = [
   'pigeon-logo.png',
   'electron/main.js',
   'electron/rescan-requests.js',
+  'electron/sidebar-placement.js',
   'electron/scan-preview-sessions.js',
   'electron/incremental-work-queue.js',
   'electron/preload.js',

@@ -2206,9 +2206,10 @@ ipcMain.handle('collection:rename', (_event, { id, name }) => {
   const collection = libraryCore.renameCollection(library, id, name);
   scheduleSave(); broadcastSidebar(); return collection;
 });
-ipcMain.handle('collection:move', (_event, { id, parentId }) => {
-  const collection = libraryCore.moveCollection(library, id, parentId), movedIds = collectionDescendants(id);
-  const changedAssets=[];for (const asset of library.assets) if ((asset.collectionIds || []).some((collectionId) => movedIds.has(collectionId))){asset.tags = [...new Set([...(asset.tags || []), ...configuredCollectionTags(asset.collectionIds)])];changedAssets.push(asset);}
+ipcMain.handle('collection:move', (_event, { id, parentId, placement }) => {
+  const ordering=placement?require('./sidebar-placement').plan(library,'collections',id,placement):null;if(ordering)parentId=ordering.parentId;
+  const reorderOnly=Boolean(ordering&&(library.collections.find(item=>item.id===id)?.parentId??null)===ordering.parentId),collection = libraryCore.moveCollection(library, id, parentId), movedIds = reorderOnly?new Set():collectionDescendants(id);if(ordering)require('./sidebar-placement').apply(library,ordering);
+  const changedAssets=[];if(movedIds.size)for (const asset of library.assets) if ((asset.collectionIds || []).some((collectionId) => movedIds.has(collectionId))){asset.tags = [...new Set([...(asset.tags || []), ...configuredCollectionTags(asset.collectionIds)])];changedAssets.push(asset);}
   if(changedAssets.length)scheduleAssetSave(changedAssets);scheduleSave(); broadcastSidebar(); return collection;
 });
 ipcMain.handle('collection:set-password', async (_event, { id, password, encrypt }) => {
@@ -2261,8 +2262,9 @@ ipcMain.handle('smart-folder:rename', (_event, { id, name }) => {
   const smartFolder = libraryCore.renameSmartFolder(library, id, name); scheduleSave(); broadcastSidebar(); return smartFolder;
 });
 ipcMain.handle('smart-folder:update',(_event,{id,name,filters})=>{const folder=libraryCore.renameSmartFolder(library,id,name);folder.filters=filters||{};folder.updatedAt=Date.now();scheduleSave();broadcastSidebar();return folder;});
-ipcMain.handle('smart-folder:move', (_event, { id, parentId }) => {
-  const smartFolder = libraryCore.moveSmartFolder(library, id, parentId); scheduleSave(); broadcastSidebar(); return smartFolder;
+ipcMain.handle('smart-folder:move', (_event, { id, parentId, placement }) => {
+  const ordering=placement?require('./sidebar-placement').plan(library,'smartFolders',id,placement):null;if(ordering)parentId=ordering.parentId;
+  const smartFolder = libraryCore.moveSmartFolder(library, id, parentId);if(ordering)require('./sidebar-placement').apply(library,ordering); scheduleSave(); broadcastSidebar(); return smartFolder;
 });
 ipcMain.handle('smart-folder:remove', (_event, id) => {
   const removed = libraryCore.removeSmartFolder(library, id); scheduleSave(); broadcastSidebar(); return removed;
