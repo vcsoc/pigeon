@@ -15,7 +15,9 @@ if (
 }
 app.setPath("userData", profile);
 app.setPath("sessionData", profile);
-const root = path.resolve(__dirname, "../..");
+const requestedRoot=process.env.PIGEON_E2E_APP_ROOT;
+if(requestedRoot&&!path.isAbsolute(requestedRoot))throw Error('PIGEON_E2E_APP_ROOT must be absolute');
+const root = requestedRoot || path.resolve(__dirname, "../..");
 app.getAppPath = () => root;
 fs.writeFileSync(
   path.join(profile, "e2e-environment.json"),
@@ -30,4 +32,4 @@ if (process.env.PIGEON_E2E_HEADLESS === "1") {
     window.once("ready-to-show", () => window.setSize(1440, 1000));
   });
 }
-require("../../electron/main.js");
+require(path.join(root,"electron/main.js"));

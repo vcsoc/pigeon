@@ -11,7 +11,7 @@ const BUILT_IN_PLUGINS = [{
   id: 'ai-removal',
   legacyDirectories: ['AI Removal'],
   name: 'AI Object Removal',
-  version: '1.1.1',
+  version: '1.1.2',
   author: 'Pigeon',
   category: 'Image editing',
   description: 'Remove painted objects with a private Simple LaMa vision-inpainting model running on this computer.',
@@ -72,35 +72,14 @@ function runCommand(command, args, cwd, { timeoutMs = 900000, signal = null, onO
     }
   });
 }
-async function compatiblePython(configured = 'auto') {
-  const requested = String(configured || 'auto').trim();
-  const check = async (executable, args = []) => {
-    try {
-      const output = await runCommand(executable, [...args, '-c', 'import sys; print(sys.executable); print(f"{sys.version_info.major}.{sys.version_info.minor}")'], process.cwd(), { timeoutMs: 20000 });
-      const lines = output.trim().split(/\r?\n/), version = lines.at(-1);
-      return ['3.10', '3.11'].includes(version) ? { executable: lines.at(-2), version } : null;
-    } catch { return null; }
-  };
-  if (!['auto', 'python'].includes(requested.toLowerCase())) {
-    const found = await check(requested);
-    if (found) return found;
-    throw new Error('AI Object Removal requires Python 3.10 or 3.11. Choose a compatible executable or set Python to auto.');
-  }
-  if (process.platform === 'win32') {
-    for (const version of ['-3.11', '-3.10']) { const found = await check('py', [version]); if (found) return found; }
-  }
-  try {
-    const executable = (await runCommand('uv', ['python', 'find', '3.11'], process.cwd(), { timeoutMs: 20000 })).trim().split(/\r?\n/).at(-1);
-    const found = executable && await check(executable);
-    if (found) return found;
-  } catch {}
-  for (const executable of ['python3.11', 'python3.10', 'python']) { const found = await check(executable); if (found) return found; }
-  throw new Error('Python 3.10 or 3.11 was not found. Install Python 3.11, install uv, or configure a compatible executable in Plugin Manager.');
+async function compatiblePython(configured = 'auto', options = {}) {
+  return require('./plugin-python').resolvePluginPython(configured,{run:runCommand,...options});
 }
 
 function createPluginManager({ pluginsDir, bundledDir }) {
   const stateFile = path.join(pluginsDir, 'plugin-state.json');
-  const processes = new Map(), runtime = new Map(), setupOperations = new Map(), logs = new Map();
+  const processes = new Map(), runtime = new Map(), setupOperations = new Map(), startOperations = new Map(), logs = new Map();
+  let closed=false;
   const pluginDirectory = (id) => path.join(pluginsDir, id);
   const modelPaths = (id) => {
     const directory = pluginDirectory(id), modelDirectory = path.join(directory, 'models'), target = path.join(modelDirectory, 'lama_fp32.onnx');
@@ -162,6 +141,8 @@ function createPluginManager({ pluginsDir, bundledDir }) {
         python: current.python || record.python || null, logs: logs.get(plugin.id) || []
       });
     }
+    const enlarger=require('./bundled-ai').enlargerInfo(),enlargerRuntime=runtime.get('ai-enlarger');
+    result.push({...enlarger,...enlargerRuntime,statusDetail:enlargerRuntime?.detail||enlarger.statusDetail});
     let names = [];
     try { names = await fsp.readdir(pluginsDir); } catch {}
     for (const name of names.filter((item) => item.endsWith('.js'))) {
@@ -188,12 +169,13 @@ function createPluginManager({ pluginsDir, bundledDir }) {
     };
     setRuntime(id, 'installing', existing ? `Resuming Simple LaMa download at ${Math.round(existing / 1024 / 1024)} MB…` : 'Connecting to the Simple LaMa model download…', { progress: { phase: 'download', received: existing, total: LAMA_MODEL_BYTES } });
     let response = await request(existing);
-    if (existing && response.status !== 206) { existing = 0; await fsp.rm(partial, { force: true }); response = await request(0); }
+    if (existing && response.status === 200) existing = 0;
     if (!response.ok || !response.body) throw new Error(`Model download failed with HTTP ${response.status}. Check your connection and choose Resume setup to retry.`);
     const contentRange = response.headers.get('content-range'), parsedRangeTotal = Number(contentRange?.split('/').at(-1)), contentLength = Number(response.headers.get('content-length'));
     const total = Number.isFinite(parsedRangeTotal) ? parsedRangeTotal : Number.isFinite(contentLength) ? existing + contentLength : LAMA_MODEL_BYTES;
     if (total < LAMA_MODEL_MIN_BYTES || total > LAMA_MODEL_MAX_BYTES) throw new Error('The model host reported an unsafe download size. No model was installed.');
-    const stream = fs.createWriteStream(partial, { flags: existing ? 'a' : 'w' }), reader = response.body.getReader();
+    if(response.status===206){const range=/^bytes (\d+)-(\d+)\/(\d+)$/.exec(contentRange||'');if(!range||Number(range[1])!==existing||Number(range[2])<existing||Number(range[2])>=total){await response.body.cancel();throw new Error('Model download returned an invalid byte range. The partial download was retained.');}}
+    const stream = await fsp.open(partial, existing ? 'a' : 'w'), reader = response.body.getReader();
     let received = existing, lastReported = -1;
     try {
       while (true) {
@@ -202,16 +184,15 @@ function createPluginManager({ pluginsDir, bundledDir }) {
         if (signal.aborted) throw new Error('Plugin setup was canceled');
         received += value.byteLength;
         if (received > LAMA_MODEL_MAX_BYTES) throw new Error('The model download exceeded the safety limit.');
-        if (!stream.write(Buffer.from(value))) await new Promise((resolve) => stream.once('drain', resolve));
+        await stream.writeFile(value);
         const percent = Math.min(99, Math.floor(received / total * 100));
         if (percent !== lastReported) {
           lastReported = percent;
           setRuntime(id, 'installing', `Downloading Simple LaMa ONNX · ${percent}% · ${Math.round(received / 1024 / 1024)} of ${Math.round(total / 1024 / 1024)} MB`, { progress: { phase: 'download', percent, received, total } });
         }
       }
-      await new Promise((resolve, reject) => stream.end((error) => error ? reject(error) : resolve()));
-    } catch (error) { stream.destroy(); throw error; }
-    if (received < LAMA_MODEL_MIN_BYTES) throw new Error('The model download is incomplete. The partial download was retained for Resume setup.');
+    } finally { await reader.cancel().catch(()=>{});await stream.close(); }
+    if (received !== total || received < LAMA_MODEL_MIN_BYTES) throw new Error('The model download is incomplete. The partial download was retained for Resume setup.');
     await fsp.rm(target, { force: true });
     await fsp.rename(partial, target);
     setRuntime(id, 'installing', 'Model downloaded · validating with ONNX Runtime…', { progress: { phase: 'validation', percent: 100, received, total } });
@@ -232,6 +213,7 @@ function createPluginManager({ pluginsDir, bundledDir }) {
     if (setupOperations.has(id)) throw new Error('Setup is already running. Progress is shown in Plugin Manager.');
     const plugin = BUILT_IN_PLUGINS.find((item) => item.id === id);
     if (!plugin || !await installed(plugin)) throw new Error('Install the plugin first');
+    if(closed)throw new Error('Plugin manager is closed');
     const controller = new AbortController();
     setupOperations.set(id, controller);
     try {
@@ -241,8 +223,11 @@ function createPluginManager({ pluginsDir, bundledDir }) {
       const venvPython = process.platform === 'win32' ? path.join(venv, 'Scripts', 'python.exe') : path.join(venv, 'bin', 'python');
       let pythonInfo = state.plugins[id]?.python || null;
       setRuntime(id, 'installing', 'Finding Python 3.10/3.11…', { progress: { phase: 'python', percent: null } });
-      if (!await existingFile(venvPython)) {
-        pythonInfo = await compatiblePython(config.pythonExecutable);
+      let runtimeValid=false;
+      if(await existingFile(venvPython)){try{pythonInfo=await compatiblePython(venvPython,{signal:controller.signal});await runCommand(venvPython,['-m','pip','--version'],directory,{timeoutMs:10000,signal:controller.signal});runtimeValid=true;}catch{controller.signal.throwIfAborted();}}
+      if (!runtimeValid) {
+        pythonInfo = await compatiblePython(config.pythonExecutable,{installMissing:true,managedDir:path.join(pluginsDir,'.runtime-tools'),signal:controller.signal,onOutput:text=>{appendLog(id,text);if(/^(Installing managed Python|Installing a private uv)/.test(text))setRuntime(id,'installing',text,{progress:{phase:'python',percent:null}});}});
+        if(await existingFile(venv))await fsp.rename(venv,`${venv}.repair-${Date.now()}`);
         setRuntime(id, 'installing', `Creating a private Python ${pythonInfo.version} environment…`, { python: pythonInfo, progress: { phase: 'environment', percent: null } });
         await runCommand(pythonInfo.executable, ['-m', 'venv', venv], directory, { signal: controller.signal, onOutput: (text) => appendLog(id, text) });
       } else {
@@ -253,9 +238,12 @@ function createPluginManager({ pluginsDir, bundledDir }) {
       }
       setRuntime(id, 'installing', 'Installing ONNX Runtime and image-processing dependencies…', { python: pythonInfo, progress: { phase: 'dependencies', percent: null } });
       await runCommand(venvPython, ['-m', 'pip', 'install', '--disable-pip-version-check', '-r', path.join(directory, 'requirements.txt')], directory, { signal: controller.signal, onOutput: (text) => appendLog(id, text) });
+      const importCheck=['-c','import flask, PIL.Image, numpy, onnxruntime'];
+      try{await runCommand(venvPython,importCheck,directory,{timeoutMs:10000,signal:controller.signal});}catch{controller.signal.throwIfAborted();setRuntime(id,'installing','Repairing an interrupted dependency installation…');await runCommand(venvPython,['-m','pip','install','--force-reinstall','--disable-pip-version-check','-r',path.join(directory,'requirements.txt')],directory,{signal:controller.signal,onOutput:text=>appendLog(id,text)});await runCommand(venvPython,importCheck,directory,{timeoutMs:10000,signal:controller.signal});}
       await downloadLamaModel(directory, id, controller.signal);
       setRuntime(id, 'installing', 'Validating the model and ONNX input contract…', { python: pythonInfo, progress: { phase: 'validation', percent: null } });
-      await runCommand(venvPython, [path.join(directory, 'server.py'), '--prepare-model'], directory, { signal: controller.signal, onOutput: (text) => appendLog(id, text) });
+      const validate=()=>runCommand(venvPython,[path.join(directory,'server.py'),'--prepare-model'],directory,{signal:controller.signal,onOutput:text=>appendLog(id,text)});
+      try{await validate();}catch(error){controller.signal.throwIfAborted();const files=modelPaths(id);setRuntime(id,'installing','The cached model failed validation. Keeping a backup and downloading a fresh copy…');await fsp.rm(`${files.target}.invalid`,{force:true});await fsp.rename(files.target,`${files.target}.invalid`);await downloadLamaModel(directory,id,controller.signal);await validate();}
       const nextState = await load();
       nextState.plugins[id] = { ...(nextState.plugins[id] || {}), python: pythonInfo };
       await save(nextState);
@@ -287,6 +275,8 @@ function createPluginManager({ pluginsDir, bundledDir }) {
   }
   async function healthEndpoint(config) { return new URL('/health', config.endpoint).toString(); }
   async function health(id, { attempts = 1 } = {}) {
+    if(closed)return{ok:false,detail:'Plugin manager is closed'};
+    if(id==='ai-enlarger'){const result=await require('./bundled-ai').testEnlarger();setRuntime(id,result.ok?'ready':'error',result.detail);return result;}
     const plugin = (await list()).find((item) => item.id === id);
     if (!plugin?.installed) return { ok: false, detail: 'Plugin is not installed.' };
     const endpoint = await healthEndpoint(plugin.configured);
@@ -298,11 +288,15 @@ function createPluginManager({ pluginsDir, bundledDir }) {
         if (response.ok && payload.ok && payload.modelReady) return { ok: true, endpoint, model: payload.model, detail: `${payload.model} is healthy at ${endpoint}` };
         lastError = new Error(payload.modelReady === false ? 'The service is running but its model is not ready.' : `Health check returned HTTP ${response.status}.`);
       } catch (error) { lastError = error; }
+      if(closed||runtime.get(id)?.status==='error'&&!processes.has(id))break;
       if (attempt + 1 < attempts) await new Promise((resolve) => setTimeout(resolve, 300));
     }
     return { ok: false, endpoint, detail: formatError(lastError || 'The local service did not respond.') };
   }
   async function start(id) {
+    if(closed)throw new Error('Plugin manager is closed');
+    if(startOperations.has(id))return startOperations.get(id);
+    const operation=(async()=>{
     const plugin = BUILT_IN_PLUGINS.find((item) => item.id === id);
     if (!plugin || !await installed(plugin)) throw new Error('Install the plugin first');
     const bundledEntry=path.join(bundledDir,plugin.id,plugin.entry),installedEntry=path.join(pluginDirectory(plugin.id),plugin.entry);
@@ -317,9 +311,14 @@ function createPluginManager({ pluginsDir, bundledDir }) {
     const state = await load(), config = { ...pluginDefaults(plugin), ...(state.plugins[id]?.config || {}) };
     if (!isLoopbackEndpoint(config.endpoint)) throw new Error('AI Removal requires a loopback-only HTTP endpoint');
     const model = await inspectModel(id);
-    if (!model.ready) throw new Error('Simple LaMa is not ready. Choose Install & set up or Resume setup first.');
+    const runtimePython=process.platform==='win32'?path.join(pluginDirectory(id),'.venv','Scripts','python.exe'):path.join(pluginDirectory(id),'.venv','bin','python');
+    let runtimeHealthy=false;try{await runCommand(runtimePython,['-c','import flask, PIL, numpy, onnxruntime'],pluginDirectory(id),{timeoutMs:10000});runtimeHealthy=true;}catch{}
+    if(closed)throw new Error('Plugin manager is closed');
+    if(!model.ready||!runtimeHealthy){setRuntime(id,'installing','Repairing missing runtime, dependencies, or model automatically…');await setup(id);}
+    if(closed)throw new Error('Plugin manager is closed');
     const directory = pluginDirectory(id), venvPython = process.platform === 'win32' ? path.join(directory, '.venv', 'Scripts', 'python.exe') : path.join(directory, '.venv', 'bin', 'python');
     if (!await existingFile(venvPython)) throw new Error('The managed Python runtime is missing. Choose Repair runtime & model.');
+    if(closed)throw new Error('Plugin manager is closed');
     const endpoint = new URL(config.endpoint), child = spawn(venvPython, [path.join(directory, plugin.entry)], {
       cwd: directory, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, PIGEON_AI_REMOVAL_PORT: endpoint.port || '8765' }
     });
@@ -327,13 +326,17 @@ function createPluginManager({ pluginsDir, bundledDir }) {
     setRuntime(id, 'starting', 'Loading Simple LaMa ONNX and starting the private local service…');
     child.stdout.on('data', (chunk) => appendLog(id, chunk));
     child.stderr.on('data', (chunk) => appendLog(id, chunk));
-    child.once('error', (error) => { if (processes.get(id) === child) processes.delete(id); setRuntime(id, 'error', formatError(error)); });
-    child.once('exit', (code) => { if (processes.get(id) === child) processes.delete(id); if (runtime.get(id)?.status !== 'stopped') setRuntime(id, code === 0 ? 'stopped' : 'error', `Local AI service stopped with code ${code}. See setup log for details.`); });
+    child.once('error', (error) => { if (processes.get(id) !== child)return;processes.delete(id); setRuntime(id, 'error', formatError(error)); });
+    child.once('exit', (code) => { if (processes.get(id) !== child)return;processes.delete(id); if (runtime.get(id)?.status !== 'stopped') setRuntime(id, code === 0 ? 'stopped' : 'error', `Local AI service stopped with code ${code}. See setup log for details.`); });
     child.unref();
     const checked = await health(id, { attempts: 180 });
+    if(closed)throw new Error('Plugin manager is closed');
     if (!checked.ok) { const recent=(logs.get(id)||[]).slice(-4).join(' · ');stop(id);throw new Error(`AI service could not start · ${checked.detail}${recent?` · ${recent}`:''}`); }
     setRuntime(id, 'running', checked.detail);
     return checked;
+    })();
+    startOperations.set(id,operation);
+    try{return await operation;}finally{startOperations.delete(id);}
   }
   async function ensureRunning(id) {
     const state = await load();
@@ -343,11 +346,12 @@ function createPluginManager({ pluginsDir, bundledDir }) {
     return start(id);
   }
   async function setEnabled(id, enabled) {
-    const state = await load(), plugins = await list(), plugin = plugins.find((item) => item.id === id);
+    const plugins = await list(), plugin = plugins.find((item) => item.id === id);
     if (!plugin) throw new Error('Plugin not found');
     if (!plugin.installed) throw new Error('Install the plugin first');
     if (enabled && plugin.kind === 'service') await start(id);
     if (!enabled && plugin.kind === 'service') stop(id);
+    const state=await load();
     state.plugins[id] = { ...(state.plugins[id] || {}), enabled: Boolean(enabled), config: { ...(plugin.configured || {}), ...(state.plugins[id]?.config || {}) } };
     await save(state);
     return list();
@@ -406,7 +410,7 @@ function createPluginManager({ pluginsDir, bundledDir }) {
   async function restoreEnabled() {
     for (const plugin of await list()) if (plugin.enabled && plugin.kind === 'service') start(plugin.id).catch((error) => setRuntime(plugin.id, 'error', formatError(error)));
   }
-  function close() { for (const operation of setupOperations.values()) operation.abort(); for (const id of [...processes.keys()]) stop(id); }
+  function close() { closed=true;for (const operation of setupOperations.values()) operation.abort(); for (const id of [...processes.keys()]) stop(id); }
   return { list, install, setup, prepare, cancelSetup, health, ensureRunning, importModel, removeModel, uninstall, setEnabled, configure, configuration, restoreEnabled, close };
 }
 

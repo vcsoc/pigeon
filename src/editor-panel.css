@@ -26,7 +26,7 @@
 .annotation-layer-list small{font-size:12px;color:#939fae;padding:4px 0}
 .annotation-toolbar :is(p,small){font-size:calc(11px * var(--app-font-scale));line-height:1.5}
 .annotation-toolbar summary{cursor:pointer;color:#b9c9dd;font-size:calc(12px * var(--app-font-scale));padding:5px 0}
-.editor-help p{padding-top:8px}.ai-enlarge-controls[open]>:not(summary){margin-top:9px}
+.editor-help p{padding-top:8px}details.ai-enlarge-controls{display:block}details.ai-enlarge-controls>summary{display:list-item}details.ai-enlarge-controls:not([open])>:not(summary){display:none}.ai-enlarge-controls[open]>:not(summary){margin-top:9px}
 .editor-image-section>.annotation-tool-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
 .annotation-toolbar :is(button,input,select,summary):focus-visible{outline:2px solid #8bbcff;outline-offset:2px}
 .annotation-view button:disabled{opacity:.45;cursor:wait}

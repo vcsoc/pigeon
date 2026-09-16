@@ -47,7 +47,10 @@ def load_model():
     if session is None:
         if not MODEL_PATH.exists():
             raise RuntimeError("Simple LaMa model is not downloaded; run model setup in Pigeon Plugin Manager")
-        session = ort.InferenceSession(str(MODEL_PATH), providers=["CPUExecutionProvider"])
+        options = ort.SessionOptions()
+        options.intra_op_num_threads = min(4, os.cpu_count() or 1)
+        options.inter_op_num_threads = 1
+        session = ort.InferenceSession(str(MODEL_PATH), sess_options=options, providers=["CPUExecutionProvider"])
     return session
 
 
@@ -83,6 +86,12 @@ def health():
 
 @app.post("/inpaint")
 def inpaint():
+    # Node's local IPC bridge sends JSON without Origin. Browsers must never
+    # turn this loopback service into an arbitrary local file-write endpoint.
+    if request.headers.get("Origin") is not None:
+        return jsonify({"ok": False, "error": "Browser requests are not allowed"}), 403
+    if not request.is_json:
+        return jsonify({"ok": False, "error": "JSON requests are required"}), 415
     try:
         payload = request.get_json(force=True, silent=False)
         source = Path(payload["sourcePath"]).resolve(strict=True)
