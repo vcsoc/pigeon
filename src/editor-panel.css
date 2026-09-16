@@ -1,0 +1,35 @@
+/* Scoped editor controls: tools first, contextual properties next, image settings last. */
+.annotation-view{position:fixed;inset:40px 0 30px var(--sidebar-width);grid-template-columns:minmax(0,1fr) clamp(292px,27vw,352px)}
+/* Cover, rather than resize, the library: closing restores its exact geometry. */
+.content-area:has(.annotation-view:not(.hidden))>.inspector,
+.grid-wrap:has(>.annotation-view:not(.hidden))>:not(.annotation-view){visibility:hidden}
+.annotation-toolbar,.annotation-canvas{overscroll-behavior:contain}
+.annotation-toolbar{padding:0 16px 20px;gap:0;background:#1b1f26;overflow-x:hidden;scrollbar-gutter:stable}
+.annotation-toolbar>section{flex:0 0 auto;padding:18px 0;gap:12px;border:0;border-bottom:1px solid #343c48;border-radius:0;background:transparent}
+.annotation-toolbar h3{font-size:calc(12px * var(--app-font-scale));font-weight:650;text-transform:none;letter-spacing:.015em;color:#d3dbe7}
+.annotation-toolbar button{min-height:34px;font-size:calc(12px * var(--app-font-scale));border-radius:6px;background:#292f39;box-shadow:none}
+.annotation-tool-grid{gap:7px}.annotation-tool-grid [data-tool]{text-align:left;padding:8px 11px}
+.annotation-tool-grid [data-tool].active{background:#304e73;border-color:#719acd;color:#fff}
+.editor-transform-tools{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.editor-transform-tools button{padding:0 5px}
+.annotation-toolbar :is(label,section>label,.editor-color-field,.annotation-adjustments label,.annotation-layer-geometry label,.editor-resize-controls label){font-size:calc(12px * var(--app-font-scale));color:#bac4d2}
+.annotation-toolbar section>label{display:grid;grid-template-columns:minmax(84px,1fr) minmax(70px,1.2fr) auto;gap:9px}
+.annotation-toolbar .editor-color-field{display:flex}.annotation-toolbar input[type="range"]{min-height:26px}
+.annotation-adjustments label{grid-template-columns:86px minmax(0,1fr)}
+.annotation-toolbar :is(input[type="number"],input[type="text"],select){min-height:34px;font-size:calc(12px * var(--app-font-scale));border-color:#475160;background:#131820}
+.annotation-layer-geometry{gap:10px}.annotation-layer-geometry label{gap:5px}
+#annotation-layer-controls{margin:14px 0 0;padding:14px;border:1px solid #496581;border-radius:8px;background:#202b39}
+#annotation-layer-text-row{grid-template-columns:1fr}.annotation-toolbar output{font-variant-numeric:tabular-nums;color:#e0e9f6}
+#delete-annotation-layer{color:#f3b3b3;background:transparent;border-color:#675057}
+.annotation-layer-list{display:grid;gap:6px}.annotation-layer-list button{min-width:0;padding:7px 10px}
+.annotation-layer-list button span:last-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.annotation-layer-list small{font-size:12px;color:#939fae;padding:4px 0}
+.annotation-toolbar :is(p,small){font-size:calc(11px * var(--app-font-scale));line-height:1.5}
+.annotation-toolbar summary{cursor:pointer;color:#b9c9dd;font-size:calc(12px * var(--app-font-scale));padding:5px 0}
+.editor-help p{padding-top:8px}.ai-enlarge-controls[open]>:not(summary){margin-top:9px}
+.editor-image-section>.annotation-tool-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+.annotation-toolbar :is(button,input,select,summary):focus-visible{outline:2px solid #8bbcff;outline-offset:2px}
+.annotation-view button:disabled{opacity:.45;cursor:wait}
+#annotation-loading{position:absolute;inset:0;display:grid;place-items:center;font-size:14px;color:#cbd9ec;z-index:10}
+.editor-preparing .annotation-canvas>:not(#annotation-loading){visibility:hidden}
+@media(max-width:900px){.annotation-view{grid-template-columns:minmax(0,1fr) 280px}.annotation-toolbar{padding-inline:12px}.annotation-header{gap:8px;padding-inline:10px}.annotation-header-actions{gap:4px}.annotation-header-actions button{padding-inline:7px}}

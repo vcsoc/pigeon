@@ -9,6 +9,7 @@ const projectRoot = path.join(__dirname, '..');
 const criticalFiles = [
   'src/index.html',
   'src/styles.css',
+  'src/editor-panel.css',
   'src/icons.js',
   'src/world-land.js',
   'src/cooperative-view.js',
