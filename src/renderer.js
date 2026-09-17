@@ -2746,6 +2746,24 @@ function updateAnnotationPointer(event,requirePointerId=true){const asset=assetB
 window.addEventListener('pointermove',(event)=>{if(state.annotationDrag||annotationStart)updateAnnotationPointer(event);},true);
 function finishAnnotationPointer(event,requirePointerId=true){if(state.annotationDrag&&(!requirePointerId||state.annotationDrag.pointerId===event.pointerId))state.annotationDrag=null;if(annotationStart&&(!requirePointerId||annotationStart.pointerId===event.pointerId)){if(annotationStart.item&&(annotationStart.item.type==='arrow'?Math.max(annotationStart.item.width,annotationStart.item.height)<3:annotationStart.item.width<3||annotationStart.item.height<3))state.workingAnnotations=state.workingAnnotations.filter((item)=>item!==annotationStart.item);if(window.PigeonEditorRegionEffects.isEffect(annotationStart.item)||window.PigeonEditorLayerHandles.supports(annotationStart.item)){state.annotationTool='select';paintAnnotationToolState('select');}annotationStart=null;}try{if(event.pointerId!==undefined&&elements.annotationStage.hasPointerCapture(event.pointerId))elements.annotationStage.releasePointerCapture(event.pointerId);}catch{}renderAnnotations();}
 window.addEventListener('pointerup',(event)=>{if(state.annotationDrag||annotationStart)finishAnnotationPointer(event);},true);window.addEventListener('pointercancel',(event)=>{if(state.annotationDrag||annotationStart)finishAnnotationPointer(event);},true);
+async function applyEditorCrop(){
+  if(!state.workingEdits.crop||elements.annotationView.classList.contains('hidden')||elements.annotationView.classList.contains('editor-preparing')||aiRemovalBusy||aiEnlargeBusy||annotationStart||state.annotationDrag)return;
+  const assetId=editorAssetId(),request=annotationOpenSequence,portfolio=state.library.activePortfolioId;
+  const current=()=>request===annotationOpenSequence&&portfolio===state.library.activePortfolioId&&assetId===editorAssetId();
+  setAnnotationPreparing(true,'Applying crop…');
+  try{
+    const updated=await window.pigeon.saveImageEdits(assetId,structuredClone(state.workingEdits),structuredClone(state.workingAnnotations));
+    if(!current())return;
+    const asset=assetById(assetId);if(!asset||!updated)throw new Error('The cropped image is unavailable. Reopen the editor to retry.');
+    Object.assign(asset,updated);rendererAssetDerivatives.upsert(asset);patchThumbnailPreviewSource(asset);
+    closeAnnotationEditor({render:false});await openAnnotationEditor(assetId);
+  }catch(error){if(current())showToast(error.message);}
+  finally{if(current()){setAnnotationPreparing(false);updateAnnotationHistoryButtons();}}
+}
+window.addEventListener('keydown',event=>{
+  if(event.key!=='Enter'||event.isComposing||event.ctrlKey||event.metaKey||event.altKey||event.shiftKey||elements.annotationView.classList.contains('hidden')||state.annotationTool!=='crop'||!state.workingEdits.crop||event.target.closest?.('input,textarea,select,[contenteditable="true"]'))return;
+  event.preventDefault();event.stopImmediatePropagation();if(!event.repeat)void applyEditorCrop();
+},true);
 $('#save-annotations').addEventListener('click',async()=>{const assetId=editorAssetId();try{const updated=await window.pigeon.saveImageEdits(assetId,state.workingEdits,state.workingAnnotations),asset=assetById(assetId);if(asset&&updated){Object.assign(asset,updated);rendererAssetDerivatives.upsert(asset);}closeAnnotationEditor();reconcileThumbnailCards([assetId],{sidebar:false});showToast('Image edits saved non-destructively');}catch(error){showToast(error.message);}});
 $('#export-annotations').addEventListener('click',async()=>{try{const target=await window.pigeon.exportAnnotated(editorAssetId(),state.workingAnnotations,state.workingEdits);if(target)showToast(`Saved copy ${target}`);}catch(error){showToast(error.message);}});
 $('#subfolder-content-toggle').addEventListener('click', () => { state.includeSubfolderContent = !state.includeSubfolderContent; localStorage.setItem('pigeon.includeSubfolderContent', String(state.includeSubfolderContent)); resetRenderLimit(); render(); });
