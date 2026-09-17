@@ -74,5 +74,7 @@ jobs:
           cd release
           find . -maxdepth 1 -type f ! -name 'SHA256SUMS*' -printf '%f\0' | sort -z | xargs -0 sha256sum > "SHA256SUMS-${RELEASE_TAG#v}.txt"
           timeout 30s gh release view "$RELEASE_TAG" >/dev/null 2>&1 || timeout 30s gh release create "$RELEASE_TAG" --verify-tag --draft --title "Pigeon ${RELEASE_TAG#v}" --generate-notes
-          timeout 40s gh release upload "$RELEASE_TAG" ./* --clobber
+          for file in ./*; do
+            timeout 40s gh release upload "$RELEASE_TAG" "$file" --clobber
+          done
           timeout 30s gh release edit "$RELEASE_TAG" --draft=false --latest
