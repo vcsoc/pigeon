@@ -19,7 +19,7 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_REPO: ${{ github.repository }}
@@ -76,9 +76,12 @@ jobs:
           timeout 30s gh release view "$RELEASE_TAG" >/dev/null 2>&1 || timeout 30s gh release create "$RELEASE_TAG" --verify-tag --draft --title "Pigeon ${RELEASE_TAG#v}" --generate-notes
           for file in ./*; do
             asset_name="$(basename "$file")"
+            if ASSET_NAME="$asset_name" timeout 30s gh release view "$RELEASE_TAG" --json assets --jq 'any(.assets[]; .name == env.ASSET_NAME)' | grep -qx true; then
+              continue
+            fi
             uploaded=false
             for attempt in 1 2 3; do
-              if timeout 180s gh release upload "$RELEASE_TAG" "$file" --clobber; then
+              if timeout 600s gh release upload "$RELEASE_TAG" "$file" --clobber; then
                 uploaded=true
                 break
               fi
