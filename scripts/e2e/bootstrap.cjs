@@ -32,4 +32,6 @@ if (process.env.PIGEON_E2E_HEADLESS === "1") {
     window.once("ready-to-show", () => window.setSize(1440, 1000));
   });
 }
+const saveTarget=process.env.PIGEON_E2E_SAVE_TARGET;
+if(saveTarget){const relative=path.relative(profile,saveTarget);if(!path.isAbsolute(saveTarget)||relative.startsWith('..')||path.isAbsolute(relative))throw Error('Save target must be inside the isolated profile');require('electron').dialog.showSaveDialog=async()=>({canceled:false,filePath:saveTarget});}
 require(path.join(root,"electron/main.js"));

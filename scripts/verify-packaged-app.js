@@ -22,6 +22,7 @@ const criticalFiles = [
   'src/rescan-scope.js',
   'src/duplicate-placement.js',
   'src/library-membership.js',
+  'src/builtin-smart-folders.js',
   'src/busy-animation.js',
   'pigeon-busy-transparent.webm',
   'src/renderer.js',

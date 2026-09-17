@@ -105,6 +105,7 @@ function createSmartFolder(library, name, filters = {}, parentId = null) {
   library.smartFolders.push(folder); return folder;
 }
 function renameSmartFolder(library, id, name) {
+  require('../src/builtin-smart-folders').protect(id);
   const folder = library.smartFolders.find((item) => item.id === id), trimmed = String(name || '').trim();
   if (!folder) throw new Error('Smart folder does not exist');
   if (!trimmed) throw new Error('Smart folder name is required');
@@ -112,6 +113,7 @@ function renameSmartFolder(library, id, name) {
   folder.name = trimmed;folder.updatedAt=Date.now(); return folder;
 }
 function moveSmartFolder(library, id, parentId = null) {
+  require('../src/builtin-smart-folders').protect(id);require('../src/builtin-smart-folders').protect(parentId);
   const folder = library.smartFolders.find((item) => item.id === id);
   if (!folder) throw new Error('Smart folder does not exist');
   if (parentId && !library.smartFolders.some((item) => item.id === parentId)) throw new Error('Parent smart folder does not exist');
@@ -120,6 +122,7 @@ function moveSmartFolder(library, id, parentId = null) {
   folder.parentId = parentId;folder.updatedAt=Date.now();folder.order=library.smartFolders.filter((item)=>item.parentId===parentId&&item.id!==id).length; return folder;
 }
 function removeSmartFolder(library, id) {
+  require('../src/builtin-smart-folders').protect(id);
   const descendants = new Set([id]); let changed = true;
   while (changed) { changed = false; for (const item of library.smartFolders) if (item.parentId && descendants.has(item.parentId) && !descendants.has(item.id)) { descendants.add(item.id); changed = true; } }
   library.smartFolders = library.smartFolders.filter((item) => !descendants.has(item.id)); return descendants.size;
