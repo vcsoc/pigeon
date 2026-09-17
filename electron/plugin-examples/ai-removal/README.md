@@ -35,10 +35,16 @@ Use **Test service**, **Repair runtime & model**, **Remove model**, **Open manag
 
 Pigeon automatically restarts an enabled service if it stopped, repairs missing dependencies/private runtimes, and retries a corrupt model once after preserving a backup. Incompatible environments are retained as `.venv.repair-*` backups. The model uses at most four CPU threads; first startup still takes several seconds. Accepted results become Pigeon-managed PNG derivatives. The source file and source containers such as LRPREV, SNAGX, PSD, and Affinity remain unchanged.
 
+## Remove Background
+
+Use the green **Remove Background** icon in the image editor. No painted mask is needed. This operates on the saved image/derivative: save any staged adjustments first. Review the transparent checkerboard preview, then **Accept result**, **Retry**, or **Discard**. Source files remain unchanged.
+
+First use downloads the 4.5 MB **U2Net-P** foreground segmentation model (U²-Net/rembg distribution, Apache-2.0) over HTTPS. Its pinned SHA-256 is `309c8469258dda742793dce0ebea8e6dd393174f89934733ecc8b14c76f4ddd8`. Downloads are size-limited, time-bounded, checked before atomic replacement, and retried on the next request after failure. Existing transparent/soft-alpha pixels are multiplied by the predicted mask; RGB channels remain unchanged. The maximum output is 80 megapixels. This lightweight model works best with a clear foreground subject; review fine edges before accepting.
+
 ## Endpoint contract
 
 The managed service binds only to `127.0.0.1`. Pigeon sends `POST /inpaint` with local `sourcePath`, `maskPath`, and `outputPath` fields. Requests must use `application/json` without an `Origin` header; browser-originated requests are rejected before any filesystem access. A successful plugin writes a PNG to `outputPath` and returns HTTP 200. Remote endpoints are rejected.
 
 ## AI enlargement
 
-**AI Image Enlarger** is also listed in Plugin Manager. It is bundled with Pigeon, needs no Python or separate installation, and runs a fresh CPU worker for each operation. **Test engine** performs a real small ONNX inference. Use the AI enlargement disclosure in the image editor for 2×/3× enlargement. Missing or damaged bundled application files require repair/reinstallation of Pigeon, not a Python download.
+**AI Image Enlarger** is also listed in Plugin Manager. It is bundled with Pigeon, needs no Python or separate installation, and runs a fresh CPU worker for each operation. **Test engine** performs a real small ONNX inference. Use the AI enlargement disclosure in the image editor for 2×/3× enlargement. Transparent images keep their alpha channel, including soft edges and whole-image rotation. The edited master is PNG; gallery thumbnails are only previews; new transparent thumbnails and edited previews preserve alpha. Missing or damaged bundled application files require repair/reinstallation of Pigeon, not a Python download.

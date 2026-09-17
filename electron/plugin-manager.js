@@ -11,10 +11,10 @@ const BUILT_IN_PLUGINS = [{
   id: 'ai-removal',
   legacyDirectories: ['AI Removal'],
   name: 'AI Object Removal',
-  version: '1.1.2',
+  version: '1.2.0',
   author: 'Pigeon',
   category: 'Image editing',
-  description: 'Remove painted objects with a private Simple LaMa vision-inpainting model running on this computer.',
+  description: 'Remove painted objects with Simple LaMa or remove backgrounds with U2Net-P. Both run privately on this computer; the verified 4.5 MB background model downloads on first use.',
   kind: 'service',
   entry: 'server.py',
   model: {
@@ -100,7 +100,7 @@ function createPluginManager({ pluginsDir, bundledDir }) {
   async function refreshBundled(plugin) {
     const source = path.join(bundledDir, plugin.id), target = pluginDirectory(plugin.id);
     await fsp.mkdir(target, { recursive: true });
-    for (const name of [plugin.entry, 'requirements.txt', 'README.md']) await fsp.copyFile(path.join(source, name), path.join(target, name));
+    for (const name of [plugin.entry, 'background_removal.py', 'requirements.txt', 'README.md']) await fsp.copyFile(path.join(source, name), path.join(target, name));
   }
   async function migrateLegacy(plugin) {
     if (await installed(plugin)) return false;

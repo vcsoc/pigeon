@@ -37,7 +37,7 @@ test('double Escape opens the virtual Pigeon-tag view and Alt+P tags selected th
 });
 
 test('duplicates remain adjacent to their original in immediate and rebuilt views', () => {
-  assert.match(renderer, /duplicateAdjacencyById\.set\(duplicate\.id,sourceId\)/);
+  assert.match(renderer, /duplicate\.duplicateOf=duplicate\.duplicateOf\|\|sourceId/);
   assert.match(renderer, /sourceCard\.after\(card\)/);
   assert.match(renderer, /function placeDuplicatesNextToSources/);
   assert.match(renderer, /finalIndices=placeDuplicatesNextToSources\(finalIndices/);

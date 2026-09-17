@@ -98,9 +98,14 @@ def inpaint():
         mask_path = Path(payload["maskPath"]).resolve(strict=True)
         output = Path(payload["outputPath"]).resolve()
         output.parent.mkdir(parents=True, exist_ok=True)
-        image = Image.open(source).convert("RGB")
-        mask = Image.open(mask_path).convert("L")
-        result = run_inpainting(image, mask)
+        if payload.get("operation", "object") == "background":
+            from background_removal import remove_background
+            with Image.open(source) as image:
+                result = remove_background(image)
+        else:
+            image = Image.open(source).convert("RGB")
+            mask = Image.open(mask_path).convert("L")
+            result = run_inpainting(image, mask)
         result.save(output, format="PNG")
         return jsonify({"ok": True, "width": result.width, "height": result.height, "model": "Simple LaMa ONNX"})
     except Exception as error:

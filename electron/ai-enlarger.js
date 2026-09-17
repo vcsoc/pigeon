@@ -40,7 +40,7 @@ async function enlargeInWorker({ source, target, previewTarget = null, scale: re
   const ort = require('onnxruntime-web');
   const scale = normalizedAiScale(requestedScale), rotation = [0, 90, 180, 270].includes(Number(requestedRotation)) ? Number(requestedRotation) : 0;
   const decoded = await sharp(source, { limitInputPixels: 100 * 1024 * 1024, animated: false })
-    .rotate().rotate(rotation).removeAlpha().toColourspace('srgb').raw().toBuffer({ resolveWithObject: true });
+    .rotate().rotate(rotation).toColourspace('srgb').raw().toBuffer({ resolveWithObject: true });
   const { width, height, channels } = decoded.info;
   const outputWidth = width * scale, outputHeight = height * scale;
   if (!width || !height || outputWidth > 32768 || outputHeight > 32768 || outputWidth * outputHeight > MAX_OUTPUT_PIXELS) {
@@ -84,7 +84,11 @@ async function enlargeInWorker({ source, target, previewTarget = null, scale: re
   }
 
   const output=sharp(baseline,{raw:{width:outputWidth,height:outputHeight,channels:3}});
-  if(previewTarget)await output.clone().resize({width:1280,height:1280,fit:'inside',withoutEnlargement:true}).jpeg({quality:84,mozjpeg:true}).toFile(previewTarget);
+  if(channels===4){
+    const alpha=await sharp(decoded.data,{raw:{width,height,channels}}).extractChannel(3).resize(outputWidth,outputHeight,{fit:'fill',kernel:'cubic'}).raw().toBuffer();
+    output.joinChannel(alpha,{raw:{width:outputWidth,height:outputHeight,channels:1}});
+  }
+  if(previewTarget)await output.clone().resize({width:1280,height:1280,fit:'inside',withoutEnlargement:true}).webp({quality:84,alphaQuality:100,effort:3}).toFile(previewTarget);
   const info=await output.png().toFile(target);
   return { target, previewTarget, width: info.width, height: info.height, size: info.size, scale, model: 'ONNX Super Resolution CNN' };
 }

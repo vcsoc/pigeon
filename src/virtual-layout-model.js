@@ -9,13 +9,13 @@
     else if(mode==='justified'){
       let index=0,y=0;
       while(index<ratios.length){const start=index,row=[];let sum=0;while(index<ratios.length){const next=ratios[index];row.push(next);sum+=next;index+=1;if(sum*targetHeight+gap*(row.length-1)>=width)break;}
-        const final=index===ratios.length,available=Math.max(1,width-gap*(row.length-1)),rowHeight=final?targetHeight:clamp(available/sum,targetHeight*.68,targetHeight*1.24);let x=0;
+        const final=index===ratios.length,available=Math.max(1,width-gap*(row.length-1)),fitHeight=available/sum,rowHeight=final?Math.min(targetHeight,fitHeight):fitHeight;let x=0;
         for(let offset=0;offset<row.length;offset++){const last=offset===row.length-1,itemWidth=last&&!final?Math.max(1,width-x):Math.max(1,rowHeight*row[offset]);items.push({index:start+offset,x,y,width:itemWidth,height:rowHeight+metaHeight,previewHeight:rowHeight});x+=itemWidth+gap;}
         y+=rowHeight+metaHeight+gap;
       }
     }else{
-      const heights=Array(columns).fill(0);
-      for(let index=0;index<ratios.length;index++){let column=0;for(let candidate=1;candidate<columns;candidate++)if(heights[candidate]<heights[column])column=candidate;const previewHeight=cardWidth/ratios[index],y=heights[column],height=previewHeight+metaHeight;items.push({index,x:column*(cardWidth+gap),y,width:cardWidth,height,previewHeight});heights[column]=y+height+gap;}
+      const heights=Array(columns).fill(0),columnWidth=(width-gap*(columns-1))/columns;
+      for(let index=0;index<ratios.length;index++){let column=0;for(let candidate=1;candidate<columns;candidate++)if(heights[candidate]<heights[column])column=candidate;const previewHeight=columnWidth/ratios[index],y=heights[column],height=previewHeight+metaHeight;items.push({index,x:column*(columnWidth+gap),y,width:columnWidth,height,previewHeight});heights[column]=y+height+gap;}
     }
     let extentPx=0,maxItemHeight=0,occupiedArea=0;for(const item of items){extentPx=Math.max(extentPx,item.y+item.height);maxItemHeight=Math.max(maxItemHeight,item.height);occupiedArea+=item.width*item.height;}const density=extentPx?occupiedArea/(width*extentPx):1,spatialItems=[...items].sort((first,second)=>first.y-second.y||first.x-second.x||first.index-second.index);
     return{mode,width,cardWidth,gap,metaHeight,columns,targetHeight,items,spatialItems,total:items.length,extentPx,maxItemHeight,density,key:[mode,Math.round(width),Math.round(cardWidth),gap,metaHeight,ratios.length,ratioHash(ratios)].join(':')};

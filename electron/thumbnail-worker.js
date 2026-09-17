@@ -48,12 +48,9 @@ parentPort.on('message', async ({source,target,rawProxyTarget,metadataOnly=false
       image.clone().stats(),
       image.clone().resize({ width: 64, height: 64, fit: 'inside' }).removeAlpha().raw().toBuffer({ resolveWithObject: true })
     ]);
-    await image
-      .rotate()
-      .resize({ width: 256, height: 256, fit: 'inside', withoutEnlargement: true })
-      .flatten({ background: '#20232d' })
-      .jpeg({ quality: 58, chromaSubsampling: '4:2:0', mozjpeg: true })
-      .toFile(target);
+    const thumbnail=image.rotate().resize({ width: 256, height: 256, fit: 'inside', withoutEnlargement: true });
+    if(metadata.hasAlpha){target=target.replace(/\.[^.\\/]+$/,'.png');await thumbnail.png({compressionLevel:3}).toFile(target);}
+    else await thumbnail.jpeg({ quality: 58, chromaSubsampling: '4:2:0', mozjpeg: true }).toFile(target);
     const rotated = metadata.orientation >= 5 && metadata.orientation <= 8;
     const dominant = stats.dominant;
     const histogram = Array(32).fill(0);

@@ -4,7 +4,7 @@ const {Worker,isMainThread,parentPort,workerData}=require('node:worker_threads')
 
 async function renderEditedPreview(source,target){
   const sharp=require('sharp');
-  const info=await sharp(source,{limitInputPixels:100*1024*1024,animated:false}).rotate().resize({width:1280,height:1280,fit:'inside',withoutEnlargement:true}).flatten({background:'#ffffff'}).jpeg({quality:84,mozjpeg:true}).toFile(target);
+  const info=await sharp(source,{limitInputPixels:100*1024*1024,animated:false}).rotate().resize({width:1280,height:1280,fit:'inside',withoutEnlargement:true}).webp({quality:84,alphaQuality:100,effort:3}).toFile(target);
   return{target,width:info.width,height:info.height,size:info.size};
 }
 

@@ -12,7 +12,8 @@ function register({ipcMain,dialog,getLibrary,getWindow,isAssetLocked}){
   const library=getLibrary(),images=selectImages(library,ids,isAssetLocked);
   const current=job={cancelled:false};let worker,temporary;
   try{
-   const choice=await dialog.showSaveDialog(getWindow(),{title:'Save combined image',defaultPath:'combined-images.png',filters:[{name:'PNG image',extensions:['png']}]});if(choice.canceled||!choice.filePath||current.cancelled)return null;
+   const date=new Date(),stamp=[date.getMonth()+1,date.getDate(),date.getHours(),date.getMinutes(),date.getSeconds()].map(value=>String(value).padStart(2,'0')).join('');
+   const choice=await dialog.showSaveDialog(getWindow(),{title:'Save combined image',defaultPath:`pigeon-combined-${stamp}.png`,filters:[{name:'PNG image',extensions:['png']}]});if(choice.canceled||!choice.filePath||current.cancelled)return null;
    if(getLibrary()!==library)throw Error('Portfolio changed; combine the selection again');selectImages(library,ids,isAssetLocked);
    const target=path.resolve(choice.filePath.toLowerCase().endsWith('.png')?choice.filePath:choice.filePath+'.png'),targetStat=await fs.lstat(target).catch(error=>{if(error.code==='ENOENT')return null;throw error;});if(targetStat?.isSymbolicLink())throw Error('Choose a regular output file, not a symbolic link');
    const canonicalTarget=await fs.realpath(target).catch(error=>{if(error.code==='ENOENT')return target;throw error;});for(const image of images)if(path.resolve(image.source)===target||await fs.realpath(image.source)===canonicalTarget)throw Error('The combined image must not replace a selected source');

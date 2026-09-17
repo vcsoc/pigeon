@@ -9,7 +9,7 @@ const renderer=fs.readFileSync(path.join(__dirname,'../src/renderer.js'),'utf8')
 for(const interrupted of [false,true])test(`return scroll waits for full destination extent${interrupted?' and yields to user scrolling':''}`,()=>{
   let interaction=0,extent=200,scrollTop=0;
   const restorer=createScrollRestorer({getIdentity:()=> 'original-folder',getInteraction:()=>interaction,write:value=>{scrollTop=Math.min(value,extent);}});
-  const classes={add(){},remove(){},toggle(){}};
+  const classes={add(){},remove(){},toggle(){},contains(){return true;}};
   const frames=[];
   const context={state:{gridScrollTop:12500},elements:{annotationView:{classList:classes},grid:{classList:classes},gridWrap:{classList:classes}},navigationRenderGeneration:0,navigationPaintFrame:null,cooperativeAssetView:{ready:false},saveNavigationState(){},paintActiveNavigation(){},updateSubfolderContentToggle(){},restoreScopedThumbnailSize(){return false;},scheduleGridScrollRestore:(value,options)=>restorer.schedule(value,options),requestAnimationFrame:fn=>frames.push(fn),cancelAnimationFrame(){},renderInspector(){},renderGrid(){restorer.commit({ready:false});}};
   vm.createContext(context);

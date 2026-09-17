@@ -112,7 +112,7 @@ contextBridge.exposeInMainWorld('pigeon', {
   prepareImageEdit:(id)=>ipcRenderer.invoke('asset:prepare-image-edit',id),
   enlargeImage:(id,scale=2)=>ipcRenderer.invoke('asset:ai-enlarge',{id,scale}),
   setOmarchyThemeWallpaper:(id)=>ipcRenderer.invoke('asset:set-omarchy-wallpaper',id),
-  previewAiRemoval:(id,maskDataUrl,previousToken=null)=>ipcRenderer.invoke('asset:ai-remove-preview',{id,maskDataUrl,previousToken}),
+  previewAiRemoval:(id,maskDataUrl,previousToken=null,operation='object')=>ipcRenderer.invoke('asset:ai-remove-preview',{id,maskDataUrl,previousToken,operation}),
   acceptAiRemoval:(id,token)=>ipcRenderer.invoke('asset:ai-remove-accept',{id,token}),
   discardAiRemoval:(token)=>ipcRenderer.invoke('asset:ai-remove-discard',token),
   convertImage:(id,format)=>ipcRenderer.invoke('asset:convert-image',{id,format}),

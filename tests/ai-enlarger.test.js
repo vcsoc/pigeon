@@ -11,12 +11,12 @@ const {normalizedAiScale,enlargeImageWithAi}=require('../electron/ai-enlarger');
 test('AI enlargement scales images locally with the bundled ONNX model',async()=>{
   const directory=await fsp.mkdtemp(path.join(os.tmpdir(),'pigeon-ai-enlarge-'));
   try{
-    const source=path.join(directory,'source.png'),target=path.join(directory,'enlarged.png'),previewTarget=path.join(directory,'preview.jpg');
+    const source=path.join(directory,'source.png'),target=path.join(directory,'enlarged.png'),previewTarget=path.join(directory,'preview.webp');
     await sharp({create:{width:24,height:16,channels:3,background:'#3a76b8'}}).png().toFile(source);
     const result=await enlargeImageWithAi(source,target,{scale:2,previewTarget});
     const metadata=await sharp(target).metadata(),preview=await sharp(previewTarget).metadata();
     assert.equal(result.model,'ONNX Super Resolution CNN');
-    assert.equal(metadata.width,48);assert.equal(metadata.height,32);assert.equal(preview.format,'jpeg');assert.equal(result.previewTarget,previewTarget);
+    assert.equal(metadata.width,48);assert.equal(metadata.height,32);assert.equal(preview.format,'webp');assert.equal(result.previewTarget,previewTarget);
   }finally{await fsp.rm(directory,{recursive:true,force:true});}
 });
 
