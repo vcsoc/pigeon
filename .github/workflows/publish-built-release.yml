@@ -78,7 +78,7 @@ jobs:
             asset_name="$(basename "$file")"
             uploaded=false
             for attempt in 1 2 3; do
-              if timeout 40s gh release upload "$RELEASE_TAG" "$file" --clobber; then
+              if timeout 180s gh release upload "$RELEASE_TAG" "$file" --clobber; then
                 uploaded=true
                 break
               fi
