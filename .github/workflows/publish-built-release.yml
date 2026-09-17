@@ -46,12 +46,25 @@ jobs:
           timeout 30s gh run view "$BUILD_RUN_ID" --json jobs > /tmp/jobs.json
           jq -e '[.jobs[] | select(.name == "Linux x64" or .name == "Windows x64")] | length == 2 and all(.conclusion == "success")' /tmp/jobs.json
 
-      - name: Download successful platform packages
+      - name: Download Linux packages
+        run: timeout 40s gh run download "$BUILD_RUN_ID" --name pigeon-linux-x64 --dir packages/linux
+
+      - name: Download Windows packages
+        run: timeout 40s gh run download "$BUILD_RUN_ID" --name pigeon-windows-x64 --dir packages/windows
+
+      - name: Stage distributable files only
         shell: bash
         run: |
           mkdir -p release
-          timeout 40s gh run download "$BUILD_RUN_ID" --name pigeon-linux-x64 --dir release
-          timeout 40s gh run download "$BUILD_RUN_ID" --name pigeon-windows-x64 --dir release
+          for file in packages/linux/* packages/windows/*; do
+            name="$(basename "$file")"
+            case "$name" in
+              *.AppImage|*.deb|*.exe|*.zip|*.blockmap|latest*.yml)
+                test ! -e "release/$name"
+                cp "$file" "release/$name"
+                ;;
+            esac
+          done
           test -n "$(find release -maxdepth 1 -name '*.AppImage' -print -quit)"
           test -n "$(find release -maxdepth 1 -name '*.exe' -print -quit)"
 
