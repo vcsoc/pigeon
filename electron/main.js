@@ -2642,6 +2642,7 @@ ipcMain.handle('window:toggle-always-on-top', () => {
   return pinned;
 });
 ipcMain.handle('window:close', () => mainWindow?.close());
+ipcMain.on('app:quit', (event) => { if(event.sender===mainWindow?.webContents)app.quit(); });
 
 async function handleProtocolUrl(value) {
   if (!protocolImportsReady) {

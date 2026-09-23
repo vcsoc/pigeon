@@ -163,6 +163,7 @@ contextBridge.exposeInMainWorld('pigeon', {
   chooseAutoImportFolder: () => ipcRenderer.invoke('preferences:auto-import-folder'),
   toggleAlwaysOnTop: () => ipcRenderer.invoke('window:toggle-always-on-top'),
   closeWindow: () => ipcRenderer.invoke('window:close'),
+  quitApp: () => ipcRenderer.send('app:quit'),
   resolveFileConflict: (payload) => ipcRenderer.send('file-conflict:resolve', payload),
   onFileConflictPrompt: (callback) => { const handler=(_event,value)=>callback(value);ipcRenderer.on('file-conflict:prompt',handler);return()=>ipcRenderer.removeListener('file-conflict:prompt',handler); },
   onError: (callback) => {
