@@ -93,6 +93,7 @@ contextBridge.exposeInMainWorld('pigeon', {
   findDuplicates: () => ipcRenderer.invoke('assets:duplicates'),
   findSimilar: (id) => ipcRenderer.invoke('assets:similar', id),
   findSimilarGroups: (accuracy, sourceId = null, assetIds = null) => ipcRenderer.invoke('assets:similar-groups', { accuracy, sourceId, assetIds }),
+  cancelSimilarGroups: () => ipcRenderer.invoke('assets:cancel-similar-groups'),
   autoTag: (ids) => ipcRenderer.invoke('assets:auto-tag', ids),
   renameTag: (from, to) => ipcRenderer.invoke('tags:rename', { from, to }),
   replaceTags: (from, to) => ipcRenderer.invoke('tags:replace', { from, to }),

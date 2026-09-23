@@ -206,12 +206,12 @@ test('structure duplication, broad zoom, cursor viewer zoom, sticky trees, hover
 
 test('global similarity never runs automatically and explicit requests supersede and terminate workers',()=>{
   assert.match(main,/let activeSimilarityJob=null/);assert.match(main,/if\(activeSimilarityJob\)/);assert.match(main,/worker\.terminate\(\)\.catch/);assert.match(main,/resourceLimits:\{maxOldGenerationSizeMb:192\}/);
-  assert.doesNotMatch(renderer,/refreshSimilarityGroups\(state\.view === 'duplicates'\)/);assert.match(renderer,/state\.view==='duplicates'&&state\.duplicateSourceId/);assert.match(main,/cancelPortfolioBackground[\s\S]*activeSimilarityJob/);
+  assert.doesNotMatch(renderer,/refreshSimilarityGroups\(state\.view === 'duplicates'\)/);assert.match(renderer,/state\.view==='duplicates'&&state\.duplicateSourceId/);assert.match(renderer,/view === 'duplicates' && \(state\.duplicateSourceId\|\|state\.duplicateScope\)/);assert.match(renderer,/cancelSimilarGroups\(\)/);assert.match(main,/cancelPortfolioBackground[\s\S]*activeSimilarityJob/);
 });
 
 test('modified thumbnail clicks bypass marquee and all heavy background work uses laptop-safe limits',()=>{
   assert.match(renderer,/event\.target\.closest\('\.asset-card,button,input,textarea,select,a,\.stack-badge'\)/);assert.match(renderer,/event\.ctrlKey \|\| event\.metaKey/);assert.match(renderer,/event\.shiftKey && state\.selectionAnchorId/);
-  assert.match(main,/const INDEX_CPU_LIMIT = 20/);assert.match(main,/const MAX_BACKGROUND_THREADS = 4/);assert.match(main,/const THUMBNAIL_WORKER_COUNT = 2/);assert.match(main,/const THUMBNAIL_REBUILD_WORKER_COUNT = Math\.max\(2,Math\.min\(4/);assert.match(main,/const BACKGROUND_HASH_WORKERS = 2/);assert.match(main,/const PDF_WORKER_LIMIT = 1/);assert.match(main,/const LARGE_SCAN_WORKER_LIMIT = 2/);assert.match(main,/dutyCycle: Math\.max\(0\.08, \(INDEX_CPU_LIMIT \/ 100\) \/ INDEX_WORKER_COUNT\)/);const budget=main.slice(main.indexOf('async function waitForIndexCpuBudget'),main.indexOf('function scanWorkActive'));assert.match(budget,/availableMemoryBytes\(\)/);assert.match(budget,/Background work paused for memory/);assert.doesNotMatch(budget,/telemetrySnapshot|collective\.cpu|yielding to your laptop/);
+  assert.match(main,/const INDEX_CPU_LIMIT = 8/);assert.match(main,/const INDEX_WORKER_COUNT = 1/);assert.match(main,/const MAX_BACKGROUND_THREADS = 4/);assert.match(main,/const THUMBNAIL_WORKER_COUNT = 2/);assert.match(main,/const THUMBNAIL_REBUILD_WORKER_COUNT = 1/);assert.match(main,/const BACKGROUND_HASH_WORKERS = 1/);assert.match(main,/const PDF_WORKER_LIMIT = 1/);assert.match(main,/const LARGE_SCAN_WORKER_LIMIT = 2/);assert.match(main,/dutyCycle: Math\.max\(0\.01, \(INDEX_CPU_LIMIT \/ 100\) \/ INDEX_WORKER_COUNT\)/);const budget=main.slice(main.indexOf('async function waitForIndexCpuBudget'),main.indexOf('function scanWorkActive'));assert.match(budget,/availableMemoryBytes\(\)/);assert.match(budget,/Background work paused for memory/);assert.doesNotMatch(budget,/telemetrySnapshot|collective\.cpu|yielding to your laptop/);
 });
 
 test('large-file scans defer fingerprints, use size-aware background deadlines, and classify intentional worker exits',()=>{
@@ -361,7 +361,7 @@ test('Rows is the default layout and layout names stay concise', () => {
   assert.match(renderer, /grid: \['layout', 'Masonry'\], justified: \['all', 'Rows'\], list: \['menu', 'List'\]/);
   assert.match(renderer, /\['Masonry','Alt\+1'\],\['Rows','Alt\+2'\],\['List','Alt\+4'\]/);
   assert.doesNotMatch(renderer, /Masonry thumbnails|Equal-height rows|List view/);
-  assert.match(packageJson, /"version": "0\.3\.7"/);
+  assert.match(packageJson, /"version": "0\.3\.8"/);
 });
 
 test('justified rows, tag autocomplete, and viewer editing controls are wired', () => {
@@ -1003,7 +1003,7 @@ test('telemetry console and resumable CPU-limited parallel indexing are wired', 
   assert.match(html, /data-console-tab="telemetry"/);
   assert.match(preload, /getTelemetry/);
   assert.match(main, /telemetry:get/);
-  assert.match(main, /INDEX_CPU_LIMIT = 20/);
+  assert.match(main, /INDEX_CPU_LIMIT = 8/);
   assert.match(main, /INDEX_WORKER_COUNT/);
   assert.match(main, /scan-worker\.js/);
   assert.match(main, /scanCheckpoint/);

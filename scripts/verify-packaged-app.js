@@ -36,6 +36,8 @@ const criticalFiles = [
   'electron/combine-images-worker.js',
   'pigeon-logo.png',
   'electron/main.js',
+  'electron/background-cpu-limiter.js',
+  'electron/hash-worker.js',
   'electron/rescan-requests.js',
   'electron/sidebar-placement.js',
   'electron/region-effects.js',

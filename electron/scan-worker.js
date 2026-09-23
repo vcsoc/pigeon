@@ -2,16 +2,15 @@ const { parentPort, workerData, threadId } = require('node:worker_threads');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { performance } = require('node:perf_hooks');
-const dutyCycle = Math.max(0.1, Math.min(1, Number(workerData.dutyCycle) || 1));
-const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const { createBackgroundCpuLimiter } = require('./background-cpu-limiter');
+const checkpoint=createBackgroundCpuLimiter({dutyCycle:workerData.dutyCycle||0.08,...(Number.isFinite(workerData.startedAt)?{startedAt:workerData.startedAt,now:Date.now,initialUsage:{user:0,system:0}}:{})});
 
 async function hashFile(filePath) {
   const handle = await fs.open(filePath, 'r');
   try {
     const hash = crypto.createHash('sha256'), buffer = Buffer.allocUnsafe(1024 * 1024);
     let position = 0;
-    while (true) { const { bytesRead } = await handle.read(buffer, 0, buffer.length, position); if (!bytesRead) break; const started = performance.now(); hash.update(buffer.subarray(0, bytesRead)); position += bytesRead; const busy = performance.now() - started, rest = busy * (1 / dutyCycle - 1); if (rest >= 1) await delay(rest); }
+    while (true) { const { bytesRead } = await handle.read(buffer, 0, buffer.length, position); if (!bytesRead) break; hash.update(buffer.subarray(0, bytesRead)); position += bytesRead; checkpoint(); }
     return hash.digest('hex');
   } finally { await handle.close(); }
 }
@@ -19,7 +18,7 @@ async function hashFile(filePath) {
 (async () => {
   const results = [];
   for (const item of workerData.batch) {
-    let stat = null;
+    checkpoint();let stat = null;
     try {
       stat = await fs.stat(item.filePath);
       if (!stat.isFile()) continue;
