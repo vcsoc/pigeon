@@ -38,6 +38,7 @@ const { portfolioChooserHtml, startupModifierPowerShell } = require('./startup-p
 const { portfolioAutoImportPath, samePath } = require('./auto-import');
 const { orderedNativeDragSelection, prepareCollisionSafeDragFiles } = require('./native-drag');
 const { resolveFileConflict, replaceFileSafely } = require('./file-conflicts');
+const { saveImageToFile } = require('./save-image-to-file');
 const { mimeTypeForExtension, mimeTypeForFile } = require('./asset-mime');
 const { createPhysicalSubfolder, deletePhysicalFolder, movePhysicalSubfolder, rebasePhysicalPath, rebaseSubfolder } = require('./physical-folders');
 const { matchingFolderLockRules } = require('./folder-locks');
@@ -1367,6 +1368,20 @@ async function saveImageEdits(id,edits={},annotations=null){
   Object.assign(asset,{editedPath:target,editorBaseFor:editableLayers.length?target:null,editedPreviewPath:previewTarget,editedAt:stamp,inlineCrop:edits.crop||null,imageAdjustments:{grayscale:Boolean(edits.grayscale),negative:Boolean(edits.negative),sepia:Boolean(edits.sepia),brightness:Number(edits.brightness)||1,contrast:Number(edits.contrast)||1},imageResize:edits.resize||null,annotations:editableLayers,width:result.width,height:result.height,rotation:0});
   scheduleAssetSave(asset);const update=publicEditedAsset(asset);broadcastAssetPatches([{id:asset.id,editedPath:asset.editedPath,editorBaseFor:asset.editorBaseFor,editorSourceUrl:update.editorSourceUrl,editedPreviewPath:asset.editedPreviewPath,editedAt:asset.editedAt,inlineCrop:asset.inlineCrop,imageAdjustments:asset.imageAdjustments,imageResize:asset.imageResize,annotations:asset.annotations,width:asset.width,height:asset.height,rotation:0,previewUrl:update.previewUrl,mediaUrl:update.mediaUrl}]);await Promise.allSettled(oldPaths.filter(file=>![target,baseTarget,previewTarget].includes(file)).map(file=>fsp.rm(file,{force:true})));return update;
 }
+async function saveImageEditsToFile(id,edits={},annotations=[]){
+  const owner=library,asset=owner.assets.find(item=>item.id===id);
+  if(!asset||isAssetLocked(asset)||asset.deletedAt)throw new Error('Select an unlocked image to save');
+  const source=await layeredEditorSource(asset),version=JSON.stringify([asset.path,asset.modified,asset.size,asset.editedPath,asset.editedAt,asset.rotation]),previousPaths=[asset.editedPath,editorBasePath(asset)],previousPreview=asset.editedPreviewPath;
+  const verify=()=>{if(library!==owner||!owner.assets.includes(asset)||isAssetLocked(asset)||asset.deletedAt||JSON.stringify([asset.path,asset.modified,asset.size,asset.editedPath,asset.editedAt,asset.rotation])!==version)throw new Error('The image or portfolio changed during saving. Reopen the editor to retry.');watcherIgnoreUntil.set(asset.locationId,Date.now()+5000);};
+  const saved=await saveImageToFile(asset,source,edits,annotations,{verify});
+  if(library!==owner||!owner.assets.includes(asset)||JSON.stringify([asset.path,asset.modified,asset.size,asset.editedPath,asset.editedAt,asset.rotation])!==version)throw new Error('The original file was saved, but the library changed. Rescan or reopen it to refresh Pigeon.');
+  let savedPreview=null;try{savedPreview=path.join(thumbnailDir,'edits',`${asset.id}-${Date.now()}-saved-preview.webp`);await createEditedPreview(asset.path,savedPreview);}catch(error){recordDiagnostic('warning','Could not refresh saved image preview',{id,error:error.message});savedPreview=null;}
+  Object.assign(asset,{size:saved.size,modified:saved.modified,contentHash:null,perceptualHash:null,dominantColor:null,histogram:null,palette:null,exif:null,technicalMetadata:null,thumbnailPath:savedPreview,proxyPath:null,proxyVersion:null,editedPath:null,editorBaseFor:null,editedPreviewPath:null,editedAt:null,inlineCrop:null,imageAdjustments:null,imageResize:null,annotations:[],width:saved.width,height:saved.height,rotation:0,sourceMissing:false,sourcePending:false,metadataUpdatedAt:Date.now()});
+  scheduleAssetSave(asset);const update=publicEditedAsset(asset);broadcastAssetPatches([{id,modified:asset.modified,size:asset.size,thumbnailPath:asset.thumbnailPath,proxyPath:null,proxyVersion:null,editedPath:null,editorBaseFor:null,editorSourceUrl:null,editedPreviewPath:null,editedAt:null,inlineCrop:null,imageAdjustments:null,imageResize:null,annotations:[],width:asset.width,height:asset.height,rotation:0,previewUrl:update.previewUrl,mediaUrl:update.mediaUrl}]);
+  await Promise.allSettled([...previousPaths,previousPreview].filter(Boolean).map(file=>fsp.rm(file,{force:true})));
+  schedulePortfolioBackground(warmThumbnailCache,0);
+  return update;
+}
 async function applyInlineCrop(id,crop={}){return saveImageEdits(id,{crop:{...crop,normalized:true}});}
 async function resetInlineEdits(id){
   const asset=library.assets.find((item)=>item.id===id);if(!asset)throw new Error('Asset not found');await Promise.all([asset.editedPath?fsp.rm(asset.editedPath,{force:true}):null,asset.editedPreviewPath?fsp.rm(asset.editedPreviewPath,{force:true}):null,editorBasePath(asset)?fsp.rm(editorBasePath(asset),{force:true}):null].filter(Boolean));
@@ -2509,6 +2524,7 @@ ipcMain.handle('asset:rename-file', async (_event, { id, name }) => {
 });
 ipcMain.handle('asset:reset-inline-edits', (_event, id) => resetInlineEdits(id));
 ipcMain.handle('asset:save-image-edits',(_event,{id,edits,annotations})=>saveImageEdits(id,edits,annotations));
+ipcMain.handle('asset:save-image-to-file',(_event,{id,edits,annotations})=>saveImageEditsToFile(id,edits,annotations));
 ipcMain.handle('asset:convert-image',(_event,{id,format})=>convertImageAsset(id,format));
 ipcMain.handle('asset:prepare-image-edit',(_event,id)=>prepareImageEdit(id));
 ipcMain.handle('asset:ai-enlarge',(_event,{id,scale})=>enlargeImageAsset(id,scale));

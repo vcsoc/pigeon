@@ -21,7 +21,7 @@ For removable and external locations, Pigeon stores a small 256px JPEG thumbnail
 - Inspector with image, video, and audio previews plus technical metadata and histograms
 - Nested collections, multi-select batch actions, saved smart folders, reference trash, duplicates, and visual similarity
 - Local automatic tags, URL/clipboard/screenshot capture, rotating backups, and folder-based metadata sync
-- Non-destructive annotations and derivative image edits
+- Image editor with Save to original PNG/JPEG/WebP, Save copy, and non-destructive Save draft
 - Sandboxed local plugins and drag-to-capture extensions for Chrome, Edge, Firefox, Safari, Brave, Opera, and Vivaldi
 - Native single- and multi-file drag-out to Explorer, Finder, and other desktop applications; unavailable cloud placeholders are safely skipped, while Shift-drag keeps Pigeon-only organization behavior
 - Optional collision-safe naming for Pigeon-managed moves and exports, with an explicit Skip/Keep both choice for byte-identical files

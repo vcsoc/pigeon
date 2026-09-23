@@ -47,6 +47,7 @@ const criticalFiles = [
   'electron/pigeon-collection.js',
   'electron/embedded-metadata.js',
   'electron/image-derivative.js',
+  'electron/save-image-to-file.js',
   'electron/ai-enlarger.js',
   'electron/edited-preview.js',
   'electron/ai-models/super-resolution-10.onnx',

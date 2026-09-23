@@ -109,6 +109,7 @@ contextBridge.exposeInMainWorld('pigeon', {
   applyInlineCrop: (id, crop) => ipcRenderer.invoke('asset:apply-inline-crop', { id, crop }),
   resetInlineEdits: (id) => ipcRenderer.invoke('asset:reset-inline-edits', id),
   saveImageEdits:(id,edits,annotations=[])=>ipcRenderer.invoke('asset:save-image-edits',{id,edits,annotations}),
+  saveImageToFile:(id,edits,annotations=[])=>ipcRenderer.invoke('asset:save-image-to-file',{id,edits,annotations}),
   prepareImageEdit:(id)=>ipcRenderer.invoke('asset:prepare-image-edit',id),
   enlargeImage:(id,scale=2)=>ipcRenderer.invoke('asset:ai-enlarge',{id,scale}),
   setOmarchyThemeWallpaper:(id)=>ipcRenderer.invoke('asset:set-omarchy-wallpaper',id),
