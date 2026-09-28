@@ -3202,7 +3202,7 @@ window.pigeon.onThumbnailReady(({ id, previewUrl, mediaUrl, proxyPath, proxyVers
   } else if (preview && asset?.thumbnailPath && !preview.querySelector('img')) {preview.dataset.thumbnailSrc=protectedUrl(previewUrl);scheduleThumbnailViewportSweep();}
   if(!failed)ensureThumbnailMagnifier(card,asset);
   const dimensions = card?.querySelector('[data-title-field="dimensions"]'); if (dimensions && asset?.width && asset?.height) { dimensions.textContent = `${asset.width} × ${asset.height}`; dimensions.title = dimensions.textContent; }
-  if (card && asset?.width && asset?.height&&!elements.grid.classList.contains('virtualized-grid')) { const ratio = asset.width / asset.height; card.style.setProperty('--asset-ratio', String(ratio)); preview?.style.setProperty('--preview-ratio', String(ratio)); }
+  if (card && asset?.width && asset?.height&&!elements.grid.classList.contains('virtualized-grid')) { const ratio=assetLayoutRatio(asset),originalRatio=Math.max(.35,Math.min(3.5,asset.width/asset.height)),justifiedHeight=Math.max(52,Math.min(320,Number($('#zoom-slider').value)*.58));card.style.setProperty('--asset-ratio',String(ratio));card.style.setProperty('--justified-basis',`${Math.round(justifiedHeight*ratio)}px`);preview?.style.setProperty('--original-ratio',String(originalRatio));preview?.style.setProperty('--preview-ratio',String(ratio)); }
   if (state.selectedId === id) { if (asset?.kind === 'image' && !failed) elements.inspectorImage.src = protectedUrl(previewUrl); renderInspector(); }
   const nowInView=Boolean(asset&&assetMatchesViewCriteria(asset,criteria));
   if(wasInView!==nowInView){invalidateAssetViewCache();scheduleScanGridRender();}
