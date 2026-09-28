@@ -23,7 +23,9 @@ function normalizedAdjustments(input={}){
 
 function normalizedCrop(crop,width,height){
   if(!crop||!width||!height)return null;
-  const normalized=Boolean(crop.normalized),x=normalized?Number(crop.x)*width:Number(crop.x),y=normalized?Number(crop.y)*height:Number(crop.y),w=normalized?Number(crop.width)*width:Number(crop.width),h=normalized?Number(crop.height)*height:Number(crop.height),left=Math.max(0,Math.min(width-1,Math.round(x)||0)),top=Math.max(0,Math.min(height-1,Math.round(y)||0));
+  const normalized=Boolean(crop.normalized),x=normalized?Number(crop.x)*width:Number(crop.x),y=normalized?Number(crop.y)*height:Number(crop.y),w=normalized?Number(crop.width)*width:Number(crop.width),h=normalized?Number(crop.height)*height:Number(crop.height);
+  if(!normalized&&(![x,y,w,h].every(Number.isFinite)||x<-.5||y<-.5||w<2||h<2||x+w>width+.5||y+h>height+.5))throw new Error('Crop area does not fit the full-resolution image. Reopen the editor and select a larger area.');
+  const left=Math.max(0,Math.min(width-1,Math.round(x)||0)),top=Math.max(0,Math.min(height-1,Math.round(y)||0));
   return{left,top,width:Math.max(1,Math.min(width-left,Math.round(w)||width-left)),height:Math.max(1,Math.min(height-top,Math.round(h)||height-top))};
 }
 
@@ -38,9 +40,14 @@ async function renderImageDerivative(source,target,options={}){
   const sourceMetadata=await pipeline.metadata();let width=sourceMetadata.autoOrient?.width||sourceMetadata.width,height=sourceMetadata.autoOrient?.height||sourceMetadata.height;
   if(options.annotations?.some(require('../src/editor-region-effects').isEffect))pipeline=await require('./region-effects').applyRegionEffects(pipeline,options.annotations,width,height);
   if(options.annotations?.length){const shapes=options.annotations.map(annotationSvg).join('');if(shapes){const annotated=await pipeline.composite([{input:Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">${shapes}</svg>`)}]).png().toBuffer();pipeline=sharp(annotated,{limitInputPixels:200*1024*1024});}}
+  // Editor crop coordinates belong to the unrotated image shown underneath the selection.
+  // Extract first: sharp can execute flip before extract even if the calls are reversed.
+  const editorCrop=options.crop&&!options.crop.normalized?normalizedCrop(options.crop,width,height):null;
+  if(editorCrop){pipeline=pipeline.extract(editorCrop);width=editorCrop.width;height=editorCrop.height;}
   if(adjustments.rotate){pipeline=pipeline.rotate(adjustments.rotate);if(adjustments.rotate%180)[width,height]=[height,width];}
   if(adjustments.flip)pipeline=pipeline.flop();
-  const crop=normalizedCrop(options.crop,width,height);if(crop){pipeline=pipeline.extract(crop);width=crop.width;height=crop.height;}
+  const viewerCrop=options.crop?.normalized?normalizedCrop(options.crop,width,height):null;
+  if(viewerCrop){pipeline=pipeline.extract(viewerCrop);width=viewerCrop.width;height=viewerCrop.height;}
   if(adjustments.grayscale)pipeline=pipeline.grayscale();
   if(adjustments.negative)pipeline=pipeline.negate({alpha:false});
   if(adjustments.sepia)pipeline=pipeline.recomb([[.393,.769,.189],[.349,.686,.168],[.272,.534,.131]]);

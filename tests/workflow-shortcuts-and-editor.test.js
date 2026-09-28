@@ -59,6 +59,14 @@ test('an idle Threads panel returns to Details when an asset is selected', () =>
   assert.match(inspector, /selectRightPanelTab\('details'\)/);
 });
 
+test('Resize starts inactive and only its toolbar icon enables dimension edits', () => {
+  const icons = read('src/editor-tool-icons.js');
+  assert.match(html, /id="editor-resize-toggle"[^>]*aria-controls="editor-resize-controls"[^>]*aria-pressed="false"[^>]*title="Resize image/);
+  assert.match(html, /id="editor-resize-controls" class="editor-resize-controls hidden"/);
+  assert.match(icons, /\['#editor-resize-toggle','Resize image'/);
+  assert.match(renderer, /function updateEditorResize\(changed\)\{if\(\$\('#editor-resize-toggle'\)\.getAttribute\('aria-pressed'\)!=='true'\)return;/);
+});
+
 test('editor resize controls use a compact aspect toggle beside Original', () => {
   assert.match(html, /class="editor-resize-actions"/);
   assert.match(html, /id="edit-resize-reset" title="Restore the image width and height to the original source dimensions">Original</);

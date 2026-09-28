@@ -21,10 +21,18 @@
     ['#flip-image','Flip image','Mirror the image horizontally.','#87d8b5','M12 3v18M8 6L3 18h5zM16 6l5 12h-5z'],
     ['#edit-grayscale','Black and white','Toggle grayscale for the edited image.','#c5ceda','M12 3a9 9 0 100 18 9 9 0 000-18M12 3v18M8 5v14M5 8v8'],
     ['#edit-negative','Negative','Toggle inverted image colors.','#bda4ff','M12 3a9 9 0 100 18 9 9 0 000-18M7 12h10M12 7v10'],
-    ['#edit-sepia','Sepia','Toggle a warm sepia effect.','#eac087','M12 3C8 9 5 12 5 16a7 7 0 0014 0c0-4-3-7-7-13z']
+    ['#edit-sepia','Sepia','Toggle a warm sepia effect.','#eac087','M12 3C8 9 5 12 5 16a7 7 0 0014 0c0-4-3-7-7-13z'],
+    ['#editor-resize-toggle','Resize image','Choose this tool to change image dimensions; click again to cancel pending resize.','#a5c8f2','M4 4h7M4 4v7M20 20h-7M20 20v-7M6 18L18 6M13 6h5v5M6 13v5h5']
   ];
   const imageSection=document.querySelector('.editor-image-section');
   imageSection.after(document.querySelector('.editor-resize-controls'),document.querySelector('.ai-enlarge-controls'));
+  const resizeButton=document.querySelector('#editor-resize-toggle'),resizeControls=document.querySelector('#editor-resize-controls');
+  const deactivateResize=()=>{resizeControls.classList.add('hidden');resizeButton.setAttribute('aria-pressed','false');};
+  resizeButton.addEventListener('click',()=>{
+    if(!resizeControls.classList.contains('hidden')){document.querySelector('#edit-resize-reset').click();deactivateResize();return;}
+    resizeControls.classList.remove('hidden');resizeButton.setAttribute('aria-pressed','true');document.querySelector('#edit-resize-width').focus();
+  });
+  new MutationObserver(()=>{if(document.querySelector('.annotation-view').classList.contains('hidden'))deactivateResize();}).observe(document.querySelector('.annotation-view'),{attributes:true,attributeFilter:['class']});
   const gridButton=document.querySelector('#editor-transparency-grid');
   gridButton.addEventListener('click',()=>{const enabled=document.querySelector('.annotation-canvas').classList.toggle('editor-checkerboard');gridButton.setAttribute('aria-pressed',String(enabled));document.dispatchEvent(new CustomEvent('pigeon-editor-grid',{detail:enabled}));});
   for(const heading of document.querySelectorAll('.annotation-toolbar h3')){
