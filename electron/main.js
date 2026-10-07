@@ -2612,7 +2612,7 @@ async function semanticSampleForPath(filePath) {
 }
 ipcMain.handle('semantic:status',()=>getSemanticService().getStatus());
 ipcMain.handle('semantic:setup',()=>getSemanticService().setup());
-ipcMain.handle('semantic:configure',(_event,input)=>getSemanticService().configure({automatic:input?.automatic}));
+ipcMain.handle('semantic:configure',(_event,input)=>getSemanticService().configure({automatic:input?.automatic,resourcePercent:input?.resourcePercent}));
 ipcMain.handle('semantic:start',(_event,input={})=>getSemanticService().start({portfolioId:input?.portfolioId,priorityIds:semanticPriorityIds(library,input?.scope,input?.includeSubfolders!==false)}));
 ipcMain.handle('semantic:pause',(_event,value)=>getSemanticService().pause(Boolean(value)));
 ipcMain.handle('semantic:choose-sample',async()=>{const result=await dialog.showOpenDialog(mainWindow,{title:'Choose a semantic search sample',properties:['openFile']});return result.canceled?null:{path:result.filePaths[0],name:path.basename(result.filePaths[0])};});

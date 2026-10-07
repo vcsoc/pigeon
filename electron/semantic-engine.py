@@ -218,6 +218,8 @@ def index_step(asset,expected):
 
 def search(request):
     import numpy as np,heapq
+    def progress(stage,completed=0,total=0):reply({'id':request.get('id'),'progress':{'stage':stage,'completed':completed,'total':total}})
+    progress('Preparing query')
     allowed=request.get('assets',{})
     key=json.dumps([request.get('query'),request.get('assetId'),allowed.get(request.get('assetId')),request.get('sample')],sort_keys=True)
     if key in QUERY_CACHE:query=QUERY_CACHE[key]
@@ -241,10 +243,13 @@ def search(request):
     while len(QUERY_CACHE)>8 or sum(v.nbytes for v in QUERY_CACHE.values())>64*1024*1024:QUERY_CACHE.pop(next(iter(QUERY_CACHE)))
     offset=max(0,int(request.get('offset',0)))
     minimum=max(-1,min(1,float(request.get('minimum',0.55))));limit=max(1,min(1000,int(request.get('limit',200))));best={}
+    total=DB.execute('SELECT count(*) FROM vectors').fetchone()[0];completed=0
+    progress('Comparing indexed content',0,total)
     cursor=DB.execute('SELECT v.asset_id,v.vector,v.detail,a.fingerprint FROM vectors v JOIN assets a ON a.id=v.asset_id')
     while True:
         rows=cursor.fetchmany(256)
         if not rows:break
+        completed+=len(rows);progress('Comparing indexed content',completed,total)
         valid=[r for r in rows if r[0] in allowed and allowed[r[0]]==r[3] and r[0]!=request.get('assetId')]
         if not valid:continue
         matrix=np.stack([np.frombuffer(r[1],dtype='<f4') for r in valid]);scores=matrix@query if query.ndim==1 else np.max(matrix@query.T,axis=1)

@@ -1,8 +1,10 @@
 "use strict";
 const os = require('node:os');
 const POLICY = Object.freeze({automatic: {cpu: 0.12, memory: 0.12, busy: 0.35}, manual: {cpu: 0.18, memory: 0.18, busy: 0.70}});
-function budget(mode='automatic', cores=os.cpus().length, memory=os.totalmem()) {
-  const p=POLICY[mode]||POLICY.automatic;
+function budget(mode='automatic', cores=os.cpus().length, memory=os.totalmem(), resourcePercent=null) {
+  const base=POLICY[mode]||POLICY.automatic,percent=Number(resourcePercent);
+  const fraction=resourcePercent!==null&&Number.isFinite(percent)?Math.max(5,Math.min(50,percent))/100:null;
+  const p=fraction===null?base:{...base,cpu:fraction,memory:fraction};
   return {...p, cores:Math.max(1,cores), threads:Math.max(1,Math.floor(cores*p.cpu)), fileWorkers:Math.min(mode==='manual'?4:2,Math.max(1,cores)), memoryBytes:Math.floor(memory*p.memory)};
 }
 function systemCpuDelta(previous, current) {
