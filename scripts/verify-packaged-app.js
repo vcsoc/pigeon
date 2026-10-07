@@ -13,6 +13,7 @@ const criticalFiles = [
   'electron/semantic-service.js',
   'electron/semantic-engine.py',
   'electron/semantic-policy.js',
+  'electron/semantic-priority.js',
   'electron/semantic-governor.js',
   'src/styles.css',
   'src/editor-panel.css',

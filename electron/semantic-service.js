@@ -3,9 +3,11 @@ const fs=require('node:fs'),fsp=require('node:fs/promises'),path=require('node:p
 const {spawn,execFile}=require('node:child_process');
 const {budget,systemCpuDelta,fingerprint,admissible}=require('./semantic-policy');
 const {createSemanticGovernor,availableMemory}=require('./semantic-governor');
+const {createSemanticWorkQueue}=require('./semantic-priority');
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const REQUIREMENTS=['sentence-transformers==6.1.0','transformers==5.19.0','pillow==12.3.0','soundfile==0.14.0','psutil==7.2.2','pypdf==6.19.0','pypdfium2==5.9.0','python-docx==1.2.0','openpyxl==3.1.5'];
 function createSemanticService({userData,getContext,getAssets,getAsset=null,isBusy=()=>false,ffmpeg,emit=()=>{},report=()=>{},registerPause=()=>()=>{},diagnostic=()=>{}}){
+  let priorityIds=new Set();
   let scopeName='',scopeMode='',searching=false,healthyPython='',runtimeOverride='',setupRetryAfter=0,setupScope='';
   let contextKey='',epoch=0,child=null,governor=null,ready=null,sequence=0,pending=new Map(),queue=[],draining=false,indexing=false,paused=false,manual=false,closed=false,setupPromise=null,setupChild=null,settings={automatic:true},info={indexed:0,limited:0,vectors:0},lastCpus=os.cpus(),systemBusy=1,waitingSamples=0,indexDone=false,releasePause=()=>{},lastSearch=Date.now();
   let status={state:'unavailable',detail:'The local engine will be checked and prepared automatically.',completed:0,total:0,current:'',error:'',resources:{}};
@@ -19,7 +21,7 @@ function createSemanticService({userData,getContext,getAssets,getAsset=null,isBu
     if(scopeName){execFile('systemctl',['--user','kill','--signal=SIGKILL',scopeName],{timeout:3000},()=>{});scopeName='';scopeMode='';}
     if(old?.pid)try{if(process.platform==='linux')process.kill(-old.pid,'SIGKILL');else old.kill('SIGKILL');}catch{}
   }
-  function context(){const c=getContext();if(!c?.databaseFile||c.loading)return null;const key=JSON.stringify([c.portfolioId,c.databaseFile]);if(key!==contextKey){epoch++;killEngine('Portfolio changed');contextKey=key;paused=false;manual=false;indexDone=false;info={indexed:0,limited:0,vectors:0};settings={automatic:true};try{settings={...settings,...JSON.parse(fs.readFileSync(c.databaseFile+'.semantic-settings.json','utf8'))};}catch{}publish({state:'idle',completed:0,total:0,current:'',error:''});}return c;}
+  function context(){const c=getContext();if(!c?.databaseFile||c.loading)return null;const key=JSON.stringify([c.portfolioId,c.databaseFile]);if(key!==contextKey){epoch++;killEngine('Portfolio changed');contextKey=key;priorityIds=new Set();paused=false;manual=false;indexDone=false;info={indexed:0,limited:0,vectors:0};settings={automatic:true};try{settings={...settings,...JSON.parse(fs.readFileSync(c.databaseFile+'.semantic-settings.json','utf8'))};}catch{}publish({state:'idle',completed:0,total:0,current:'',error:''});}return c;}
   function currentAssets(){return getAssets().filter(admissible);}
   function assetRecord(asset){const imageExtensions=new Set(['.png','.jpg','.jpeg','.webp','.gif','.bmp','.tif','.tiff']);return{id:asset.id,path:asset.path,kind:asset.kind,size:asset.size,modified:asset.modified,name:asset.name||asset.filename,note:asset.note||'',tags:asset.tags||[],imagePath:asset.kind==='image'?(asset.proxyPath||(!imageExtensions.has(path.extname(asset.path).toLowerCase())?asset.thumbnailPath:null)||asset.path):null};}
   function assetFingerprints(assets=currentAssets()){return Object.fromEntries(assets.map(a=>[a.id,fingerprint(a)]));}
@@ -54,7 +56,7 @@ function createSemanticService({userData,getContext,getAssets,getAsset=null,isBu
     try{
       info=await request('prune',{assets:assetFingerprints(assets)},true);
       const pendingIds=new Set((await request('plan')).pending);
-      const work=assets.filter(a=>pendingIds.has(a.id));
+      const work=createSemanticWorkQueue(assets.filter(a=>pendingIds.has(a.id)));
       if(!work.length){manual=false;await applyKernelBudget();publish({state:'idle',detail:'Portfolio index is up to date.',completed:assets.length,total:assets.length,current:'',error:''});return;}
       let completed=assets.length-work.length;
       publish({state:'indexing',detail:'Analyzing files in parallel batches, sharing one local model.',completed,total:assets.length,error:''});
@@ -64,7 +66,8 @@ function createSemanticService({userData,getContext,getAssets,getAsset=null,isBu
         const batchBudget=budget(manual?'manual':'automatic');
         if(systemBusy>batchBudget.busy||isBusy()||availableMemory()<512*1024*1024){publish({state:'waiting',detail:'Paused while the machine is busy.'});await sleep(1000);continue;}
         const headroom=batchBudget.memoryBytes-(status.resources?.memoryBytes||0),workers=Math.min(batchBudget.fileWorkers,Math.max(1,Math.floor((headroom-32*1024*1024)/(96*1024*1024))));
-        const batch=work.splice(0,workers),valid=batch.filter(asset=>{const current=getAsset?getAsset(asset.id):getAssets().find(item=>item.id===asset.id);return current&&admissible(current)&&fingerprint(current)===fingerprint(asset);});
+        work.prioritize(priorityIds);
+        const batch=work.take(workers),valid=batch.filter(asset=>{const current=getAsset?getAsset(asset.id):getAssets().find(item=>item.id===asset.id);return current&&admissible(current)&&fingerprint(current)===fingerprint(asset);});
         completed+=batch.length-valid.length;if(!valid.length)continue;
         const names=valid.map(asset=>asset.name||asset.filename);
         publish({state:'indexing',current:names.join(' · '),activeFiles:names,fileWorkers:workers,completed});
@@ -84,7 +87,7 @@ function createSemanticService({userData,getContext,getAssets,getAsset=null,isBu
   async function getStatus(){context();if(!closed&&!setupPromise&&healthyPython!==runtimePython()&&Date.now()>=setupRetryAfter)void ensureReady().catch(()=>{});if(child&&!pending.size&&!queue.length)try{info=await request('info',{},true);}catch{}return snapshot();}
   async function configure(input={}){const c=context();if(!c)throw Error('Wait for portfolio loading');if(typeof input.automatic==='boolean')settings.automatic=input.automatic;await fsp.writeFile(c.databaseFile+'.semantic-settings.json',JSON.stringify(settings));paused=false;if(settings.automatic===false&&!manual&&indexing){epoch++;killEngine('Automatic analysis disabled');}indexDone=false;publish({state:settings.automatic===false&&!manual?'idle':'waiting',detail:settings.automatic===false?'Automatic analysis disabled. Search and Analyze now remain available.':'Automatic analysis enabled.'});return snapshot();}
 async function applyKernelBudget(){const mode=manual||searching?'manual':'automatic';if(!scopeName||scopeMode===mode)return;const p=budget(mode),scope=scopeName;await new Promise((resolve,reject)=>execFile('systemctl',['--user','set-property','--runtime',scope,`CPUQuota=${(p.cpu*p.cores*100).toFixed(2)}%`,`MemoryMax=${p.memoryBytes}`],{timeout:5000},error=>error?reject(error):resolve()));if(scopeName===scope)scopeMode=mode;}
-  async function start(){context();manual=true;paused=false;await ensureReady();await applyKernelBudget();publish({state:'waiting',detail:'User-started analysis: 18% CPU and memory budgets.'});void runIndex();return snapshot();}
+  async function start(input={}){const c=context();if(!c)throw Error('Wait for portfolio loading');if(input.portfolioId&&input.portfolioId!==c.portfolioId)throw Error('Portfolio changed before analysis started');priorityIds=new Set(Array.isArray(input.priorityIds)?input.priorityIds:[]);const session=epoch;manual=true;paused=false;await ensureReady();if(session!==epoch)throw Error('Portfolio changed during engine preparation');await applyKernelBudget();publish({state:'waiting',detail:priorityIds.size?'Analyzing the current folder or collection first, then the remaining portfolio. 18% CPU and memory budgets.':'User-started analysis: 18% CPU and memory budgets.'});void runIndex();return snapshot();}
   function pause(value=true){paused=Boolean(value);publish({state:paused?'paused':'waiting',detail:paused?'Analysis paused. Search remains available after resume.':'Analysis resumed.'});if(!paused)void runIndex();return snapshot();}
   async function search(input={}){
     const c=context();if(!c)throw Error('Wait for the portfolio to load');if(paused)throw Error('Resume semantic analysis before searching');lastSearch=Date.now();const session=epoch;

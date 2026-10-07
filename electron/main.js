@@ -8,6 +8,7 @@ const crypto = require('node:crypto');
 const sharp = require('sharp');
 const libraryCore = require('./library-core');
 const { createSemanticService } = require('./semantic-service');
+const { semanticPriorityIds } = require('./semantic-priority');
 let semanticService = null;
 const { createLibraryStore } = require('./database');
 const { safeTransferFilename, stageAssetFiles } = require('./portfolio-transfer');
@@ -2612,7 +2613,7 @@ async function semanticSampleForPath(filePath) {
 ipcMain.handle('semantic:status',()=>getSemanticService().getStatus());
 ipcMain.handle('semantic:setup',()=>getSemanticService().setup());
 ipcMain.handle('semantic:configure',(_event,input)=>getSemanticService().configure({automatic:input?.automatic}));
-ipcMain.handle('semantic:start',()=>getSemanticService().start());
+ipcMain.handle('semantic:start',(_event,input={})=>getSemanticService().start({portfolioId:input?.portfolioId,priorityIds:semanticPriorityIds(library,input?.scope,input?.includeSubfolders!==false)}));
 ipcMain.handle('semantic:pause',(_event,value)=>getSemanticService().pause(Boolean(value)));
 ipcMain.handle('semantic:choose-sample',async()=>{const result=await dialog.showOpenDialog(mainWindow,{title:'Choose a semantic search sample',properties:['openFile']});return result.canceled?null:{path:result.filePaths[0],name:path.basename(result.filePaths[0])};});
 ipcMain.handle('semantic:search',async(_event,input={})=>{

@@ -11,7 +11,7 @@ contextBridge.exposeInMainWorld('pigeon', {
   semanticStatus: () => ipcRenderer.invoke('semantic:status'),
   semanticSetup: () => ipcRenderer.invoke('semantic:setup'),
   semanticConfigure: input => ipcRenderer.invoke('semantic:configure', input),
-  semanticStart: () => ipcRenderer.invoke('semantic:start'),
+  semanticStart: input => ipcRenderer.invoke('semantic:start', input),
   semanticPause: value => ipcRenderer.invoke('semantic:pause', value),
   semanticChooseSample: () => ipcRenderer.invoke('semantic:choose-sample'),
   semanticSearch: input => ipcRenderer.invoke('semantic:search', input),
