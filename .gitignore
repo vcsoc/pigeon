@@ -9,3 +9,7 @@ NUL
 pigeon-smoke.png
 pigeon-tree-smoke.png
 *.log
+
+.semantic-runtime/
+.semantic-runtime-logs/
+**/__pycache__/

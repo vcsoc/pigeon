@@ -1,6 +1,6 @@
 {
   "name": "pigeon",
-  "version": "0.3.11",
+  "version": "0.3.12",
   "description": "A reference-first visual asset library for files that stay where they are.",
   "main": "electron/main.js",
   "author": "Chris Visser",
@@ -33,7 +33,9 @@
     "dist:linux": "electron-builder --linux --x64 --publish never",
     "icons:generate": "node scripts/generate-app-icons.js",
     "extensions:build": "node scripts/build-browser-extensions.js",
-    "extensions:check": "node --check browser-extension/drop-url.js && node --check browser-extension/service-worker.js && node --check browser-extension/content-script.js && node --check browser-extension/popup.js && node --check scripts/build-browser-extensions.js"
+    "extensions:check": "node --check browser-extension/drop-url.js && node --check browser-extension/service-worker.js && node --check browser-extension/content-script.js && node --check browser-extension/popup.js && node --check scripts/build-browser-extensions.js",
+    "check:semantic": "node --check electron/semantic-policy.js && node --check electron/semantic-governor.js && node --check electron/semantic-service.js && node --check src/semantic-search.js",
+    "test:semantic": "node --test tests/semantic-*.test.js"
   },
   "devDependencies": {
     "@electron/asar": "^3.4.1",
@@ -71,7 +73,8 @@
       "node_modules/@img/**/*",
       "node_modules/ffmpeg-static/**/*",
       "node_modules/libraw-wasm/dist/**/*",
-      "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm"
+      "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm",
+      "electron/semantic-engine.py"
     ],
     "files": [
       "electron/**/*",

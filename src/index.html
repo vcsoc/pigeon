@@ -8,6 +8,7 @@
     <link rel="icon" type="image/png" href="../pigeon-logo.png" />
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="editor-panel.css" />
+    <link rel="stylesheet" href="semantic-search.css" />
   </head>
   <body>
     <div class="app-shell startup-active">
@@ -86,8 +87,9 @@
             <label class="search-box">
               <span>⌕</span>
               <input id="search-input" type="search" placeholder="Search" autocomplete="off" />
-              <span class="search-camera" aria-hidden="true">▣</span>
+              <button type="button" id="semantic-sample-button" class="search-camera" title="Search by sample file" aria-label="Search by sample file">▣</button>
             </label>
+            <button type="button" id="semantic-search-button" class="icon-button" title="Semantic search: descriptions and sample files" aria-label="Semantic search">✦</button>
             <button id="pin-button" class="icon-button" title="Keep Pigeon on top">⌖</button>
             <div id="window-controls" class="window-controls" aria-label="Window controls">
               <button id="window-minimize" class="window-control" title="Minimize" aria-label="Minimize"><span class="minimize-glyph"></span></button>
@@ -234,7 +236,8 @@
             </div>
             </div>
             <section id="threads-panel" class="threads-panel hidden" role="tabpanel" aria-labelledby="right-panel-threads-tab"><header><strong>Background threads</strong><span id="threads-panel-summary">No active threads</span></header><div id="threads-panel-list" class="threads-panel-list" aria-live="polite"></div><footer class="threads-panel-controls"><span id="threads-live-count">0 running · 0 paused · 0 queued</span><button id="threads-toggle-all" type="button" aria-pressed="false" title="Pause all background threads">⏸ Pause all</button></footer></section>
-            <nav class="right-panel-tabs" role="tablist" aria-label="Right panel"><button id="right-panel-details-tab" class="active" type="button" role="tab" aria-selected="true" data-right-panel-tab="details">Details</button><button id="right-panel-threads-tab" type="button" role="tab" aria-selected="false" data-right-panel-tab="threads">Threads <span id="active-thread-count">0</span></button></nav>
+            <section id="semantic-panel" class="semantic-panel hidden" role="tabpanel" aria-labelledby="right-panel-semantic-tab"></section>
+            <nav class="right-panel-tabs" role="tablist" aria-label="Right panel"><button id="right-panel-details-tab" class="active" type="button" role="tab" aria-selected="true" data-right-panel-tab="details">Details</button><button id="right-panel-threads-tab" type="button" role="tab" aria-selected="false" data-right-panel-tab="threads">Threads <span id="active-thread-count">0</span></button><button id="right-panel-semantic-tab" type="button" role="tab" aria-selected="false" data-right-panel-tab="semantic">Semantic</button></nav>
           </aside>
         </section>
 
@@ -395,6 +398,7 @@
     <script src="editor-layer-handles.js"></script>
   <script src="renderer.js"></script>
     <script src="auto-tag-editor.js"></script>
+    <script src="semantic-search.js"></script>
     <script src="sidebar-hierarchy-drag.js"></script>
     <script src="sidebar-groups.js"></script>
   </body>

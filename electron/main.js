@@ -7,6 +7,8 @@ const http = require('node:http');
 const crypto = require('node:crypto');
 const sharp = require('sharp');
 const libraryCore = require('./library-core');
+const { createSemanticService } = require('./semantic-service');
+let semanticService = null;
 const { createLibraryStore } = require('./database');
 const { safeTransferFilename, stageAssetFiles } = require('./portfolio-transfer');
 const { planCollectionFolderTransfer, safeCollectionFolderName } = require('./collection-folder-transfer');
@@ -369,6 +371,7 @@ async function retryBackground(operation, run, { attempts = 3, timeout = 10000, 
 }
 function schedulePortfolioBackground(callback, delay = 0) { const portfolioId = activePortfolioId, epoch = backgroundEpoch; const timer = setTimeout(() => { portfolioBackgroundTimers.delete(timer); if (portfolioId === activePortfolioId && epoch === backgroundEpoch && !app.isQuitting) callback(); }, delay); portfolioBackgroundTimers.add(timer); return timer; }
 async function cancelPortfolioBackground(reason = 'Portfolio switched') {
+  semanticService?.stop();
   backgroundEpoch += 1; for (const run of backgroundRuns.values()) { run.cancelled = true; run.controller?.abort(); reportBackgroundProgress(run.progressId, { label: run.type, detail: reason, done: true, status: 'paused' }); } backgroundRuns.clear();
   for (const job of [...activeScanJobs]) job.cancel();
   for (const queue of scanBroadcastQueues.values()) { queue.cancelled=true;if(queue.timer)clearTimeout(queue.timer);queue.items.length=0; } scanBroadcastQueues.clear();
@@ -2028,7 +2031,7 @@ ipcMain.handle('portfolio:switch', async (_event, id) => {
   await stopDatabaseWorker('Portfolio switched');
   for (const watcher of watchers.values()) watcher.close(); watchers.clear(); for (const timer of watcherRefreshTimers.values()) clearTimeout(timer); watcherRefreshTimers.clear(); unlockedCollections.clear(); unlockedFolders.clear();
   activePortfolioId = id; databaseFile = portfolio.database || portfolioDatabasePath(id); legacyJsonFile = portfolio.legacyFile || null; library = libraryCore.migrateLibrary({ loading: true });
-  await savePortfolioRegistry(); broadcast(); await loadLibraryInWorker();const autoImportLocation=activeAutoImportEnabled()?await ensureActivePortfolioAutoImportLocation({create:false,scan:false}):null;broadcast(); resumePendingScans();refreshChangedIndexingPolicy();if(autoImportLocation)schedulePortfolioBackground(()=>scanLocation(autoImportLocation.id),100);
+  await savePortfolioRegistry(); broadcast(); await loadLibraryInWorker();if(!smokeTest)getSemanticService();const autoImportLocation=activeAutoImportEnabled()?await ensureActivePortfolioAutoImportLocation({create:false,scan:false}):null;broadcast(); resumePendingScans();refreshChangedIndexingPolicy();if(autoImportLocation)schedulePortfolioBackground(()=>scanLocation(autoImportLocation.id),100);
   refreshSourcesInBackground().then(() => { schedulePortfolioBackground(warmThumbnailCache, 500); schedulePortfolioBackground(warmContentHashes, 300); }).catch((error) => recordDiagnostic('error', 'Portfolio background resume failed', error));
   return publicLibrarySummary();
 });
@@ -2587,6 +2590,37 @@ ipcMain.handle('asset:ensure-playable', async (_event, payload) => {
   }
   return mediaUrlFor(asset);
 });
+function getSemanticService() {
+  if (!semanticService) semanticService = createSemanticService({
+    userData: app.getPath('userData'), ffmpeg: ffmpegExecutable,
+    getContext: () => ({portfolioId:activePortfolioId,databaseFile,loading:library.loading}),
+    getAssets: () => library.assets.filter(asset=>!isAssetLocked(asset)&&!asset.encrypted),
+    getAsset: id => { const asset=mainAssetIndex.get(id)||library.assets.find(item=>item.id===id);return asset&&!isAssetLocked(asset)&&!asset.encrypted?asset:null; },
+    isBusy: () => scanWorkActive() || backgroundHashWorkers.size>0 || activePdfWorkers>0 || thumbnailQueue.length>0,
+    emit: status => { if(mainWindow&&!mainWindow.isDestroyed()) mainWindow.webContents.send('semantic:status',status); },
+    report: reportBackgroundProgress, registerPause: (id,handler)=>backgroundThreadManager.registerPauseHandler(id,handler), diagnostic: recordDiagnostic
+  });
+  return semanticService;
+}
+async function semanticSampleForPath(filePath) {
+  if(typeof filePath!=='string'||!path.isAbsolute(filePath))throw Error('Choose a local sample file');
+  const stat=await fsp.stat(filePath);if(!stat.isFile())throw Error('Sample must be a file');
+  const existing=library.assets.find(asset=>path.resolve(asset.path)===path.resolve(filePath));
+  if(existing&&isAssetLocked(existing))throw Error('Unlock the sample asset before searching');
+  return existing?getSemanticService().assetRecord(existing):{id:'sample',path:filePath,name:path.basename(filePath),kind:kindFor(path.extname(filePath).toLowerCase()),size:stat.size,modified:stat.mtimeMs,tags:[]};
+}
+ipcMain.handle('semantic:status',()=>getSemanticService().getStatus());
+ipcMain.handle('semantic:setup',()=>getSemanticService().setup());
+ipcMain.handle('semantic:configure',(_event,input)=>getSemanticService().configure({automatic:input?.automatic}));
+ipcMain.handle('semantic:start',()=>getSemanticService().start());
+ipcMain.handle('semantic:pause',(_event,value)=>getSemanticService().pause(Boolean(value)));
+ipcMain.handle('semantic:choose-sample',async()=>{const result=await dialog.showOpenDialog(mainWindow,{title:'Choose a semantic search sample',properties:['openFile']});return result.canceled?null:{path:result.filePaths[0],name:path.basename(result.filePaths[0])};});
+ipcMain.handle('semantic:search',async(_event,input={})=>{
+  const sample=input.samplePath?await semanticSampleForPath(input.samplePath):null;
+  const result=await getSemanticService().search({query:input.query,assetId:input.assetId,sample,minimum:input.minimum,limit:input.limit,offset:input.offset,kind:input.kind});
+  return {...result,results:result.results.filter(item=>!isAssetLocked(item.asset)).map(item=>({...item,asset:publicAssetForRenderer(item.asset)}))};
+});
+
 ipcMain.handle('asset:open', async (_event, id) => {
   const asset = library.assets.find((item) => item.id === id);
   if (asset && await pathAvailable(asset.path)) return shell.openPath(asset.path);
@@ -2732,6 +2766,7 @@ app.on('before-quit', () => {
   for (const worker of backgroundHashWorkers) worker.terminate();
   databaseWorker?.terminate(); databaseWorker = null;
   for (const child of activeFfmpegChildren) child.kill();
+  semanticService?.close();
   pluginManager?.close();
   mediaServer?.closeAllConnections?.(); mediaServer?.close(); mediaServer = null; mediaServerPort = 0;
 });

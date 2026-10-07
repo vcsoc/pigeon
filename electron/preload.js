@@ -8,6 +8,14 @@ window.addEventListener('DOMContentLoaded',()=>{const target=document.getElement
 
 contextBridge.exposeInMainWorld('pigeon', {
   getLibrary: () => ipcRenderer.invoke('library:get'),
+  semanticStatus: () => ipcRenderer.invoke('semantic:status'),
+  semanticSetup: () => ipcRenderer.invoke('semantic:setup'),
+  semanticConfigure: input => ipcRenderer.invoke('semantic:configure', input),
+  semanticStart: () => ipcRenderer.invoke('semantic:start'),
+  semanticPause: value => ipcRenderer.invoke('semantic:pause', value),
+  semanticChooseSample: () => ipcRenderer.invoke('semantic:choose-sample'),
+  semanticSearch: input => ipcRenderer.invoke('semantic:search', input),
+  onSemanticStatus: callback => { const handler=(_event,status)=>callback(status);ipcRenderer.on('semantic:status',handler);return()=>ipcRenderer.removeListener('semantic:status',handler); },
   combineImages: (payload) => ipcRenderer.invoke('images:combine',payload),
   cancelCombineImages: () => ipcRenderer.invoke('images:cancel-combine'),
   rendererReady: () => ipcRenderer.invoke('renderer:ready'),

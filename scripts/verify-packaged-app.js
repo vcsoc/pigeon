@@ -8,6 +8,12 @@ const asar = require('@electron/asar');
 const projectRoot = path.join(__dirname, '..');
 const criticalFiles = [
   'src/index.html',
+  'src/semantic-search.js',
+  'src/semantic-search.css',
+  'electron/semantic-service.js',
+  'electron/semantic-engine.py',
+  'electron/semantic-policy.js',
+  'electron/semantic-governor.js',
   'src/styles.css',
   'src/editor-panel.css',
   'src/editor-tool-icons.js',
