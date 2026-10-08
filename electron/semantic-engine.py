@@ -24,6 +24,9 @@ CREATE TABLE IF NOT EXISTS assets (id TEXT PRIMARY KEY, fingerprint TEXT NOT NUL
 CREATE TABLE IF NOT EXISTS vectors (asset_id TEXT NOT NULL, part INTEGER NOT NULL, vector BLOB NOT NULL, detail TEXT NOT NULL, PRIMARY KEY(asset_id,part));
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY,value TEXT NOT NULL);
 """)
+columns={row[1] for row in DB.execute('PRAGMA table_info(assets)')}
+for name,definition in [('content_fingerprint',"TEXT DEFAULT ''"),('metadata',"TEXT DEFAULT '{}'"),('metadata_dirty','INTEGER DEFAULT 0')]:
+    if name not in columns:DB.execute(f'ALTER TABLE assets ADD COLUMN {name} {definition}')
 DB.execute("DELETE FROM vectors WHERE asset_id IN (SELECT id FROM assets WHERE version != ?)",(MODEL_VERSION,))
 DB.execute("DELETE FROM assets WHERE version != ?",(MODEL_VERSION,)); DB.commit()
 FFMPEG = os.environ.get('PIGEON_SEMANTIC_FFMPEG','ffmpeg')
@@ -173,12 +176,36 @@ def prepare_content(asset,part):
     except Exception as exc:
         return None,None,True,str(exc)[:500]
 
+def sync_assets(records,removed_ids=()):
+    for ident in removed_ids:
+        DB.execute('DELETE FROM vectors WHERE asset_id=?',(ident,));DB.execute('DELETE FROM assets WHERE id=?',(ident,))
+    for record in records:
+        asset=record['asset'];ident=asset['id'];expected=record['fingerprint'];content=record.get('contentFingerprint','');metadata=json.dumps(asset)
+        row=DB.execute('SELECT fingerprint,content_fingerprint,metadata FROM assets WHERE id=?',(ident,)).fetchone()
+        same_content=bool(row and row[1] and row[1]==content);same_metadata=bool(row and row[0]==expected)
+        if row and not row[1] and content:
+            # Upgrade old fingerprints without discarding unchanged content vectors.
+            try:
+                old=json.loads(row[0]);new=json.loads(content)
+                if len(old)==9 and len(new)==9 and not new[4]:
+                    same_content=old[:4]==new[:4] and old[7:9]==new[7:9]
+                    same_metadata=same_content and old[4:7]==[asset.get('name'),asset.get('note',''),asset.get('tags',[])]
+            except (ValueError,TypeError):pass
+        if row and same_content and same_metadata and row[2]==metadata:continue
+        if not row or not same_content:
+            DB.execute('DELETE FROM vectors WHERE asset_id=?',(ident,))
+            DB.execute('INSERT OR REPLACE INTO assets(id,fingerprint,version,name,content_fingerprint,metadata) VALUES (?,?,?,?,?,?)',(ident,expected,MODEL_VERSION,asset.get('name',''),content,metadata))
+        else:
+            if not same_metadata:DB.execute('DELETE FROM vectors WHERE asset_id=? AND part=0',(ident,))
+            DB.execute('UPDATE assets SET fingerprint=?,content_fingerprint=?,metadata=?,name=?,metadata_dirty=CASE WHEN ? THEN metadata_dirty ELSE 1 END WHERE id=?',(expected,content,metadata,asset.get('name',''),int(same_metadata),ident))
+    DB.commit()
+
 def prepare_index_job(job):
     asset=job['asset'];ident=asset['id'];expected=job['fingerprint']
-    row=DB.execute('SELECT fingerprint,cursor,complete,error FROM assets WHERE id=?',(ident,)).fetchone()
+    row=DB.execute('SELECT fingerprint,cursor,complete,error,metadata_dirty FROM assets WHERE id=?',(ident,)).fetchone()
     if not row or row[0]!=expected:
         DB.execute('DELETE FROM vectors WHERE asset_id=?',(ident,))
-        DB.execute('INSERT OR REPLACE INTO assets(id,fingerprint,version,name) VALUES (?,?,?,?)',(ident,expected,MODEL_VERSION,asset.get('name','')));DB.commit();row=(expected,0,0,'')
+        DB.execute('INSERT OR REPLACE INTO assets(id,fingerprint,version,name) VALUES (?,?,?,?)',(ident,expected,MODEL_VERSION,asset.get('name','')));DB.commit();row=(expected,0,0,'',0)
     return asset,row
 
 def index_batch(jobs,workers=2,steps=2,memory_limit=0):
@@ -199,8 +226,9 @@ def index_batch(jobs,workers=2,steps=2,memory_limit=0):
             pending=[]
             for job in jobs:
                 asset,row=prepare_index_job(job);ident=asset['id']
-                if row[2]:results[ident]={'id':ident,'done':True,'cached':True,'error':row[3]};continue
-                pending.append((asset,row[1],pool.submit(prepare_content,asset,row[1])))
+                if row[2] and not row[4]:results[ident]={'id':ident,'done':True,'cached':True,'error':row[3]};continue
+                part=0 if row[4] else row[1]
+                pending.append((asset,part,pool.submit(prepare_content,asset,part)))
             prepared=[(asset,part,*future.result()) for asset,part,future in pending]
         values=[item[2] for item in prepared if item[2] is not None]
         embeddings=iter(vector_batch(values,memory_limit)) if values else iter(())
@@ -208,7 +236,12 @@ def index_batch(jobs,workers=2,steps=2,memory_limit=0):
             ident=asset['id']
             if value is not None:
                 v=next(embeddings);DB.execute('INSERT OR REPLACE INTO vectors VALUES (?,?,?,?)',(ident,part,v.tobytes(),json.dumps(detail)))
-            DB.execute('UPDATE assets SET cursor=?,complete=?,error=? WHERE id=?',(part+1,int(done),error,ident));DB.commit()
+            saved=DB.execute('SELECT cursor,complete,error,metadata_dirty FROM assets WHERE id=?',(ident,)).fetchone()
+            if part==0 and saved[3] and saved[0]>0:
+                done=bool(saved[1]);error=error or saved[2]
+                DB.execute('UPDATE assets SET metadata_dirty=0 WHERE id=?',(ident,))
+            else:DB.execute('UPDATE assets SET cursor=?,complete=?,error=?,metadata_dirty=0 WHERE id=?',(part+1,int(done),error,ident))
+            DB.commit()
             results[ident]={'id':ident,'done':done,'part':part,'error':error}
     return {'results':list(results.values()),'workers':round_workers,'info':handle({'action':'info'})}
 
@@ -242,7 +275,7 @@ def search(request):
     QUERY_CACHE[key]=query
     while len(QUERY_CACHE)>8 or sum(v.nbytes for v in QUERY_CACHE.values())>64*1024*1024:QUERY_CACHE.pop(next(iter(QUERY_CACHE)))
     offset=max(0,int(request.get('offset',0)))
-    minimum=max(-1,min(1,float(request.get('minimum',0.55))));limit=max(1,min(1000,int(request.get('limit',200))));best={}
+    minimum=max(-1,min(1,float(request.get('minimum',0.68))));limit=max(1,min(1000,int(request.get('limit',200))));best={}
     total=DB.execute('SELECT count(*) FROM vectors').fetchone()[0];completed=0
     progress('Comparing indexed content',0,total)
     cursor=DB.execute('SELECT v.asset_id,v.vector,v.detail,a.fingerprint FROM vectors v JOIN assets a ON a.id=v.asset_id')
@@ -261,18 +294,21 @@ def search(request):
 def handle(req):
     action=req['action']
     if action=='info':
-        return {'indexed':DB.execute('SELECT count(*) FROM assets WHERE complete=1 AND error=""').fetchone()[0], 'limited':DB.execute('SELECT count(*) FROM assets WHERE complete=1 AND error!=""').fetchone()[0], 'vectors':DB.execute('SELECT count(*) FROM vectors').fetchone()[0],'settings':{r[0]:json.loads(r[1]) for r in DB.execute('SELECT key,value FROM settings')},'model':MODEL_ID,'version':MODEL_VERSION}
+        return {'indexed':DB.execute('SELECT count(*) FROM assets WHERE complete=1 AND error="" AND metadata_dirty=0').fetchone()[0], 'limited':DB.execute('SELECT count(*) FROM assets WHERE complete=1 AND error!="" AND metadata_dirty=0').fetchone()[0], 'vectors':DB.execute('SELECT count(*) FROM vectors').fetchone()[0],'settings':{r[0]:json.loads(r[1]) for r in DB.execute('SELECT key,value FROM settings')},'model':MODEL_ID,'version':MODEL_VERSION}
     if action=='configure':
         for k,v in req.get('settings',{}).items():DB.execute('INSERT OR REPLACE INTO settings VALUES (?,?)',(k,json.dumps(v)))
         DB.commit();return handle({'action':'info'})
+    if action=='sync-assets':
+        sync_assets(req.get('records',[]),req.get('removedIds',[]));return handle({'action':'info'})
     if action=='prune':
+        if req.get('records'):sync_assets(req['records'])
         allowed=req['assets']
         for ident,fp in DB.execute('SELECT id,fingerprint FROM assets').fetchall():
             if allowed.get(ident)!=fp:DB.execute('DELETE FROM vectors WHERE asset_id=?',(ident,));DB.execute('DELETE FROM assets WHERE id=?',(ident,))
         for ident,fp in allowed.items():
             DB.execute('INSERT OR IGNORE INTO assets(id,fingerprint,version) VALUES (?,?,?)',(ident,fp,MODEL_VERSION))
         DB.commit();return handle({'action':'info'})
-    if action=='plan':return {'pending':[r[0] for r in DB.execute('SELECT id FROM assets WHERE complete=0')]}
+    if action=='plan':return {'pending':[r[0] for r in DB.execute('SELECT id FROM assets WHERE complete=0 OR metadata_dirty=1')]}
     if action=='index':return index_step(req['asset'],req['fingerprint'])
     if action=='index_batch':return index_batch(req.get('jobs',[]),req.get('workers',2),req.get('steps',2),int(req.get('memoryLimit',0)))
     if action=='search':return search(req)

@@ -1,6 +1,6 @@
 {
   "name": "pigeon",
-  "version": "0.3.14",
+  "version": "0.3.15",
   "description": "A reference-first visual asset library for files that stay where they are.",
   "main": "electron/main.js",
   "author": "Chris Visser",
@@ -34,7 +34,7 @@
     "icons:generate": "node scripts/generate-app-icons.js",
     "extensions:build": "node scripts/build-browser-extensions.js",
     "extensions:check": "node --check browser-extension/drop-url.js && node --check browser-extension/service-worker.js && node --check browser-extension/content-script.js && node --check browser-extension/popup.js && node --check scripts/build-browser-extensions.js",
-    "check:semantic": "node --check electron/semantic-policy.js && node --check electron/semantic-governor.js && node --check electron/semantic-service.js && node --check src/semantic-search.js",
+    "check:semantic": "node --check electron/knowledge-graph.js && node --check electron/knowledge-graph-worker.js && node --check src/knowledge-graph.js && node --check electron/semantic-metadata.js && node --check src/semantic-select.js && node --check electron/database-telemetry.js && node --check electron/database-telemetry-worker.js && node --check src/database-telemetry.js && node --check electron/semantic-priority.js && node --check electron/semantic-policy.js && node --check electron/semantic-governor.js && node --check electron/semantic-service.js && node --check src/semantic-search.js",
     "test:semantic": "node --test tests/semantic-*.test.js"
   },
   "devDependencies": {
@@ -44,6 +44,7 @@
   },
   "dependencies": {
     "chokidar": "^4.0.3",
+    "cytoscape": "3.34.3",
     "electron-updater": "^6.8.9",
     "exif-reader": "^2.0.3",
     "ffmpeg-static": "^5.3.0",

@@ -9,6 +9,8 @@
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="editor-panel.css" />
     <link rel="stylesheet" href="semantic-search.css" />
+    <link rel="stylesheet" href="database-telemetry.css" />
+    <link rel="stylesheet" href="knowledge-graph.css" />
   </head>
   <body>
     <div class="app-shell startup-active">
@@ -89,6 +91,7 @@
               <input id="search-input" type="search" placeholder="Search" autocomplete="off" />
               <button type="button" id="semantic-sample-button" class="search-camera" title="Search by sample file" aria-label="Search by sample file">▣</button>
             </label>
+            <button type="button" id="knowledge-graph-toggle" class="icon-button" title="Show portfolio knowledge graph" aria-label="Toggle knowledge graph" aria-expanded="false" aria-controls="knowledge-graph-panel">♧</button>
             <button type="button" id="semantic-search-button" class="icon-button" title="Semantic search: descriptions and sample files" aria-label="Semantic search">✦</button>
             <button id="pin-button" class="icon-button" title="Keep Pigeon on top">⌖</button>
             <div id="window-controls" class="window-controls" aria-label="Window controls">
@@ -188,6 +191,7 @@
             <button id="grid-sentinel" class="grid-sentinel hidden">Load more</button>
           </div>
 
+          <aside id="knowledge-graph-panel" class="knowledge-graph-panel hidden" aria-label="Portfolio knowledge graph"></aside>
           <aside id="inspector" class="inspector empty">
             <div id="inspector-resizer" class="panel-resizer inspector-resizer" role="separator" aria-orientation="vertical" aria-label="Resize inspector panel" tabindex="0"></div>
             <div id="inspector-details-panel" class="inspector-details-panel" role="tabpanel" aria-labelledby="right-panel-details-tab">
@@ -247,7 +251,7 @@
           <header><div><strong>Diagnostics Console</strong><span id="diagnostics-summary">No recorded issues</span></div><div class="diagnostics-actions"><button id="diagnostics-copy-all">Copy All</button><button id="diagnostics-open-file">Open Log File</button><button id="diagnostics-clear">Clear</button><button id="diagnostics-fullscreen" aria-pressed="false">Full Screen</button><button id="diagnostics-close" aria-label="Close">×</button></div></header>
           <nav><button class="active" data-console-tab="logs">Logs</button><button data-console-tab="telemetry">Telemetry</button><span class="console-filter-divider"></span><span id="diagnostic-level-filters"><button class="active" data-diagnostic-level="all">All</button><button data-diagnostic-level="error">Errors</button><button data-diagnostic-level="warning">Warnings</button><button data-diagnostic-level="info">Info</button></span></nav>
           <div id="diagnostics-list" class="diagnostics-list" role="log" aria-live="polite"></div>
-          <div id="telemetry-panel" class="telemetry-panel hidden"><small>GPU utilization is not measured here; GPU-process CPU is already included in collective CPU.</small><div id="telemetry-summary" class="telemetry-summary"></div><div class="telemetry-table"><div class="telemetry-head"><span>Thread / process</span><span>Files</span><span>CPU</span><span title="GPU process CPU, not GPU utilization">GPU proc CPU</span><span>Memory</span><span>Runtime</span></div><div id="telemetry-list"></div></div></div>
+          <div id="telemetry-panel" class="telemetry-panel hidden"><small>GPU utilization is not measured here; GPU-process CPU is already included in collective CPU.</small><div id="telemetry-summary" class="telemetry-summary"></div><section id="telemetry-databases" class="database-telemetry" aria-label="Database statistics">Loading read-only database inventory…</section><div class="telemetry-table"><div class="telemetry-head"><span>Thread / process</span><span>Files</span><span>CPU</span><span title="GPU process CPU, not GPU utilization">GPU proc CPU</span><span>Memory</span><span>Runtime</span></div><div id="telemetry-list"></div></div></div>
         </section>
         <footer class="statusbar">
           <span id="status-text">Ready</span>
@@ -398,7 +402,11 @@
     <script src="editor-layer-handles.js"></script>
   <script src="renderer.js"></script>
     <script src="auto-tag-editor.js"></script>
+    <script src="semantic-select.js"></script>
     <script src="semantic-search.js"></script>
+    <script src="database-telemetry.js"></script>
+    <script src="../node_modules/cytoscape/dist/cytoscape.min.js"></script>
+    <script src="knowledge-graph.js"></script>
     <script src="sidebar-hierarchy-drag.js"></script>
     <script src="sidebar-groups.js"></script>
   </body>

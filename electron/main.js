@@ -8,8 +8,13 @@ const crypto = require('node:crypto');
 const sharp = require('sharp');
 const libraryCore = require('./library-core');
 const { createSemanticService } = require('./semantic-service');
-const { semanticPriorityIds } = require('./semantic-priority');
+const { semanticPriorityPlan } = require('./semantic-priority');
 let semanticService = null;
+const {createDatabaseTelemetry}=require('./database-telemetry');
+const {fingerprint:semanticFingerprint,admissible:semanticAdmissible}=require('./semantic-policy');
+let databaseTelemetry=null,knowledgeGraph=null;
+const {createKnowledgeGraph}=require('./knowledge-graph');
+function getKnowledgeGraph(){if(!knowledgeGraph)knowledgeGraph=createKnowledgeGraph({getContext:(summary=false)=>({portfolioId:activePortfolioId,databaseFile,loading:library.loading,assets:summary?[]:library.assets.filter(asset=>semanticAdmissible(asset)&&!isAssetLocked(asset)).map(asset=>({id:asset.id,fingerprint:semanticFingerprint(asset),name:asset.name||asset.filename||path.basename(asset.path),kind:asset.kind||'file',tags:Array.isArray(asset.tags)?asset.tags:[]}))}),validateResult:(result,context)=>{const expected=new Map(context.assets.map(asset=>[asset.id,asset.fingerprint])),fresh=new Map(library.assets.map(asset=>[asset.id,asset]));return(result.nodes||[]).every(node=>{if(!node.assetId)return true;const asset=fresh.get(node.assetId);return asset&&semanticAdmissible(asset)&&!isAssetLocked(asset)&&semanticFingerprint(asset)===expected.get(node.assetId);});}});return knowledgeGraph;}
 const { createLibraryStore } = require('./database');
 const { safeTransferFilename, stageAssetFiles } = require('./portfolio-transfer');
 const { planCollectionFolderTransfer, safeCollectionFolderName } = require('./collection-folder-transfer');
@@ -198,11 +203,12 @@ function trackWorker(worker, type, detail = {}) {
   worker.once('exit', (code) => {const entry=workerTelemetry.get(id),successful=code===0||entry?.status==='cancelled'||Boolean(entry?.filesTotal&&entry.filesCompleted>=entry.filesTotal);workerTelemetry.delete(id);if(showProgress&&entry?.status!=='cancelled')reportBackgroundProgress(progressId,{label:successful?`${label} worker complete`:`${label} worker stopped`,detail:successful?'Background work finished':`Exit code ${code}`,completed:entry?.filesTotal||0,total:entry?.filesTotal||0,done:true,status:successful?'completed':'failed',pauseSupported:false});if(code!==0&&!successful&&!entry?.expectedExit&&!app.isQuitting)recordDiagnostic('error',`${type} worker exited unexpectedly`,{id,code});}); return workerTelemetry.get(id);
 }
 async function workerResourceTelemetry(entry) { try { const [cpuUsage, heap] = await Promise.all([typeof entry.worker.cpuUsage === 'function' ? entry.worker.cpuUsage(entry.lastCpuUsage).catch(() => null) : null, typeof entry.worker.getHeapStatistics === 'function' ? entry.worker.getHeapStatistics().catch(() => null) : null]); const elapsed = Math.max(1, Date.now() - (entry.lastSampleAt || entry.startedAt)); entry.lastSampleAt = Date.now(); if (cpuUsage) entry.lastCpuUsage = cpuUsage; return { cpu: cpuUsage ? Math.min(100, ((cpuUsage.user + cpuUsage.system) / 1000 / elapsed) * 100) : (entry.worker.performance?.eventLoopUtilization()?.utilization || 0) * 100, memoryBytes: heap?.usedHeapSize || entry.memoryBytes || 0 }; } catch { return { cpu: 0, memoryBytes: entry.memoryBytes || 0 }; } }
-async function telemetrySnapshot() {
+async function telemetrySnapshot(options={}) {
   const metrics = app.getAppMetrics(), cpu = metrics.reduce((sum, item) => sum + (item.cpu?.percentCPUUsage || 0), 0), memoryBytes = metrics.reduce((sum, item) => sum + (item.memory?.workingSetSize || 0) * 1024, 0), gpuProcesses = metrics.filter((item) => String(item.type).toLowerCase().includes('gpu'));
   const threads = await Promise.all([...workerTelemetry.values()].map(async (entry) => { const resource = await workerResourceTelemetry(entry); return { id: entry.id, threadId: entry.threadId, type: entry.type, portfolioId: entry.portfolioId, status: entry.status, startedAt: entry.startedAt, filesCompleted: entry.filesCompleted, filesTotal: entry.filesTotal, currentFile: entry.currentFile, batch: entry.batch, ...resource }; }));
   const workerQueued=threads.reduce((sum,item)=>sum+Math.max(0,(Number(item.filesTotal)||0)-(Number(item.filesCompleted)||0)),0),rendererQueued=[...scanBroadcastQueues.values()].reduce((sum,queue)=>sum+queue.items.reduce((count,item)=>count+(item.assets?.length||0),0),0),queuedItems=workerQueued+rendererQueued+pdfWorkerWaiters.length+pendingProtocolUrls.length;
-  return { timestamp: Date.now(), collective: { cpu, memoryBytes, gpuCpu: gpuProcesses.reduce((sum, item) => sum + (item.cpu?.percentCPUUsage || 0), 0), gpuMemoryBytes: gpuProcesses.reduce((sum, item) => sum + (item.memory?.workingSetSize || 0) * 1024, 0), filesCompleted: threads.reduce((sum, item) => sum + item.filesCompleted, 0), filesTotal: threads.reduce((sum, item) => sum + item.filesTotal, 0), queuedItems, activeRuns: [...backgroundRuns.values()].filter(backgroundRunActive).length, activeThreads: threads.length, logicalCpus: os.cpus().length, totalMemoryBytes: os.totalmem(), maxBackgroundThreads: MAX_BACKGROUND_THREADS, cpuLimit: INDEX_CPU_LIMIT, uptimeSeconds: process.uptime(), diagnosticErrors: diagnosticEntries.filter((entry)=>entry.level==='error').length }, threads, processes: metrics.map((item) => ({ pid: item.pid, type: item.type, cpu: item.cpu?.percentCPUUsage || 0, memoryBytes: (item.memory?.workingSetSize || 0) * 1024 })),thumbnailScheduler:thumbnailGenerationScheduler?.stats()||null,performanceSpans:performanceRecorder.snapshot() };
+  let databases=null;if(options?.databases){if(!databaseTelemetry)databaseTelemetry=createDatabaseTelemetry({getContext:()=>({portfolioId:activePortfolioId,databaseFile,thumbnailDir,portfolioDatabases:portfolios.map(portfolio=>portfolio.database||portfolioDatabasePath(portfolio.id)),getExcludedIds:()=>library.assets.filter(isAssetLocked).map(asset=>asset.id)})});databases=await databaseTelemetry.get({force:Boolean(options.refreshDatabases)});if(databases.portfolioId!==activePortfolioId)databases={portfolioId:activePortfolioId,unavailable:true};else{const scan=semanticService?.peekStatus();databases={...databases,scan:scan?.portfolioId===activePortfolioId?scan:null};}}
+  return { timestamp: Date.now(), databases, collective: { cpu, memoryBytes, gpuCpu: gpuProcesses.reduce((sum, item) => sum + (item.cpu?.percentCPUUsage || 0), 0), gpuMemoryBytes: gpuProcesses.reduce((sum, item) => sum + (item.memory?.workingSetSize || 0) * 1024, 0), filesCompleted: threads.reduce((sum, item) => sum + item.filesCompleted, 0), filesTotal: threads.reduce((sum, item) => sum + item.filesTotal, 0), queuedItems, activeRuns: [...backgroundRuns.values()].filter(backgroundRunActive).length, activeThreads: threads.length, logicalCpus: os.cpus().length, totalMemoryBytes: os.totalmem(), maxBackgroundThreads: MAX_BACKGROUND_THREADS, cpuLimit: INDEX_CPU_LIMIT, uptimeSeconds: process.uptime(), diagnosticErrors: diagnosticEntries.filter((entry)=>entry.level==='error').length }, threads, processes: metrics.map((item) => ({ pid: item.pid, type: item.type, cpu: item.cpu?.percentCPUUsage || 0, memoryBytes: (item.memory?.workingSetSize || 0) * 1024 })),thumbnailScheduler:thumbnailGenerationScheduler?.stats()||null,performanceSpans:performanceRecorder.snapshot() };
 }
 async function waitForIndexCpuBudget(run) { while (backgroundRunActive(run)) { if(!(await waitForBackgroundThread(run.progressId)))return false;const currentCpu=app.getAppMetrics().reduce((sum,item)=>sum+(item.cpu?.percentCPUUsage||0),0);if(currentCpu>=INDEX_CPU_LIMIT){if(run.reportPauses!==false)reportBackgroundProgress(run.progressId,{label:'Background work paused for CPU',detail:`Pigeon is using ${currentCpu.toFixed(1)}% CPU`,status:'paused'});await new Promise((resolve)=>setTimeout(resolve,250));continue;}const freeMemory=await availableMemoryBytes();if(freeMemory>=MIN_FREE_MEMORY_BYTES)return true;if(run.reportPauses!==false)reportBackgroundProgress(run.progressId,{label:'Background work paused for memory',detail:`Waiting for available memory · ${Math.round(freeMemory/1024/1024)} MB available`,status:'paused'});await new Promise((resolve)=>setTimeout(resolve,1200));}return false; }
 function scanWorkActive(){return [...backgroundRuns.values()].some((run)=>(run.type==='scan'||run.type==='scan-previews')&&backgroundRunActive(run));}
@@ -406,16 +412,18 @@ async function stopDatabaseWorker(reason='Database worker stopped'){const worker
 function sendDatabaseRequest(action,snapshot,target=null) { if (!databaseWorker) startDatabaseWorker(); const worker=databaseWorker,queuedAt=performance.now(),portfolioId=activePortfolioId,librarySize=library.assets.length;return new Promise((resolve,reject)=>{ const id=++databaseRequestId,sentAt=performance.now(); databaseRequests.set(id,{resolve,reject,queuedAt,sentAt,action,portfolioId,librarySize,worker}); worker.postMessage({id,action,library:snapshot,target}); }); }
 function sendDatabaseSave(snapshot){ return sendDatabaseRequest('save',snapshot); }
 function persistScanBatch(location,assets){ return sendDatabaseRequest('save-batch',{location:location?{...location,scanning:false,checking:false}:null,assets}); }
-function persistAssetBatch(assets){return sendDatabaseRequest('upsert-assets',{assets});}
+function notifySemanticChanges(assets){try{semanticService?.assetsChanged(assets);}catch(error){recordDiagnostic('warning','Semantic update notification failed',error);}}
+function semanticMutationTarget(assets){return semanticService?{semanticRecords:assets.filter(asset=>semanticAdmissible(asset)&&!isAssetLocked(asset)).map(asset=>({fingerprint:semanticFingerprint(asset),asset:semanticService.assetRecord(asset)}))}:null;}
+function persistAssetBatch(assets){notifySemanticChanges(assets);return sendDatabaseRequest('upsert-assets',{assets},semanticMutationTarget(assets));}
 function persistLibrary(snapshot = library) {
   pendingDatabaseSnapshot = snapshot; if(databaseSaveInFlight) return databaseSaveInFlight;
   databaseSaveInFlight=(async()=>{ while(pendingDatabaseSnapshot){ const next=pendingDatabaseSnapshot; pendingDatabaseSnapshot=null; await sendDatabaseSave(next); } })().finally(()=>{databaseSaveInFlight=null;}); return databaseSaveInFlight;
 }
 function libraryMetadataSnapshot(){const{assets,...metadata}=library;return metadata;}
-function scheduleAssetSave(assets){for(const asset of Array.isArray(assets)?assets:[assets])if(asset?.id)pendingAssetSaves.set(asset.id,asset);scheduleDeltaFlush();}
+function scheduleAssetSave(assets){notifySemanticChanges(assets);for(const asset of Array.isArray(assets)?assets:[assets])if(asset?.id)pendingAssetSaves.set(asset.id,asset);scheduleDeltaFlush();}
 function scheduleMetadataSave(){pendingMetadataSave=true;scheduleDeltaFlush();}
 function scheduleDeltaFlush(delay=60){clearTimeout(deltaSaveTimer);deltaSaveTimer=setTimeout(()=>{deltaSaveTimer=null;flushDeltaPersistence().catch(()=>{});},delay);}
-async function flushDeltaPersistence(){if(deltaSaveInFlight)return deltaSaveInFlight;deltaSaveInFlight=(async()=>{while(pendingAssetSaves.size||pendingMetadataSave){const assets=[];for(const[id,asset]of pendingAssetSaves){pendingAssetSaves.delete(id);assets.push(asset);if(assets.length>=250)break;}const metadata=pendingMetadataSave?libraryMetadataSnapshot():null;pendingMetadataSave=false;try{if(assets.length)await sendDatabaseRequest('upsert-assets',{assets});if(metadata)await sendDatabaseRequest('save-library-metadata',metadata);if(pendingAssetSaves.size)await new Promise((resolve)=>setImmediate(resolve));}catch(error){for(const asset of assets)if(!pendingAssetSaves.has(asset.id))pendingAssetSaves.set(asset.id,asset);if(metadata)pendingMetadataSave=true;recordDiagnostic('error','Could not save incremental SQLite changes',error);scheduleDeltaFlush(500);throw error;}}})().finally(()=>{deltaSaveInFlight=null;});return deltaSaveInFlight;}
+async function flushDeltaPersistence(){if(deltaSaveInFlight)return deltaSaveInFlight;deltaSaveInFlight=(async()=>{while(pendingAssetSaves.size||pendingMetadataSave){const assets=[];for(const[id,asset]of pendingAssetSaves){pendingAssetSaves.delete(id);assets.push(asset);if(assets.length>=250)break;}const metadata=pendingMetadataSave?libraryMetadataSnapshot():null;pendingMetadataSave=false;try{if(assets.length)await sendDatabaseRequest('upsert-assets',{assets},semanticMutationTarget(assets));if(metadata)await sendDatabaseRequest('save-library-metadata',metadata);if(pendingAssetSaves.size)await new Promise((resolve)=>setImmediate(resolve));}catch(error){for(const asset of assets)if(!pendingAssetSaves.has(asset.id))pendingAssetSaves.set(asset.id,asset);if(metadata)pendingMetadataSave=true;recordDiagnostic('error','Could not save incremental SQLite changes',error);scheduleDeltaFlush(500);throw error;}}})().finally(()=>{deltaSaveInFlight=null;});return deltaSaveInFlight;}
 async function acquirePdfWorkerSlot(){ if(activePdfWorkers>=PDF_WORKER_LIMIT) await new Promise((resolve)=>pdfWorkerWaiters.push(resolve)); activePdfWorkers+=1; }
 function releasePdfWorkerSlot(){ activePdfWorkers=Math.max(0,activePdfWorkers-1); pdfWorkerWaiters.shift()?.(); }
 function scheduleSave() {
@@ -1951,7 +1959,9 @@ ipcMain.on('file-conflict:resolve',(event,payload={})=>{if(event.sender!==mainWi
 ipcMain.handle('app:info', () => ({ name: 'Pigeon', version: app.getVersion(), repository: 'https://github.com/vcsoc/pigeon' }));
 ipcMain.handle('app:legal-documents', async () => Object.fromEntries(await Promise.all(Object.entries({ community:'LICENSE.md', commercial:'COMMERCIAL-LICENSE.md', notices:'NOTICE.md', trademarks:'TRADEMARKS.md' }).map(async ([key,file]) => [key,await fsp.readFile(path.join(app.getAppPath(),file),'utf8')]))));
 ipcMain.handle('diagnostics:get', () => diagnosticEntries.slice(-1000));
-ipcMain.handle('telemetry:get', () => telemetrySnapshot());
+ipcMain.handle('telemetry:get', (_event,options) => telemetrySnapshot(options));
+ipcMain.handle('knowledge-graph:get',(_event,options)=>getKnowledgeGraph().get(options||{}));
+ipcMain.handle('knowledge-graph:cancel',()=>{knowledgeGraph?.cancel();return true;});
 ipcMain.handle('background-threads:list',()=>backgroundThreadManager.snapshot(activePortfolioId));
 ipcMain.handle('background-threads:set-paused',(_event,{id,paused})=>backgroundThreadManager.setPaused(id,paused));
 ipcMain.handle('background-threads:set-all-paused',(_event,paused)=>backgroundThreadManager.setAllPaused(activePortfolioId,Boolean(paused)));
@@ -2595,6 +2605,7 @@ function getSemanticService() {
   if (!semanticService) semanticService = createSemanticService({
     userData: app.getPath('userData'), ffmpeg: ffmpegExecutable,
     getContext: () => ({portfolioId:activePortfolioId,databaseFile,loading:library.loading}),
+    getLocations: () => library.locations, resolveScope: scope => semanticPriorityPlan(library,scope),
     getAssets: () => library.assets.filter(asset=>!isAssetLocked(asset)&&!asset.encrypted),
     getAsset: id => { const asset=mainAssetIndex.get(id)||library.assets.find(item=>item.id===id);return asset&&!isAssetLocked(asset)&&!asset.encrypted?asset:null; },
     isBusy: () => scanWorkActive() || backgroundHashWorkers.size>0 || activePdfWorkers>0 || thumbnailQueue.length>0,
@@ -2612,9 +2623,10 @@ async function semanticSampleForPath(filePath) {
 }
 ipcMain.handle('semantic:status',()=>getSemanticService().getStatus());
 ipcMain.handle('semantic:setup',()=>getSemanticService().setup());
-ipcMain.handle('semantic:configure',(_event,input)=>getSemanticService().configure({automatic:input?.automatic,resourcePercent:input?.resourcePercent}));
-ipcMain.handle('semantic:start',(_event,input={})=>getSemanticService().start({portfolioId:input?.portfolioId,priorityIds:semanticPriorityIds(library,input?.scope,input?.includeSubfolders!==false)}));
+ipcMain.handle('semantic:configure',(_event,input)=>getSemanticService().configure({automatic:input?.automatic,resourcePercent:input?.resourcePercent,pauseOnActivity:input?.pauseOnActivity}));
+ipcMain.handle('semantic:start',(_event,input={})=>getSemanticService().start({portfolioId:input?.portfolioId,priorityPlan:semanticPriorityPlan(library,input?.scope),forceActivity:input?.forceActivity===true}));
 ipcMain.handle('semantic:pause',(_event,value)=>getSemanticService().pause(Boolean(value)));
+ipcMain.handle('semantic:continue',()=>getSemanticService().continueAnalysis());
 ipcMain.handle('semantic:choose-sample',async()=>{const result=await dialog.showOpenDialog(mainWindow,{title:'Choose a semantic search sample',properties:['openFile']});return result.canceled?null:{path:result.filePaths[0],name:path.basename(result.filePaths[0])};});
 ipcMain.handle('semantic:search',async(_event,input={})=>{
   const sample=input.samplePath?await semanticSampleForPath(input.samplePath):null;
@@ -2767,6 +2779,8 @@ app.on('before-quit', () => {
   for (const worker of backgroundHashWorkers) worker.terminate();
   databaseWorker?.terminate(); databaseWorker = null;
   for (const child of activeFfmpegChildren) child.kill();
+  knowledgeGraph?.close();
+  databaseTelemetry?.close();
   semanticService?.close();
   pluginManager?.close();
   mediaServer?.closeAllConnections?.(); mediaServer?.close(); mediaServer = null; mediaServerPort = 0;

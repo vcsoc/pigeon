@@ -9,7 +9,7 @@ function linuxProcessSample(pid,seen=new Set()){
     for(const child of children){const sample=linuxProcessSample(Number(child),seen);ticks+=sample.ticks;rss+=sample.rss;}return{ticks,rss};
   }catch{return{ticks:0,rss:0};}
 }
-function createSemanticGovernor({child,getMode=()=> 'automatic',getBudget=null,isPaused=()=>false,isBusy=()=>false,onSample=()=>{},onMemoryLimit=()=>{},clockTicks=100,intervalMs=100}={}){
+function createSemanticGovernor({child,getMode=()=> 'automatic',getBudget=null,pauseOnActivity=()=>true,isPaused=()=>false,isBusy=()=>false,onSample=()=>{},onMemoryLimit=()=>{},clockTicks=100,intervalMs=100}={}){
   let previous=os.cpus(),closed=false,suspended=false,busy=0,previousTime=Date.now(),previousSample=linuxProcessSample(child.pid),debt=0;
   const signal=(pause)=>{if(closed||pause===suspended)return;suspended=pause;try{if(process.platform==='linux')process.kill(-child.pid,pause?'SIGSTOP':'SIGCONT');else if(process.platform!=='win32')child.kill(pause?'SIGSTOP':'SIGCONT');}catch{}};
   const timer=setInterval(()=>{
@@ -17,9 +17,9 @@ function createSemanticGovernor({child,getMode=()=> 'automatic',getBudget=null,i
     const p=getBudget?getBudget():budget(getMode()),now=Date.now(),elapsed=Math.max(1,now-previousTime),sample=linuxProcessSample(child.pid),cpuMs=Math.max(0,sample.ticks-previousSample.ticks)*1000/clockTicks;
     previousTime=now;previousSample=sample;debt=Math.max(0,debt+cpuMs-p.cpu*p.cores*elapsed);
     if(sample.rss>p.memoryBytes){signal(false);onMemoryLimit(new Error(`Semantic engine exceeded its ${Math.round(p.memory*100)}% memory budget; indexing stopped.`));return;}
-    const pressure=availableMemory()<Math.max(512*1024*1024,p.memoryBytes*0.2),blocked=isPaused()||isBusy()||busy>p.busy||pressure;
+    const pressure=availableMemory()<Math.max(512*1024*1024,p.memoryBytes*0.2),activityBlocked=pauseOnActivity()&&(isBusy()||busy>p.busy),blocked=isPaused()||activityBlocked||pressure;
     signal(blocked||debt>p.cpu*p.cores*intervalMs);
-    onSample({cpuPercent:Math.round(cpuMs/elapsed/p.cores*1000)/10,systemCpuPercent:Math.round(busy*100),memoryBytes:sample.rss,cpuLimitPercent:p.cpu*100,memoryLimitBytes:p.memoryBytes,waiting:blocked,suspended});
+    onSample({cpuPercent:Math.round(cpuMs/elapsed/p.cores*1000)/10,systemCpuPercent:Math.round(busy*100),memoryBytes:sample.rss,cpuLimitPercent:p.cpu*100,memoryLimitBytes:p.memoryBytes,waiting:blocked,activityBlocked,memoryPressure:pressure,suspended});
   },intervalMs);timer.unref();
   return{close(){signal(false);closed=true;clearInterval(timer);},resume(){signal(false);}};
 }

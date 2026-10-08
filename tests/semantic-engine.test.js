@@ -55,6 +55,44 @@ assert h({**q,'assets':{'bird.txt':'changed'}})['results']==[]
 page={**q,'assets':{'bird.txt':'fp1','cat.txt':'fp2'},'limit':1}
 assert h(page)['totalMatches']==2
 assert h(page)['results'][0]['id']!=h({**page,'offset':1})['results'][0]['id']
+# Tag changes replace only metadata vectors, preserve source cursors, and persist immediately.
+before=e['DB'].execute('SELECT part,vector FROM vectors WHERE asset_id=? AND part>0',(a['id'],)).fetchall()
+position=e['DB'].execute('SELECT cursor,complete FROM assets WHERE id=?',(a['id'],)).fetchone()
+e['DB'].execute('UPDATE assets SET content_fingerprint=? WHERE id=?',('content-1',a['id']));e['DB'].commit()
+a['tags']=['scarlet bird'];h({'action':'sync-assets','records':[{'asset':a,'fingerprint':'tagged','contentFingerprint':'content-1'}]})
+assert json.loads(e['DB'].execute('SELECT metadata FROM assets WHERE id=?',(a['id'],)).fetchone()[0])['tags']==['scarlet bird']
+assert a['id'] in h({'action':'plan'})['pending']
+assert e['DB'].execute('SELECT part,vector FROM vectors WHERE asset_id=? AND part>0',(a['id'],)).fetchall()==before
+captured=[]
+def capture(values,memory_limit=0):captured.extend(values);return np.stack([v for _ in values])
+e['index_step'].__globals__['vector_batch']=capture
+updated=h({'action':'index_batch','jobs':[{'asset':a,'fingerprint':'tagged'}],'steps':2})
+assert updated['results'][0]['done'] and len(captured)==1 and 'scarlet bird' in captured[0]
+assert e['DB'].execute('SELECT cursor,complete FROM assets WHERE id=?',(a['id'],)).fetchone()==position
+assert e['DB'].execute('SELECT part,vector FROM vectors WHERE asset_id=? AND part>0',(a['id'],)).fetchall()==before
+# Existing 0.3.14 fingerprints migrate without unnecessarily discarding content or metadata.
+legacy=asset('legacy.txt','a legacy document');legacy['tags']=[]
+legacy_fp=json.dumps([legacy['path'],legacy['size'],legacy['modified'],'',legacy['name'],'',[],'',''],separators=(',',':'))
+while not h({'action':'index','asset':legacy,'fingerprint':legacy_fp})['done']:pass
+legacy_vectors=e['DB'].execute('SELECT part,vector FROM vectors WHERE asset_id=?',(legacy['id'],)).fetchall()
+cp=json.dumps([legacy['path'],legacy['size'],legacy['modified'],'','',0,'','',''],separators=(',',':'))
+fp=json.dumps([cp,legacy['name'],'',[]],separators=(',',':'))
+h({'action':'sync-assets','records':[{'asset':legacy,'fingerprint':fp,'contentFingerprint':cp}]})
+assert e['DB'].execute('SELECT part,vector FROM vectors WHERE asset_id=?',(legacy['id'],)).fetchall()==legacy_vectors
+assert e['DB'].execute('SELECT complete,metadata_dirty FROM assets WHERE id=?',(legacy['id'],)).fetchone()==(1,0)
+# Saved image edits use the edited image, and a changed content fingerprint clears old vectors.
+from PIL import Image
+image_path=os.path.join(root,'original.png');edited_path=os.path.join(root,'edited.png')
+Image.new('RGB',(8,8),(255,0,0)).save(image_path);Image.new('RGB',(8,8),(0,0,255)).save(edited_path)
+st=os.stat(image_path);image={'id':'image','path':image_path,'imagePath':image_path,'kind':'image','name':'image','size':st.st_size,'modified':st.st_mtime*1000,'tags':[]}
+h({'action':'sync-assets','records':[{'asset':image,'fingerprint':'original','contentFingerprint':'original-content'}]})
+while not h({'action':'index','asset':image,'fingerprint':'original'})['done']:pass
+image['imagePath']=edited_path;h({'action':'sync-assets','records':[{'asset':image,'fingerprint':'edited','contentFingerprint':'edited-content'}]})
+assert e['DB'].execute('SELECT count(*) FROM vectors WHERE asset_id=?',('image',)).fetchone()[0]==0
+captured.clear()
+while not h({'action':'index','asset':image,'fingerprint':'edited'})['done']:pass
+assert any(isinstance(value,dict) and value.get('image').getpixel((0,0))==(0,0,255) for value in captured if isinstance(value,dict))
+h({'action':'sync-assets','removedIds':['image']});assert e['DB'].execute('SELECT count(*) FROM vectors WHERE asset_id=?',('image',)).fetchone()[0]==0
 h({'action':'prune','assets':{'bird.txt':'changed'}})
 assert h({'action':'info'})['vectors']==0
 assert h({'action':'plan'})['pending']==['bird.txt']

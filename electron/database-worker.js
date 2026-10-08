@@ -1,6 +1,7 @@
 const { parentPort, workerData } = require('node:worker_threads');
 const { performance } = require('node:perf_hooks');
 const { createLibraryStore } = require('./database');
+const { writeSemanticMetadata } = require('./semantic-metadata');
 
 const store = createLibraryStore(workerData.databaseFile);
 parentPort.on('message', ({ id, action, library, target }) => {
@@ -14,7 +15,8 @@ parentPort.on('message', ({ id, action, library, target }) => {
     else if (action === 'save-library-metadata') changedRecords=store.saveLibraryMetadata(library);
     else if (action === 'backup') store.backup(target);
     else if (action === 'checkpoint') store.database.exec('PRAGMA wal_checkpoint(TRUNCATE)');
-    parentPort.postMessage({ id, ok: true, metrics:{action,changedRecords,serializationMs,transactionMs:performance.now()-startedAt} });
+    const semantic=action==='upsert-assets'&&target?.semanticRecords?writeSemanticMetadata(workerData.databaseFile+'.semantic.sqlite3',target.semanticRecords):{updated:0};
+    parentPort.postMessage({ id, ok: true, metrics:{action,changedRecords,semanticRecords:semantic.updated,semanticSyncError:semantic.error||'',serializationMs,transactionMs:performance.now()-startedAt} });
   } catch (error) { parentPort.postMessage({ id, ok: false, message: error.message }); }
 });
 parentPort.once('close', () => store.close());
