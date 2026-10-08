@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, protocol, shell, clipboard, desktopCapturer, crashReporter, utilityProcess, screen, nativeImage, net } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, protocol, shell, clipboard, desktopCapturer, crashReporter, utilityProcess, screen, nativeImage, net, powerMonitor } = require('electron');
 const fsp = require('node:fs/promises');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -11,7 +11,7 @@ const { createSemanticService } = require('./semantic-service');
 const { semanticPriorityPlan } = require('./semantic-priority');
 let semanticService = null;
 const {createDatabaseTelemetry}=require('./database-telemetry');
-const {fingerprint:semanticFingerprint,admissible:semanticAdmissible}=require('./semantic-policy');
+const {fingerprint:semanticFingerprint,admissible:semanticAdmissible,normalizeIdleMinutes}=require('./semantic-policy');
 let databaseTelemetry=null,knowledgeGraph=null;
 const {createKnowledgeGraph}=require('./knowledge-graph');
 function getKnowledgeGraph(){if(!knowledgeGraph)knowledgeGraph=createKnowledgeGraph({getContext:(summary=false)=>({portfolioId:activePortfolioId,databaseFile,loading:library.loading,assets:summary?[]:library.assets.filter(asset=>semanticAdmissible(asset)&&!isAssetLocked(asset)).map(asset=>({id:asset.id,fingerprint:semanticFingerprint(asset),name:asset.name||asset.filename||path.basename(asset.path),kind:asset.kind||'file',tags:Array.isArray(asset.tags)?asset.tags:[]}))}),validateResult:(result,context)=>{const expected=new Map(context.assets.map(asset=>[asset.id,asset.fingerprint])),fresh=new Map(library.assets.map(asset=>[asset.id,asset]));return(result.nodes||[]).every(node=>{if(!node.assetId)return true;const asset=fresh.get(node.assetId);return asset&&semanticAdmissible(asset)&&!isAssetLocked(asset)&&semanticFingerprint(asset)===expected.get(node.assetId);});}});return knowledgeGraph;}
@@ -2608,7 +2608,8 @@ function getSemanticService() {
     getLocations: () => library.locations, resolveScope: scope => semanticPriorityPlan(library,scope),
     getAssets: () => library.assets.filter(asset=>!isAssetLocked(asset)&&!asset.encrypted),
     getAsset: id => { const asset=mainAssetIndex.get(id)||library.assets.find(item=>item.id===id);return asset&&!isAssetLocked(asset)&&!asset.encrypted?asset:null; },
-    isBusy: () => scanWorkActive() || backgroundHashWorkers.size>0 || activePdfWorkers>0 || thumbnailQueue.length>0,
+    getIdleSeconds: () => { try { return powerMonitor.getSystemIdleTime(); } catch { return 0; } },
+    getIdleMinutes: () => library.settings?.preferences?.semanticIdleMinutes??10,
     emit: status => { if(mainWindow&&!mainWindow.isDestroyed()) mainWindow.webContents.send('semantic:status',status); },
     report: reportBackgroundProgress, registerPause: (id,handler)=>backgroundThreadManager.registerPauseHandler(id,handler), diagnostic: recordDiagnostic
   });
@@ -2670,7 +2671,7 @@ ipcMain.handle('window:set-zoom', (_event, value) => {
 });
 ipcMain.handle('window:center-display',(_event,index)=>centerWindowOnDisplay(Math.max(0,Number(index)||0)));
 ipcMain.handle('preferences:update', async (_event, preferences = {}) => {
-  library.settings = library.settings || {};const previousPreferences=library.settings.preferences||{},previousPolicy=indexingPolicySignature(previousPreferences); library.settings.preferences = { ...previousPreferences, ...preferences };
+  library.settings = library.settings || {};const previousPreferences=library.settings.preferences||{},previousPolicy=indexingPolicySignature(previousPreferences); library.settings.preferences = { ...previousPreferences, ...preferences, semanticIdleMinutes:normalizeIdleMinutes(preferences.semanticIdleMinutes??previousPreferences.semanticIdleMinutes) };
   const nextPolicy=indexingPolicySignature(library.settings.preferences);
   await saveRuntimePreferences({hardwareAcceleration:preferences.hardwareAcceleration!==false,autoImportRoot:preferences.autoImportFolder||runtimePreferences.autoImportRoot||'',autoImportEnabled:Boolean(preferences.autoImport)});
   app.setLoginItemSettings({ openAtLogin: Boolean(preferences.launchOnLogin), path: process.execPath });

@@ -146,13 +146,15 @@ def content_part(asset,part):
     chunk=text[offset:offset+2200]
     return f'title: {title} | text: {chunk}',{'type':'text','offset':offset,'label':f'Text passage {part}','snippet':chunk[:240]},offset+2200>=len(text)
 
+def process_rss():
+    import psutil
+    return psutil.Process().memory_info().rss
+
 def vector_batch(values,memory_limit=0):
     import numpy as np
     with redirect_stdout(sys.stderr):
         m=load_model()
-        try:
-            with open('/proc/self/statm') as source:rss=int(source.read().split()[1])*os.sysconf('SC_PAGE_SIZE')
-        except (OSError,IndexError,ValueError,AttributeError):rss=memory_limit
+        rss=process_rss()
         # Visual/audio activations vary widely. Keep those inference microbatches at one.
         batch_size=2 if all(isinstance(v,str) for v in values) and memory_limit-rss>=1024**3 else 1
         matrix=m.encode(values,normalize_embeddings=True,show_progress_bar=False,processing_kwargs={'image':{'max_soft_tokens':140},'video':{'max_soft_tokens':140}},batch_size=batch_size)
@@ -217,10 +219,8 @@ def index_batch(jobs,workers=2,steps=2,memory_limit=0):
     for _ in range(max(1,min(2,int(steps)))):
         round_workers=workers
         if memory_limit:
-            try:
-                with open('/proc/self/statm') as source:rss=int(source.read().split()[1])*os.sysconf('SC_PAGE_SIZE')
-                round_workers=min(workers,max(1,(memory_limit-rss-32*1024**2)//(96*1024**2)))
-            except (OSError,IndexError,ValueError,AttributeError):round_workers=1
+            rss=process_rss()
+            round_workers=min(workers,max(1,(memory_limit-rss-32*1024**2)//(96*1024**2)))
         # Re-evaluate after metadata inference loads the model and consumes its RAM.
         with ThreadPoolExecutor(max_workers=round_workers,thread_name_prefix='pigeon-extract') as pool:
             pending=[]

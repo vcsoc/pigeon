@@ -9,6 +9,8 @@ const projectRoot = path.join(__dirname, '..');
 const criticalFiles = [
   'src/index.html',
   'src/semantic-search.js',
+  'src/semantic-analysis-status.js',
+  'electron/semantic-resource-monitor.py',
   'src/semantic-search.css',
   'electron/semantic-service.js',
   'electron/knowledge-graph.js',

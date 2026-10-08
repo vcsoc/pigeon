@@ -16,6 +16,17 @@ function manifestFor(name,body,{version=1,hash=null}={}){return{format:'pigeon-c
 
 test('creates, inspects, and selectively extracts a portable Pigeon Collection',async(t)=>{const directory=await temporaryDirectory();t.after(()=>fsp.rm(directory,{recursive:true,force:true}));const sourceA=path.join(directory,'hello world.txt'),sourceB=path.join(directory,'猫.bin'),target=path.join(directory,'Family Holiday.pigeon');await fsp.writeFile(sourceA,'hello');await fsp.writeFile(sourceB,Buffer.from([0,1,2,3]));const created=await createCollection({name:'Family Holiday',destination:target,applicationVersion:'1.2.3',files:[{sourcePath:sourceA,relativePath:'Notes'},{sourcePath:sourceB,relativePath:'資料'}]});assert.equal(created.files,2);const opened=await inspectCollection(target);assert.equal(opened.mimeType,PIGEON_COLLECTION_MIME);assert.equal(opened.validFiles,2);assert.equal(opened.invalidFiles,0);assert.deepEqual(opened.files.map((file)=>file.relativePath),['Notes','資料']);const extraction=path.join(directory,'extract'),outputs=await extractCollectionFiles(target,[opened.files[1].id],extraction);assert.equal(outputs.length,1);assert.equal(await fsp.readFile(outputs[0].path,'hex'),'00010203');});
 
+test('extraction retains every payload byte while the output directory is created asynchronously',async(t)=>{
+  const directory=await temporaryDirectory();t.after(()=>fsp.rm(directory,{recursive:true,force:true}));
+  const source=path.join(directory,'payload.bin'),target=path.join(directory,'delayed.pigeon'),body=crypto.randomBytes(256*1024);
+  await fsp.writeFile(source,body);await createCollection({name:'Delayed extraction',destination:target,files:[{sourcePath:source}]});
+  const opened=await inspectCollection(target),mkdir=fsp.mkdir;
+  fsp.mkdir=async(...args)=>{await new Promise(resolve=>setTimeout(resolve,30));return mkdir(...args);};
+  t.after(()=>{fsp.mkdir=mkdir;});
+  const outputs=await extractCollectionFiles(target,[opened.files[0].id],path.join(directory,'extract'));
+  assert.deepEqual(await fsp.readFile(outputs[0].path),body);
+});
+
 test('rejects empty exports and unsupported future manifests',async()=>{await assert.rejects(createCollection({name:'Empty',destination:'/tmp/empty.pigeon',files:[]}),/Select at least one/);const manifest=manifestFor('files/id/a.txt',Buffer.from('a'),{version:2});assert.throws(()=>validateManifest(manifest),/newer version/);});
 
 test('reports a corrupt payload without hiding valid files',async(t)=>{const directory=await temporaryDirectory();t.after(()=>fsp.rm(directory,{recursive:true,force:true}));const target=path.join(directory,'corrupt.pigeon'),good=Buffer.from('good'),bad=Buffer.from('tampered'),goodManifest=manifestFor('files/good/good.txt',good),badRecord=manifestFor('files/bad/bad.txt',Buffer.from('expected')).files[0],manifest={...goodManifest,files:[goodManifest.files[0],badRecord]};await writeZip(target,[['files/good/good.txt',good],['files/bad/bad.txt',bad],['manifest.json',JSON.stringify(manifest)]]);const opened=await inspectCollection(target);assert.equal(opened.validFiles,1);assert.equal(opened.invalidFiles,1);assert.equal(opened.files.find((file)=>file.status==='corrupt').error.length>0,true);});
