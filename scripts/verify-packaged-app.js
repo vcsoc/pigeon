@@ -49,6 +49,7 @@ const criticalFiles = [
   'src/sidebar-hierarchy-drag.js',
   'src/sidebar-drop-preview.js',
   'src/asset-view-change.js',
+  'src/keyed-card-window.js',
   'src/portfolio-navigation.js',
   'src/image-composition-layout.js',
   'src/combine-images.js',

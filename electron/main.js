@@ -114,7 +114,7 @@ let activeLibraryLoadJob = null;
 const workerTelemetry = new Map();
 let backgroundEpoch = 0;
 const backgroundThreadManager=createBackgroundThreadManager({emit:(task)=>{if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('background:progress',task);}});
-let thumbnailGenerationScheduler=null,thumbnailWarmProgress=null,mainAssetIndex=new Map();
+let thumbnailGenerationScheduler=null,thumbnailWarmProgress=null,mainAssetIndex=new Map(),mainAssetIndexOwner=null;
 const INDEX_CPU_LIMIT = 8;
 const INDEX_BATCH_SIZE = 24;
 const SCAN_INLINE_HASH_MAX_BYTES = 8 * 1024 * 1024;
@@ -479,6 +479,7 @@ async function reconcileConfiguredCollectionTagsCooperatively(){
 }
 
 async function loadLibraryInWorker() {
+  mainAssetIndexOwner=null;
   await fsp.mkdir(thumbnailDir, { recursive: true });
   const portfolioId=activePortfolioId,targetDatabaseFile=databaseFile,targetLegacyJsonFile=legacyJsonFile,targetLibrary=library,loadSpan=performanceRecorder.start('library-worker-transfer',{portfolioId,portfolioSize:library.assets.length});
   return new Promise((resolve) => {
@@ -490,7 +491,7 @@ async function loadLibraryInWorker() {
       if(activeLibraryLoadJob!==job||portfolioId!==activePortfolioId||targetDatabaseFile!==databaseFile||targetLibrary!==library){job.cancel();return;}
       if (result.library && Array.isArray(result.library.locations) && Array.isArray(result.library.assets)) {
         const adoptStarted=performance.now();library={...result.library,loading:false};for(const location of library.locations){location.scanning=false;location.checking=false;location.rescanRequested=false;}const pathRepair=deduplicateAssetsByPath(library);if(pathRepair.changed){recordDiagnostic('warning','Collapsed duplicate file references from overlapping folders',{duplicatesRemoved:pathRepair.duplicatesRemoved});await persistLibrary(library);}performanceRecorder.record('main-library-adopt',{portfolioId:activePortfolioId,portfolioSize:library.assets.length,durationMs:performance.now()-adoptStarted});
-        const indexStarted=performance.now();mainAssetIndex=new Map();for(let index=0;index<library.assets.length;index+=2000){for(const asset of library.assets.slice(index,index+2000))mainAssetIndex.set(asset.id,asset);if(index+2000<library.assets.length)await new Promise((next)=>setImmediate(next));if(activeLibraryLoadJob!==job||portfolioId!==activePortfolioId){job.cancel();return;}}performanceRecorder.record('main-asset-index',{portfolioId:activePortfolioId,portfolioSize:library.assets.length,durationMs:performance.now()-indexStarted});if(!(await reconcileConfiguredCollectionTagsCooperatively())){job.cancel();return;}
+        const indexStarted=performance.now();mainAssetIndex=new Map();mainAssetIndexOwner=library;for(let index=0;index<library.assets.length;index+=2000){for(const asset of library.assets.slice(index,index+2000))mainAssetIndex.set(asset.id,asset);if(index+2000<library.assets.length)await new Promise((next)=>setImmediate(next));if(activeLibraryLoadJob!==job||portfolioId!==activePortfolioId){job.cancel();return;}}performanceRecorder.record('main-asset-index',{portfolioId:activePortfolioId,portfolioSize:library.assets.length,durationMs:performance.now()-indexStarted});if(!(await reconcileConfiguredCollectionTagsCooperatively())){job.cancel();return;}
       } else if (!result.error) library = { ...libraryCore.migrateLibrary({}), loading: false };
       else {
         library = { ...libraryCore.migrateLibrary({}), loading: false, loadError: result.error.message || null };
@@ -501,7 +502,7 @@ async function loadLibraryInWorker() {
     worker.once('error', (error) => {
       if(settled)return;
       console.error('Library worker failed:', error);
-      if(portfolioId===activePortfolioId&&targetDatabaseFile===databaseFile&&targetLibrary===library){library = { version: 1, locations: [], assets: [], loading: false, loadError: error.message };mainAssetIndex=new Map();}
+      if(portfolioId===activePortfolioId&&targetDatabaseFile===databaseFile&&targetLibrary===library){library = { version: 1, locations: [], assets: [], loading: false, loadError: error.message };mainAssetIndex=new Map();mainAssetIndexOwner=null;}
       performanceRecorder.end(loadSpan,{phase:'failed'});
       finish();
     });
@@ -1127,7 +1128,7 @@ function repairVisibleAlphaPreview(asset){
 async function registerProtocol() {
   protocol.handle('pigeon-asset', async (request) => {
     const id = new URL(request.url).pathname.split('/').filter(Boolean).pop();
-    const asset = library.assets.find((item) => item.id === id);
+    const asset = (mainAssetIndexOwner===library&&!library.loading&&mainAssetIndex.get(id))||library.assets.find((item) => item.id === id);
     if (!asset) return new Response('', { status: 404 });
     const location = library.locations.find((item) => item.id === asset.locationId);
     const requestUrl = new URL(request.url);
@@ -2631,8 +2632,8 @@ ipcMain.handle('semantic:continue',()=>getSemanticService().continueAnalysis());
 ipcMain.handle('semantic:choose-sample',async()=>{const result=await dialog.showOpenDialog(mainWindow,{title:'Choose a semantic search sample',properties:['openFile']});return result.canceled?null:{path:result.filePaths[0],name:path.basename(result.filePaths[0])};});
 ipcMain.handle('semantic:search',async(_event,input={})=>{
   const sample=input.samplePath?await semanticSampleForPath(input.samplePath):null;
-  const result=await getSemanticService().search({query:input.query,assetId:input.assetId,sample,minimum:input.minimum,limit:input.limit,offset:input.offset,kind:input.kind});
-  return {...result,results:result.results.filter(item=>!isAssetLocked(item.asset)).map(item=>({...item,asset:publicAssetForRenderer(item.asset)}))};
+  const result=await getSemanticService().search({query:input.query,assetId:input.assetId,sample,minimum:input.minimum,limit:input.limit,offset:input.offset,all:input.all===true,kind:input.kind});
+  return {...result,results:result.results.filter(item=>!isAssetLocked(item.asset)).map(({asset,...match})=>input.all===true?match:{...match,asset:publicAssetForRenderer(asset)})};
 });
 
 ipcMain.handle('asset:open', async (_event, id) => {

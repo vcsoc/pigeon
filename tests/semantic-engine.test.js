@@ -55,6 +55,18 @@ assert h({**q,'assets':{'bird.txt':'changed'}})['results']==[]
 page={**q,'assets':{'bird.txt':'fp1','cat.txt':'fp2'},'limit':1}
 assert h(page)['totalMatches']==2
 assert h(page)['results'][0]['id']!=h({**page,'offset':1})['results'][0]['id']
+assert len(h({**page,'all':True,'offset':1})['results'])==2
+# All-results mode is not subject to the legacy 1,000-result page cap.
+bulk={f'bulk-{i}':'bulk-fp' for i in range(1005)}
+for identity in bulk:
+ e['DB'].execute('INSERT INTO assets(id,fingerprint,version,complete) VALUES(?,?,?,1)',(identity,'bulk-fp',e['MODEL_VERSION']))
+ e['DB'].execute('INSERT INTO vectors(asset_id,part,vector,detail) VALUES(?,0,?,?)',(identity,v.tobytes(),json.dumps({'label':'Bulk match'})))
+e['DB'].commit()
+all_matches=h({**q,'assets':bulk,'all':True,'limit':1,'offset':1000})
+assert len(all_matches['results'])==all_matches['totalMatches']==1005
+assert all(all_matches['results'][i]['score']>=all_matches['results'][i+1]['score'] for i in range(1004))
+assert len(h({**q,'assets':bulk,'limit':2000})['results'])==1000
+e['DB'].execute("DELETE FROM vectors WHERE asset_id LIKE 'bulk-%'");e['DB'].execute("DELETE FROM assets WHERE id LIKE 'bulk-%'");e['DB'].commit()
 # Tag changes replace only metadata vectors, preserve source cursors, and persist immediately.
 before=e['DB'].execute('SELECT part,vector FROM vectors WHERE asset_id=? AND part>0',(a['id'],)).fetchall()
 position=e['DB'].execute('SELECT cursor,complete FROM assets WHERE id=?',(a['id'],)).fetchone()

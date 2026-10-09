@@ -289,7 +289,8 @@ def search(request):
         for r,score in zip(valid,scores):
             score=float(score)
             if score>=minimum and (r[0] not in best or score>best[r[0]]['score']):best[r[0]]={'id':r[0],'score':score,'match':json.loads(r[2])}
-    return {'results':heapq.nlargest(offset+limit,best.values(),key=lambda r:r['score'])[offset:],'totalMatches':len(best),'indexed':DB.execute('SELECT count(*) FROM assets WHERE complete=1').fetchone()[0]}
+    matches=sorted(best.values(),key=lambda r:r['score'],reverse=True) if request.get('all') is True else heapq.nlargest(offset+limit,best.values(),key=lambda r:r['score'])[offset:]
+    return {'results':matches,'totalMatches':len(best),'indexed':DB.execute('SELECT count(*) FROM assets WHERE complete=1').fetchone()[0]}
 
 def handle(req):
     action=req['action']

@@ -59,7 +59,7 @@ test('startup avoids hidden tag DOM and unlocks stream only a yielded visibility
 });
 
 test('renderer long tasks carry phase ownership and bounded live-card context',()=>{
-  assert.match(renderer,/function measureRendererPhase/);assert.match(renderer,/owner=\[\.\.\.recentRendererPhases\]/);assert.match(renderer,/domCards:elements\.grid\.querySelectorAll/);assert.match(renderer,/MAX_THUMBNAIL_LOADS=4/);assert.match(renderer,/VIRTUAL_ASSET_WINDOW=120/);
+  assert.match(renderer,/function measureRendererPhase/);assert.match(renderer,/owner=\[\.\.\.recentRendererPhases\]/);assert.match(renderer,/domCards:elements\.grid\.querySelectorAll/);assert.match(renderer,/MAX_THUMBNAIL_LOADS=8/);assert.match(renderer,/VIRTUAL_ASSET_WINDOW=120/);
 });
 
 test('performance diagnostics are backoff-limited and diagnostic files have bounded retention',()=>{
