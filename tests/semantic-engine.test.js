@@ -49,6 +49,26 @@ e['index_step'].__globals__['vector_batch']=lambda values,memory_limit=0:np.stac
 h({'action':'prune','assets':{'bird.txt':'fp1','cat.txt':'fp2'}})
 assert h({'action':'plan'})['pending']==[]
 assert h({'action':'info'})['indexed']==2
+# Locking files on portfolio return must not erase completed or partial work.
+partial=asset('partial.txt','unfinished bird\\n'*110)
+h({'action':'index','asset':partial,'fingerprint':'partial'})
+checkpoint=e['DB'].execute('SELECT cursor,complete FROM assets WHERE id=?',(partial['id'],)).fetchone()
+saved_vectors=e['DB'].execute('SELECT asset_id,part,vector FROM vectors ORDER BY asset_id,part').fetchall()
+visible={'bird.txt':'fp1'};members=['bird.txt','cat.txt','partial.txt']
+h({'action':'prune','assets':visible,'portfolioIds':members})
+assert e['DB'].execute('SELECT asset_id,part,vector FROM vectors ORDER BY asset_id,part').fetchall()==saved_vectors
+assert h({'action':'search','query':'bird','minimum':.5,'assets':visible})['totalMatches']==1
+# Close/reopen while files are locked, then unlock without restarting extraction.
+e['DB'].close();sys.argv=['engine',db];sys.stdout=io.StringIO();e=runpy.run_path('electron/semantic-engine.py');sys.stdout=original;h=e['handle']
+e['index_step'].__globals__['vector']=lambda value:v
+e['index_step'].__globals__['vector_batch']=lambda values,memory_limit=0:np.stack([v for _ in values])
+h({'action':'prune','assets':{'bird.txt':'fp1','cat.txt':'fp2','partial.txt':'partial'},'portfolioIds':members})
+assert h({'action':'plan'})['pending']==['partial.txt']
+assert e['DB'].execute('SELECT cursor,complete FROM assets WHERE id=?',(partial['id'],)).fetchone()==checkpoint
+assert e['DB'].execute('SELECT asset_id,part,vector FROM vectors ORDER BY asset_id,part').fetchall()==saved_vectors
+# Actual deletion still removes retained checkpoints.
+h({'action':'prune','assets':{'bird.txt':'fp1','cat.txt':'fp2'},'portfolioIds':['bird.txt','cat.txt']})
+assert e['DB'].execute('SELECT count(*) FROM assets WHERE id=?',(partial['id'],)).fetchone()[0]==0
 q={'action':'search','query':'bird','minimum':.5,'limit':10,'assets':{'bird.txt':'fp1'}}
 assert [r['id'] for r in h(q)['results']]==['bird.txt']
 assert h({**q,'assets':{'bird.txt':'changed'}})['results']==[]

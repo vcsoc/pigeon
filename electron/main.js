@@ -2608,6 +2608,7 @@ function getSemanticService() {
     getContext: () => ({portfolioId:activePortfolioId,databaseFile,loading:library.loading}),
     getLocations: () => library.locations, resolveScope: scope => semanticPriorityPlan(library,scope),
     getAssets: () => library.assets.filter(asset=>!isAssetLocked(asset)&&!asset.encrypted),
+    getAllAssetIds: () => library.assets.map(asset=>asset.id),
     getAsset: id => { const asset=mainAssetIndex.get(id)||library.assets.find(item=>item.id===id);return asset&&!isAssetLocked(asset)&&!asset.encrypted?asset:null; },
     getIdleSeconds: () => { try { return powerMonitor.getSystemIdleTime(); } catch { return 0; } },
     getIdleMinutes: () => library.settings?.preferences?.semanticIdleMinutes??10,

@@ -304,8 +304,11 @@ def handle(req):
     if action=='prune':
         if req.get('records'):sync_assets(req['records'])
         allowed=req['assets']
+        # Visibility is not membership: locked files keep their saved checkpoints.
+        portfolio_ids=set(req.get('portfolioIds',allowed))
         for ident,fp in DB.execute('SELECT id,fingerprint FROM assets').fetchall():
-            if allowed.get(ident)!=fp:DB.execute('DELETE FROM vectors WHERE asset_id=?',(ident,));DB.execute('DELETE FROM assets WHERE id=?',(ident,))
+            if ident not in portfolio_ids or (ident in allowed and allowed[ident]!=fp):
+                DB.execute('DELETE FROM vectors WHERE asset_id=?',(ident,));DB.execute('DELETE FROM assets WHERE id=?',(ident,))
         for ident,fp in allowed.items():
             DB.execute('INSERT OR IGNORE INTO assets(id,fingerprint,version) VALUES (?,?,?)',(ident,fp,MODEL_VERSION))
         DB.commit();return handle({'action':'info'})
