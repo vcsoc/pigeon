@@ -97,7 +97,8 @@ function createSemanticService({userData,getContext,getAssets,getAsset=null,getA
         const result=await request('index_batch',{jobs,workers,steps:1,memoryLimit:batchBudget.memoryBytes});
         info=result.info||info;const outcomes=new Map(result.results.map(item=>[item.id,item]));
         for(const asset of valid){const item=outcomes.get(asset.id);if(!item)throw Error('Semantic batch returned an incomplete response');if(item.done){completed++;if(dirtyAssets.get(asset.id)===submitted.get(asset.id)&&fingerprint(asset)===submitted.get(asset.id))dirtyAssets.delete(asset.id);}else work.push(asset);if(item.error)status.lastFileError=item.error;}
-        if(settings.changedIds?.length)persistChanges();publish({completed,activeFiles:[],current:''});
+        // Keep the batch label until the next batch replaces it; clearing it makes the panel jump.
+        if(settings.changedIds?.length)persistChanges();publish({completed});
         await sleep(manual?25:100);
       }
       info=await request('info');if(revision!==scopeRevision){rerun=true;return;}scopeQueue=[];currentLocationPlan=null;activePhase='portfolio';persistScopeQueue();indexDone=true;manual=false;settings.resumeRequested=false;saveSettings();await applyKernelBudget();publish({state:'idle',detail:'Portfolio analysis complete. New or changed files are picked up automatically.',current:'',activeFiles:[],fileWorkers:0});report(progressId,{label:'Semantic analysis',completed:assets.length,total:assets.length,done:true});

@@ -32,6 +32,7 @@
     host.dataset.state=activity.kind;host.classList.toggle('is-busy',activity.busy);
     activityText('semantic-state',`${activity.title} · ${lastStatus?.indexed||0} indexed`);activityText('semantic-detail',activity.detail);
     activityText('semantic-analysis-error',activity.error);activityText('semantic-analysis-current',activity.current);
+    $('semantic-analysis-current').title=activity.current;
     activityText('semantic-analysis-scope',activity.scope);activityText('semantic-analysis-queue',activity.queue);
     activityText('semantic-analysis-hint',activity.hint);activityText('semantic-scan-count',activity.countLabel);
     track.classList.toggle('indeterminate',activity.indeterminate);progress(track,activity.percent,activity.barLabel);

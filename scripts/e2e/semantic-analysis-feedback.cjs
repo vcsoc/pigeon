@@ -63,6 +63,20 @@ process.env.PIGEON_E2E_HEADLESS='1';
     assert.match(await app.evaluate("document.querySelector('#semantic-analysis-current').textContent"),/video\.mp4/);
     assert.equal(await app.evaluate("document.querySelector('#semantic-progress').getAttribute('aria-valuenow')"),'25');
     await app.screenshot('analyzing-file');
+    // Short and multi-file batches must not move the controls below the analysis card.
+    const layout=()=>app.evaluate("(()=>{const current=document.querySelector('#semantic-analysis-current');return {card:document.querySelector('#semantic-analysis-activity').getBoundingClientRect().height,controls:document.querySelector('.semantic-actions').getBoundingClientRect().top,row:current.getBoundingClientRect().height,title:current.title,text:current.textContent}})()");
+    for(const width of [240,340,440]){
+      await app.evaluate(`document.querySelector('#semantic-panel').style.width='${width}px'`);
+      await status({activeFiles:['short.jpg'],current:'short.jpg'});const baseline=await layout();
+      for(const names of [['a very long filename '.repeat(25)+'.png'],['one.jpg','two.jpg','three.jpg','four.jpg'],['short.jpg']]){
+        await status({activeFiles:names,current:names.join(' · ')});const next=await layout();
+        assert(Math.abs(next.card-baseline.card)<1,'batch names must not resize the analysis card');
+        assert(Math.abs(next.controls-baseline.controls)<1,'batch names must not move the analysis controls');
+        assert.equal(next.row,baseline.row);assert.equal(next.title,next.text,'full filenames remain available on hover');
+      }
+    }
+    await app.evaluate("document.querySelector('#semantic-panel').style.width=''");
+    await app.screenshot('stable-batch-layout');
     await status({state:'indexing',mode:'manual',waitReason:'memory',resources:{memoryPressure:true},detail:'Starting immediately within your resource cap.'});
     await app.wait("document.querySelector('#semantic-state').textContent.includes('Analyzing files')");
     assert.doesNotMatch(await app.evaluate("document.querySelector('#semantic-state').textContent"),/waiting|memory/i);
