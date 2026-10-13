@@ -925,14 +925,16 @@ test('indexing keeps main and renderer interaction paths responsive', () => {
   assert.match(main,/scheduleBroadcast\(250\)/);
 });
 
-test('huge folder trees are worker-built and bounded, console resizes/fullscreens, and laptop-safe threads are enforced', () => {
+test('huge folder trees are worker-built and collapsed, console resizes/fullscreens, and laptop-safe threads are enforced', () => {
   assert.match(html, /class="nav-item" data-view="untagged"/);
   for (const id of ['diagnostics-resizer','diagnostics-fullscreen']) assert.match(html,new RegExp(`id="${id}"`));
   assert.match(preload,/buildFolderTree/);
   assert.match(main,/folder-tree:build/);
   assert.match(main,/MAX_BACKGROUND_THREADS = 4/);
   assert.match(renderer,/folderTreeLimits/);
-  assert.match(renderer,/Show \$\{Math\.min\(500/);
+  assert.match(renderer,/\[location.id,Number.MAX_SAFE_INTEGER\]/);
+  assert.doesNotMatch(renderer,/data-load-location-tree/);
+  assert.match(renderer,/if\(child.hasChildren&&!collapsedKeys.has/);
   assert.match(renderer,/pigeon\.consoleHeight/);
   assert.match(styles,/diagnostics-console\.fullscreen/);
   assert.match(styles,/cursor:ns-resize/);
