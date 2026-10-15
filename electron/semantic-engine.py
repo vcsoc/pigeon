@@ -178,22 +178,43 @@ def prepare_content(asset,part):
     except Exception as exc:
         return None,None,True,str(exc)[:500]
 
+def same_content_fingerprint(current,stored):
+    if current==stored:return bool(current)
+    try:
+        a=json.loads(current);b=json.loads(stored)
+        return isinstance(a,list) and isinstance(b,list) and len(a)==len(b)==9 and all(a[i]==b[i] for i in (0,1,2,4,5,6)) and (not b[3] or a[3]==b[3])
+    except (ValueError,TypeError):return False
+
+def fingerprint_metadata(value):
+    try:
+        data=json.loads(value)
+        if isinstance(data,list):
+            if len(data)==4:return data[1:]
+            if len(data)==9:return data[4:7]
+    except (ValueError,TypeError):pass
+    return None
+
 def sync_assets(records,removed_ids=()):
     for ident in removed_ids:
         DB.execute('DELETE FROM vectors WHERE asset_id=?',(ident,));DB.execute('DELETE FROM assets WHERE id=?',(ident,))
     for record in records:
         asset=record['asset'];ident=asset['id'];expected=record['fingerprint'];content=record.get('contentFingerprint','');metadata=json.dumps(asset)
-        row=DB.execute('SELECT fingerprint,content_fingerprint,metadata FROM assets WHERE id=?',(ident,)).fetchone()
-        same_content=bool(row and row[1] and row[1]==content);same_metadata=bool(row and row[0]==expected)
-        if row and not row[1] and content:
-            # Upgrade old fingerprints without discarding unchanged content vectors.
-            try:
-                old=json.loads(row[0]);new=json.loads(content)
-                if len(old)==9 and len(new)==9 and not new[4]:
-                    same_content=old[:4]==new[:4] and old[7:9]==new[7:9]
-                    same_metadata=same_content and old[4:7]==[asset.get('name'),asset.get('note',''),asset.get('tags',[])]
-            except (ValueError,TypeError):pass
-        if row and same_content and same_metadata and row[2]==metadata:continue
+        row=DB.execute('SELECT fingerprint,content_fingerprint,metadata,error FROM assets WHERE id=?',(ident,)).fetchone()
+        same_content=bool(row and same_content_fingerprint(content,row[1]));same_metadata=bool(row and row[0]==expected)
+        if row:
+            old_metadata=fingerprint_metadata(row[0]);new_metadata=fingerprint_metadata(expected)
+            if old_metadata is not None and old_metadata==new_metadata:same_metadata=True
+            if not row[1] and content:
+                # Legacy checkpoints and cache enrichment preserve completed and partial work.
+                try:
+                    old=json.loads(row[0])
+                    if isinstance(old,list) and len(old)==9:
+                        previous=json.dumps(old[:4]+['',0,'']+old[7:9],separators=(',',':'))
+                        same_content=same_content_fingerprint(content,previous)
+                except (ValueError,TypeError):pass
+            if row[3] and json.loads(row[2] or '{}').get('imagePath')!=asset.get('imagePath'):same_content=False
+        # Cache-only changes still upgrade the identity before prune validates it.
+        if row and same_content and same_metadata and row[0]==expected and row[1]==content and row[2]==metadata:continue
         if not row or not same_content:
             DB.execute('DELETE FROM vectors WHERE asset_id=?',(ident,))
             DB.execute('INSERT OR REPLACE INTO assets(id,fingerprint,version,name,content_fingerprint,metadata) VALUES (?,?,?,?,?,?)',(ident,expected,MODEL_VERSION,asset.get('name',''),content,metadata))

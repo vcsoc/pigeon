@@ -112,6 +112,27 @@ fp=json.dumps([cp,legacy['name'],'',[]],separators=(',',':'))
 h({'action':'sync-assets','records':[{'asset':legacy,'fingerprint':fp,'contentFingerprint':cp}]})
 assert e['DB'].execute('SELECT part,vector FROM vectors WHERE asset_id=?',(legacy['id'],)).fetchall()==legacy_vectors
 assert e['DB'].execute('SELECT complete,metadata_dirty FROM assets WHERE id=?',(legacy['id'],)).fetchone()==(1,0)
+# Cache completion and first-time hashes preserve both complete and partial checkpoints.
+partial=asset('partial.txt','resume without restarting\n'*150);partial['tags']=[]
+for item in (legacy,partial):
+    content=[item['path'],item['size'],item['modified'],'','',0,'','','']
+    previous_cp=json.dumps(content,separators=(',',':'));previous_fp=json.dumps([previous_cp,item['name'],'',[]],separators=(',',':'))
+    h({'action':'sync-assets','records':[{'asset':item,'fingerprint':previous_fp,'contentFingerprint':previous_cp}]})
+    if item is partial:assert not h({'action':'index','asset':item,'fingerprint':previous_fp})['done']
+    saved_vectors=e['DB'].execute('SELECT part,vector FROM vectors WHERE asset_id=? ORDER BY part',(item['id'],)).fetchall()
+    saved_position=e['DB'].execute('SELECT cursor,complete FROM assets WHERE id=?',(item['id'],)).fetchone()
+    content[3]='first-hash';content[7]='/cache/proxy.jpg';content[8]='/cache/thumbnail.jpg'
+    next_cp=json.dumps(content,separators=(',',':'));next_fp=json.dumps([next_cp,item['name'],'',[]],separators=(',',':'))
+    allowed=dict(e['DB'].execute('SELECT id,fingerprint FROM assets'));allowed[item['id']]=next_fp
+    h({'action':'prune','assets':allowed,'portfolioIds':list(allowed),'records':[{'asset':item,'fingerprint':next_fp,'contentFingerprint':next_cp}]})
+    assert e['DB'].execute('SELECT part,vector FROM vectors WHERE asset_id=? ORDER BY part',(item['id'],)).fetchall()==saved_vectors
+    assert e['DB'].execute('SELECT cursor,complete FROM assets WHERE id=?',(item['id'],)).fetchone()==saved_position
+    assert e['DB'].execute('SELECT metadata_dirty FROM assets WHERE id=?',(item['id'],)).fetchone()[0]==0
+    if item is partial:assert h({'action':'index','asset':item,'fingerprint':next_fp})['part']==saved_position[0]
+    content[3]='different-known-hash';changed_cp=json.dumps(content,separators=(',',':'))
+    changed_fp=json.dumps([changed_cp,item['name'],'',[]],separators=(',',':'))
+    h({'action':'sync-assets','records':[{'asset':item,'fingerprint':changed_fp,'contentFingerprint':changed_cp}]})
+    assert e['DB'].execute('SELECT count(*) FROM vectors WHERE asset_id=?',(item['id'],)).fetchone()[0]==0
 # Saved image edits use the edited image, and a changed content fingerprint clears old vectors.
 from PIL import Image
 image_path=os.path.join(root,'original.png');edited_path=os.path.join(root,'edited.png')
