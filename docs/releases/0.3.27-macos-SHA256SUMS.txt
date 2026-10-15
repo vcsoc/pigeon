@@ -1,0 +1,5 @@
+3c29e1f52db10a1288c5056e076c357a8cdd1c8d845368177ac6f46d9cfa045d  Pigeon-0.3.27-mac-universal.zip
+32e0b7db414cbd64ea23c9f7202fb87d15e217b1802b17af74f8be8d091242e8  Pigeon-0.3.27-mac-universal.zip.blockmap
+dcb7b46642c610a6b532f075378f291dadcd5abbc84bba23635e44e6bd9fcd50  Pigeon-0.3.27-mac-universal.dmg
+ac21c612775e7d762419f59d05e078cfc56055fc1e5093ca9a7a84bf14c2bba7  Pigeon-0.3.27-mac-universal.dmg.blockmap
+d623955189477770ab8349f30aba054364cfc1bad43e5ce312fdfcb5f624633a  latest-mac.yml
