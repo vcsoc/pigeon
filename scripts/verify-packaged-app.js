@@ -43,6 +43,7 @@ const criticalFiles = [
   'src/duplicate-placement.js',
   'src/library-membership.js',
   'src/builtin-smart-folders.js',
+  'src/on-this-day.js',
   'src/busy-animation.js',
   'pigeon-busy-transparent.webm',
   'src/renderer.js',

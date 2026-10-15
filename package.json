@@ -1,6 +1,6 @@
 {
   "name": "pigeon",
-  "version": "0.3.24",
+  "version": "0.3.26",
   "description": "A reference-first visual asset library for files that stay where they are.",
   "main": "electron/main.js",
   "author": "Chris Visser",
@@ -8,7 +8,7 @@
   "homepage": "https://github.com/vcsoc/pigeon",
   "desktopName": "pigeon.desktop",
   "scripts": {
-    "precheck": "node --check electron/file-conflicts.js && node --check electron/native-drag.js && node --check electron/physical-folders.js && node --check electron/heic-preview.js && node --check src/rename-session.js",
+    "precheck": "node --check src/on-this-day.js && node --check electron/file-conflicts.js && node --check electron/native-drag.js && node --check electron/physical-folders.js && node --check electron/heic-preview.js && node --check src/rename-session.js",
     "start": "electron .",
     "dev": "electron . --dev",
     "smoke": "electron . --smoke-test",

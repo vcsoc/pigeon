@@ -11,5 +11,12 @@
   function dependsOnField(folders,folderOrId,field){const resolution=resolve(folders,folderOrId);return resolution.valid&&resolution.chain.some((folder)=>(folder.filters?.rules||[]).some((rule)=>rule.field===field));}
   function ruleValues(rule={}){const source=Array.isArray(rule.values)?rule.values:[rule.value],result=[],seen=new Set();for(const entry of source){const value=String(entry??'').trim(),key=value.toLowerCase();if(value&&!seen.has(key)){seen.add(key);result.push(value);}}return result;}
   function matchesRuleValues(actualValues,rule={}){const actual=(Array.isArray(actualValues)?actualValues:[actualValues]).map((value)=>String(value??'').toLowerCase()),operator=rule.operator||'contains',expected=ruleValues(rule).map((value)=>value.toLowerCase());if(operator==='null')return actual.length===0||actual.every((value)=>!value.trim());if(operator==='not-null')return actual.some((value)=>value.trim());if(!expected.length)return operator==='excludes';const test=(value,target)=>{if(operator==='equals')return value===target;if(operator==='begins')return value.startsWith(target);if(operator==='ends')return value.endsWith(target);if(operator==='regex'){try{return new RegExp(target,'i').test(value);}catch{return false;}}return value.includes(target);};return operator==='excludes'?expected.every((target)=>actual.every((value)=>!test(value,target))):expected.some((target)=>actual.some((value)=>test(value,target)));}
-  return{resolve,matches,matchesResolved,dependsOnField,ruleValues,matchesRuleValues};
+  function matchesRules(asset,filters={},evaluator){
+    // Dialogs retain a blank row when their last condition is removed. It is
+    // not a condition, even in "any" mode; null checks intentionally need no value.
+    const active=(filters.rules||[]).filter((rule)=>rule&&(['null','not-null'].includes(rule.operator)||ruleValues(rule).length));
+    if(!active.length)return true;
+    return filters.ruleMatch==='any'?active.some((rule)=>evaluator(asset,rule)):active.every((rule)=>evaluator(asset,rule));
+  }
+  return{resolve,matches,matchesResolved,dependsOnField,ruleValues,matchesRuleValues,matchesRules};
 });

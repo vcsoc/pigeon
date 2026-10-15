@@ -243,7 +243,7 @@ function matchesRule(asset, rule) {
   return smartFolderRules.matchesRuleValues(values,rule);
 }
 function matchesFilters(asset, filters = {}) {
-  if (filters.rules?.length) { const matches = filters.rules.map((rule) => matchesRule(asset, rule)); if (filters.ruleMatch === 'any' ? !matches.some(Boolean) : !matches.every(Boolean)) return false; }
+  if (!smartFolderRules.matchesRules(asset, filters, matchesRule)) return false;
   if (filters.extensions?.length && !filters.extensions.includes(String(asset.extension || '').toLowerCase())) return false;
   if (filters.ratings?.length && !filters.ratings.includes(asset.rating || 0)) return false;
   if (filters.tags?.length && !filters.tags.some((tag) => (asset.tags || []).includes(tag))) return false;

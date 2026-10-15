@@ -1,8 +1,9 @@
+const {takenDate}=require('../src/on-this-day');
 const DEFERRED_DETAIL_FIELDS=['histogram','palette','exif','technicalMetadata'];
 
 function lightweightAsset(asset={}){
   const {encryptedMediaPaths,encryptedThumbnailPaths,histogram,palette,exif,technicalMetadata,...publicAsset}=asset;
-  return{...publicAsset,detailsDeferred:Boolean(histogram||palette||exif||technicalMetadata)};
+  return{...publicAsset,takenDate:takenDate(asset),detailsDeferred:Boolean(histogram||palette||exif||technicalMetadata)};
 }
 
 function assetDetails(asset={}){
