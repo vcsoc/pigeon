@@ -13,7 +13,8 @@
     if(kind!=='error'&&kind!=='setup'&&status.paused)kind='paused';
     else if(starting&&['idle','unavailable'].includes(kind))kind='starting';
     else if(['indexing','waiting'].includes(kind)){
-      if(status.mode!=='manual'&&(status.waitReason==='activity'||status.activityPaused||resources.activityBlocked))kind='activity';
+      if(status.waitReason==='foreground')kind='foreground';
+      else if(status.mode!=='manual'&&(status.waitReason==='activity'||status.activityPaused||resources.activityBlocked))kind='activity';
       else if(kind==='waiting')kind=status.waitReason?'waiting':'preparing';
     }
     let title,detail=status.detail||'',hint='';
@@ -24,6 +25,7 @@
         hint='First-time setup may download Python, dependencies and the model. It can take several minutes and needs internet access.';break;
       case 'preparing':title='Preparing analysis…';hint='Opening the local engine and checking saved work before the next batch.';break;
       case 'indexing':title='Analyzing files';hint='Working locally. Large files can take time; the file count advances when a file finishes.';break;
+      case 'foreground':title='Prioritizing thumbnails and folder rescan';hint='Background analysis resumes automatically when foreground work finishes.';break;
       case 'activity':title='Waiting for computer to be idle';hint=`Automatic analysis starts after ${count(status.idleMinutes)||10} minutes of inactivity. Choose Analyze now or Continue to start immediately within your resource cap.`;break;
       case 'waiting':title='Preparing analysis…';hint='Checking saved work before the next batch. Your resource slider caps worker usage; it is not a start requirement.';break;
       case 'paused':title='Analysis paused';hint='Completed work is saved. Choose Continue to resume.';break;
@@ -44,7 +46,7 @@
       current:showCurrent&&(names||status.current)?'Current: '+(names||status.current):'',
       scope:status.currentScope?'Scope: '+status.currentScope+(status.analysisPhase==='subfolders'?' (subfolders)':''):'',
       queue:Array.isArray(status.queuedScopes)&&status.queuedScopes.length?'Queued next: '+status.queuedScopes.join(' → '):'',
-      barLabel:indeterminate?title:kind==='activity'||kind==='waiting'||kind==='paused'||kind==='error'?`${percent}% saved · ${title}`:`${percent}% · ${completed.toLocaleString()} / ${total.toLocaleString()} files`,
+      barLabel:indeterminate?title:kind==='foreground'||kind==='activity'||kind==='waiting'||kind==='paused'||kind==='error'?`${percent}% saved · ${title}`:`${percent}% · ${completed.toLocaleString()} / ${total.toLocaleString()} files`,
       countLabel:total?`${completed.toLocaleString()} / ${total.toLocaleString()} files analyzed${status.limited?` · ${count(status.limited).toLocaleString()} with content limits`:''}`:kind==='idle'?'No eligible files':'File count will appear when analysis starts'
     };
   }

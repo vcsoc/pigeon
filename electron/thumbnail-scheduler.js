@@ -22,14 +22,15 @@ function createThumbnailScheduler({ processJob, maxConcurrency = 2, idleDelayMs 
   };
   const upsert = (value, priority, reason) => {
     const job = normalizedJob(value, reason); if (!job) return;
-    const running = active.get(job.id); if (running?.version === job.version) return;
+    const running = active.get(job.id); if (running?.version === job.version && running.portfolioId === portfolioId && running.generation === generation) { if(priority < running.priority){running.priority=priority;running.reason=reason;} return; }
     const existing = queued.get(job.id);
     if (existing?.version === job.version) { existing.priority = Math.min(existing.priority, priority); existing.reason = existing.priority === priority ? reason : existing.reason; return; }
     queued.set(job.id, { ...job, priority, sequence: sequence++, portfolioId, generation, enqueuedAt: now() });
   };
   const nextQueued = () => [...queued.values()].sort((a, b) => a.priority - b.priority || a.sequence - b.sequence)[0] || null;
   const activeBackground = () => [...active.values()].filter((job) => job.priority === PRIORITY.idle).length;
-  const canTakeIdle = () => activeBackground() < Math.max(1, maxConcurrency - 1);
+  const activeSpeculative = () => [...active.values()].filter((job) => job.priority > PRIORITY.visible).length;
+  const canTakeIdle = () => activeSpeculative() < Math.max(1, maxConcurrency - 1);
   const requestIdleCandidate = () => {
     if (!idleProvider || now() - lastActivityAt < idleDelayMs || !canTakeIdle()) return null;
     const candidate = normalizedJob(idleProvider(), 'idle');
@@ -40,10 +41,11 @@ function createThumbnailScheduler({ processJob, maxConcurrency = 2, idleDelayMs 
     if (disposed) return;
     while (active.size < maxConcurrency) {
       let job = nextQueued();
-      if (job) queued.delete(job.id);
-      else job = requestIdleCandidate();
+      if (!job) job = requestIdleCandidate();
       if (!job) break;
-      if (job.priority === PRIORITY.idle && !canTakeIdle()) break;
+      // Read-ahead and warming must leave a worker available for visible files.
+      if (job.priority > PRIORITY.visible && !canTakeIdle()) break;
+      queued.delete(job.id);
       active.set(job.id, job);
       Promise.resolve(processJob(job)).catch(() => {}).finally(() => { if (active.get(job.id) === job) active.delete(job.id); drain(); });
     }
@@ -59,7 +61,7 @@ function createThumbnailScheduler({ processJob, maxConcurrency = 2, idleDelayMs 
   };
   const setIdleProvider = (provider) => { idleProvider = typeof provider === 'function' ? provider : null; armIdle(); };
   const invalidate = (id, version) => { const job = queued.get(String(id)); if (job && (version === undefined || job.version !== Number(version))) queued.delete(String(id)); };
-  const stats = () => ({ queued: queued.size, active: active.size, activeInteractive: [...active.values()].filter((job) => job.priority < PRIORITY.idle).length, activeBackground: activeBackground(), portfolioId, generation });
+  const stats = () => ({ queued: queued.size, active: active.size, activeInteractive: [...active.values()].filter((job) => job.priority < PRIORITY.idle).length, activeBackground: activeBackground(), activeForeground: [...active.values()].filter((job) => job.priority <= PRIORITY.visible).length, queuedForeground: [...queued.values()].filter((job) => job.priority <= PRIORITY.visible).length, portfolioId, generation });
   const dispose = () => { disposed = true; clearTimer(idleTimer); queued.clear(); idleProvider = null; };
   return { setContext, updatePriority, setIdleProvider, invalidate, drain, stats, dispose, priorities: PRIORITY };
 }

@@ -60,6 +60,8 @@ const criticalFiles = [
   'electron/background-cpu-limiter.js',
   'electron/hash-worker.js',
   'electron/rescan-requests.js',
+  'electron/watch-file-queue.js',
+  'electron/remove-missing.js',
   'electron/sidebar-placement.js',
   'electron/region-effects.js',
   'src/editor-region-effects.js',

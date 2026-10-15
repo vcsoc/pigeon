@@ -210,7 +210,8 @@ async function telemetrySnapshot(options={}) {
   let databases=null;if(options?.databases){if(!databaseTelemetry)databaseTelemetry=createDatabaseTelemetry({getContext:()=>({portfolioId:activePortfolioId,databaseFile,thumbnailDir,portfolioDatabases:portfolios.map(portfolio=>portfolio.database||portfolioDatabasePath(portfolio.id)),getExcludedIds:()=>library.assets.filter(isAssetLocked).map(asset=>asset.id)})});databases=await databaseTelemetry.get({force:Boolean(options.refreshDatabases)});if(databases.portfolioId!==activePortfolioId)databases={portfolioId:activePortfolioId,unavailable:true};else{const scan=semanticService?.peekStatus();databases={...databases,scan:scan?.portfolioId===activePortfolioId?scan:null};}}
   return { timestamp: Date.now(), databases, collective: { cpu, memoryBytes, gpuCpu: gpuProcesses.reduce((sum, item) => sum + (item.cpu?.percentCPUUsage || 0), 0), gpuMemoryBytes: gpuProcesses.reduce((sum, item) => sum + (item.memory?.workingSetSize || 0) * 1024, 0), filesCompleted: threads.reduce((sum, item) => sum + item.filesCompleted, 0), filesTotal: threads.reduce((sum, item) => sum + item.filesTotal, 0), queuedItems, activeRuns: [...backgroundRuns.values()].filter(backgroundRunActive).length, activeThreads: threads.length, logicalCpus: os.cpus().length, totalMemoryBytes: os.totalmem(), maxBackgroundThreads: MAX_BACKGROUND_THREADS, cpuLimit: INDEX_CPU_LIMIT, uptimeSeconds: process.uptime(), diagnosticErrors: diagnosticEntries.filter((entry)=>entry.level==='error').length }, threads, processes: metrics.map((item) => ({ pid: item.pid, type: item.type, cpu: item.cpu?.percentCPUUsage || 0, memoryBytes: (item.memory?.workingSetSize || 0) * 1024 })),thumbnailScheduler:thumbnailGenerationScheduler?.stats()||null,performanceSpans:performanceRecorder.snapshot() };
 }
-async function waitForIndexCpuBudget(run) { while (backgroundRunActive(run)) { if(!(await waitForBackgroundThread(run.progressId)))return false;const currentCpu=app.getAppMetrics().reduce((sum,item)=>sum+(item.cpu?.percentCPUUsage||0),0);if(currentCpu>=INDEX_CPU_LIMIT){if(run.reportPauses!==false)reportBackgroundProgress(run.progressId,{label:'Background work paused for CPU',detail:`Pigeon is using ${currentCpu.toFixed(1)}% CPU`,status:'paused'});await new Promise((resolve)=>setTimeout(resolve,250));continue;}const freeMemory=await availableMemoryBytes();if(freeMemory>=MIN_FREE_MEMORY_BYTES)return true;if(run.reportPauses!==false)reportBackgroundProgress(run.progressId,{label:'Background work paused for memory',detail:`Waiting for available memory · ${Math.round(freeMemory/1024/1024)} MB available`,status:'paused'});await new Promise((resolve)=>setTimeout(resolve,1200));}return false; }
+function foregroundWorkPending(){const stats=thumbnailGenerationScheduler?.stats();return Boolean((stats?.activeForeground||0)+(stats?.queuedForeground||0)||[...backgroundRuns.values()].some(run=>run.foreground&&backgroundRunActive(run)));}
+async function waitForIndexCpuBudget(run) { while (backgroundRunActive(run)) { if(!(await waitForBackgroundThread(run.progressId)))return false;const foreground=run.foreground||run.isForeground?.();if(foreground)return true;if(foregroundWorkPending()){await new Promise(resolve=>setTimeout(resolve,50));continue;}const currentCpu=app.getAppMetrics().reduce((sum,item)=>sum+(item.cpu?.percentCPUUsage||0),0);if(currentCpu>=INDEX_CPU_LIMIT){if(run.reportPauses!==false)reportBackgroundProgress(run.progressId,{label:'Background work paused for CPU',detail:`Pigeon is using ${currentCpu.toFixed(1)}% CPU`,status:'paused'});await new Promise((resolve)=>setTimeout(resolve,250));continue;}const freeMemory=await availableMemoryBytes();if(freeMemory>=MIN_FREE_MEMORY_BYTES)return true;if(run.reportPauses!==false)reportBackgroundProgress(run.progressId,{label:'Background work paused for memory',detail:`Waiting for available memory · ${Math.round(freeMemory/1024/1024)} MB available`,status:'paused'});await new Promise((resolve)=>setTimeout(resolve,1200));}return false; }
 function scanWorkActive(){return [...backgroundRuns.values()].some((run)=>(run.type==='scan'||run.type==='scan-previews')&&backgroundRunActive(run));}
 async function waitForScanIdle(run){while(backgroundRunActive(run)&&scanWorkActive())await backgroundDelay(500,run);return backgroundRunActive(run);}
 
@@ -820,9 +821,11 @@ const pendingFolderScans=require('./rescan-requests').createRescanRequests();
 async function scanLocation(locationId, { notify = true, resume = false, rebuildPreviews = false, subfolder = '', reason = 'requested' } = {}) {
   const location = library.locations.find((item) => item.id === locationId); if (!location) return;
   const scanSubfolder=normalizedSubfolder(subfolder);const scanRoot=path.resolve(location.path,scanSubfolder);if(!pathIsInside(location.path,scanRoot))throw new Error('The selected folder is outside its indexed root');
+  if(reason==='manual-rescan'){const active=backgroundRuns.get(`${activePortfolioId}:scan:${location.id}`);if(active)active.foreground=true;}
   if (location.scanning) { pendingFolderScans.add(location,{notify,rebuildPreviews,subfolder:scanSubfolder,reason});location.rescanRequested=true;return; }
   location.rebuildPreviewsRequested=false;location.rescanSubfolderRequested='';
   const run = beginBackgroundRun('scan', location.id); if (!run) { pendingFolderScans.add(location,{notify,rebuildPreviews,subfolder:scanSubfolder,reason});location.rescanRequested=true;return; }
+  run.foreground=reason==='manual-rescan';
   recordDiagnostic('info','Folder scan started',{locationId,subfolder:scanSubfolder,reason,resume,rebuildPreviews,previouslyScanned:Boolean(location.lastScanned)});
   const previewQueue=createScanPreviewQueue(run,location,{retryCompleted:rebuildPreviews});let discovery=null;
   const jobLibrary = run.library, progressId = run.progressId,scanName=scanSubfolder?path.basename(scanRoot):location.name,assetInScanScope=(asset)=>asset.locationId===location.id&&pathIsInside(scanRoot,asset.path); location.unstable = Boolean(location.unstable || location.removable || /[\\/]OneDrive[\\/]|[\\/]Dropbox[\\/]|[\\/]Google Drive[\\/]/i.test(location.path));
@@ -871,30 +874,73 @@ function resumePendingScans() { for (const location of library.locations.filter(
 const INDEXING_POLICY_VERSION=2;
 function refreshChangedIndexingPolicy(){library.settings=library.settings||{};if(Number(library.settings.indexingPolicyVersion)>=INDEXING_POLICY_VERSION)return false;library.settings.indexingPolicyVersion=INDEXING_POLICY_VERSION;scheduleSave();for(const location of library.locations.filter((item)=>!item.autoImportLegacyRoot))schedulePortfolioBackground(()=>scanLocation(location.id),1200);return true;}
 
+async function applyWatchedFileEvents(location,events,isCurrent,owner,knownAssets,retry=()=>{}){
+  // A full scan owns array positions and missing-file reconciliation until it finishes.
+  if(location.scanning){for(const event of events)if(isCurrent(event))retry(event,{defer:true});return;}
+  const changed=[],folders=[],previewQueue=createScanPreviewQueue(owner,location,{retryCompleted:true});
+  try{
+    for(const event of events){
+      if(!isCurrent(event))continue;
+      const filePath=event.path,key=normalizedPathKey(filePath),relative=normalizedSubfolder(path.relative(location.path,filePath));
+      if(!pathIsInside(location.path,filePath)||folderExcluded(location.id,relative)||owningLocation(visibleLocations(library.locations),filePath)?.id!==location.id)continue;
+      let stat;
+      try{stat=await withTimeout(fsp.stat(filePath),location.unstable?2500:8000,'Changed-file metadata timed out');}
+      catch(error){
+        if(!isCurrent(event))continue;
+        if(location.scanning){retry(event,{defer:true});continue;}
+        if(!['ENOENT','ENOTDIR'].includes(error.code)){recordDiagnostic('warning','Changed file is temporarily unavailable',{file:filePath,error:error.message});retry(event);continue;}
+        const removed=event.type==='unlinkDir'?library.assets.filter(asset=>asset.locationId===location.id&&pathIsInside(filePath,asset.path)):[mainAssetIndex.get(knownAssets.get(key))].filter(asset=>asset?.locationId===location.id&&normalizedPathKey(asset.path)===key);
+        for(const asset of removed)if(!asset.sourceMissing){asset.sourceMissing=true;asset.sourcePending=false;asset.missingSince=Date.now();changed.push(asset);}
+        continue;
+      }
+      if(!isCurrent(event))continue;
+      if(location.scanning){retry(event,{defer:true});continue;}
+      if(stat.isDirectory()){ if(relative&&!isAssetLocked({path:filePath,locationId:location.id,collectionIds:[]}))folders.push(relative);continue;}
+      if(!stat.isFile()||!shouldIndexFile(filePath,library.settings?.preferences||{}))continue;
+      let known=mainAssetIndex.get(knownAssets.get(key)),existing=known&&normalizedPathKey(known.path)===key?known:library.assets.find(asset=>normalizedPathKey(asset.path)===key);
+      if(existing&&require('./scan-watch-events').unchangedWatchFile(existing,filePath,stat)){knownAssets.set(key,existing.id);continue;}
+      const cloudState=location.unstable?(await inspectCloudFiles([filePath],{timeout:5000})).get(filePath):null;
+      if(!isCurrent(event))continue;
+      if(location.scanning){retry(event,{defer:true});continue;}
+      if(location.unstable){known=mainAssetIndex.get(knownAssets.get(key));existing=known&&normalizedPathKey(known.path)===key?known:library.assets.find(asset=>normalizedPathKey(asset.path)===key);}
+      const placeholder=Boolean(cloudState?.placeholder),asset=await inspectFile(filePath,location,existing,{deferHash:true,inspection:{size:placeholder?cloudState.size:stat.size,modified:placeholder?cloudState.modified:stat.mtimeMs,created:placeholder?cloudState.created:stat.birthtimeMs,contentHash:null,placeholder}});
+      if(!asset){retry(event);continue;}
+      if(!isCurrent(event))continue;
+      if(location.scanning){retry(event,{defer:true});continue;}
+      if(!existing&&mainAssetIndex.has(asset.id))asset.id=crypto.randomUUID();
+      asset.permissionDenied=false;asset.permissionError=null;
+      if(existing?.permissionDenied||existing?.sourceMissing||existing?.sourcePending){asset.thumbnailFailedAt=null;asset.thumbnailFailedModified=null;asset.thumbnailError=null;asset.thumbnailFailureVersion=null;}
+      // Mutate existing records so concurrent user metadata edits and object references survive.
+      const previousLocationId=existing?.locationId,current=existing?Object.assign(existing,asset):asset;
+      if(!existing)library.assets.push(current);
+      if(previousLocationId!==location.id){location.assetCount=(location.assetCount||0)+1;const previousLocation=library.locations.find(item=>item.id===previousLocationId);if(previousLocation)previousLocation.assetCount=Math.max(0,(previousLocation.assetCount||0)-1);}
+      mainAssetIndex.set(current.id,current);knownAssets.set(key,current.id);changed.push(current);if(!current.sourcePending)previewQueue.add([current]);
+    }
+    if(!backgroundRunActive(owner))return;
+    if(changed.length){await persistAssetBatch(changed);if(!backgroundRunActive(owner))return;await persistScanBatch(location,[]);}
+    if(!backgroundRunActive(owner))return;
+    if((changed.length||folders.length)&&mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('scan:assets',{portfolioId:owner.portfolioId,locationId:location.id,assets:changed.filter(asset=>!isAssetLocked(asset)).map(asset=>publicAssetForRenderer(asset,location)),folders,done:true,incremental:true});
+    if(changed.length)broadcastLocations();
+  }finally{await previewQueue.finish();}
+}
 function watchLocation(location) {
   watchers.get(location.id)?.close();
   if (!location.online) return;
-  const watcher = chokidar.watch(location.path, {
-    ignoreInitial: true,
-    alwaysStat: true,
-    persistent: true,
-    depth: 20,
-    ignored: /(^|[\\/])\../
+  const owner={epoch:backgroundEpoch,portfolioId:activePortfolioId,library,cancelled:false};
+  const watcher=chokidar.watch(location.path,{ignoreInitial:true,alwaysStat:true,persistent:true,depth:20,ignored:/(^|[\\/])\../,atomic:true,awaitWriteFinish:{stabilityThreshold:location.unstable?1500:300,pollInterval:100}});
+  const knownAssets=new Map(library.assets.filter(asset=>asset.locationId===location.id).map(asset=>[normalizedPathKey(asset.path),asset.id]));
+  const queue=require('./watch-file-queue').createWatchFileQueue({
+    isActive:()=>backgroundRunActive(owner),keyFor:normalizedPathKey,delay:location.unstable?1200:150,
+    setTimer(callback,delay){const timer=setTimeout(()=>{watcherRefreshTimers.delete(location.id);callback();},Math.max(delay,(watcherIgnoreUntil.get(location.id)||0)-Date.now()+50));watcherRefreshTimers.set(location.id,timer);return timer;},
+    clearTimer(timer){clearTimeout(timer);if(watcherRefreshTimers.get(location.id)===timer)watcherRefreshTimers.delete(location.id);},
+    apply:(events,isCurrent,retry)=>applyWatchedFileEvents(location,events,isCurrent,owner,knownAssets,retry),
+    onError:error=>recordDiagnostic('warning','Incremental file update failed',{locationId:location.id,error:error.message})
   });
-  const knownAssets=new Map(library.assets.filter((asset)=>asset.locationId===location.id).map((asset)=>[normalizedPathKey(asset.path),asset.id]));
-  let pendingScope;
-  const refresh = (filePath,stat) => {
+  for(const type of ['add','change','unlink','addDir','unlinkDir'])watcher.on(type,(filePath,stat)=>{
     if(!pathIsInside(location.path,filePath))return;
-    const known=mainAssetIndex.get(knownAssets.get(normalizedPathKey(filePath)));
-    if(known?.locationId===location.id&&require('./scan-watch-events').unchangedWatchFile(known,filePath,stat))return;
-    const changedDirectory=path.resolve(filePath)===path.resolve(location.path)||stat?.isDirectory?.()?filePath:path.dirname(filePath),relative=normalizedSubfolder(path.relative(location.path,changedDirectory));
-    pendingScope=require('./rescan-requests').commonScope(pendingScope,relative);
-    clearTimeout(watcherRefreshTimers.get(location.id));
-    const delay=Math.max(location.unstable?2200:250,(watcherIgnoreUntil.get(location.id)||0)-Date.now()+50);
-    watcherRefreshTimers.set(location.id,setTimeout(()=>{watcherRefreshTimers.delete(location.id);const subfolder=pendingScope||'';pendingScope=undefined;scanLocation(location.id,{reason:'filesystem-change',subfolder});},delay));
-  };
-  watcher.on('add', refresh).on('change', refresh).on('unlink', refresh).on('addDir', refresh).on('unlinkDir', refresh);
-  watchers.set(location.id, watcher);
+    queue.enqueue(type,filePath,stat);
+  });
+  watchers.set(location.id,{close(){owner.cancelled=true;queue.close();return watcher.close();}});
 }
 
 async function refreshSourcesInBackground({ rescan = false } = {}) {
@@ -989,7 +1035,7 @@ async function generateScheduledThumbnail(job){
   let asset=mainAssetIndex.get(job.id);if(!asset||Number(asset.modified||0)!==job.version||!thumbnailWorkRequired(asset)||asset.sourcePending||asset.sourceMissing)return;
   const location=library.locations.find((item)=>item.id===asset.locationId);if(location&&location.online!==true)return;
   if(!(await pathAvailable(asset.path,networkScanTimeout(asset.path,1800)))){markAssetSourcePending(asset);return;}
-  const run=job.previewRun||{epoch:backgroundEpoch,portfolioId:activePortfolioId,library,progressId:job.progressId||`${activePortfolioId}:thumbnail:${asset.id}`,reportPauses:false};if(job.scanRun&&!backgroundRunActive(job.scanRun))return;if(!(await waitForIndexCpuBudget(run)))return;
+  const run={...(job.previewRun||{epoch:backgroundEpoch,portfolioId:activePortfolioId,library,progressId:job.progressId||`${activePortfolioId}:thumbnail:${asset.id}`,reportPauses:false}),isForeground:()=>job.priority<=1||Boolean(job.scanRun?.foreground)};if(job.scanRun&&!backgroundRunActive(job.scanRun))return;if(!(await waitForIndexCpuBudget(run)))return;
   const span=performanceRecorder.start('thumbnail-generation',{portfolioId:activePortfolioId,portfolioSize:library.assets.length,queueWaitMs:Date.now()-job.enqueuedAt,phase:job.reason,assetMix:{[asset.kind||'other']:1}});
   const extension=path.extname(asset.path).toLowerCase(),heic=HEIC_IMAGE_EXTENSION_SET.has(extension),motion=asset.kind==='video'||ANIMATED_IMAGE_EXTENSIONS.has(extension),thumbnail=await retryBackground(async()=>{const value=asset.kind==='video'?await prepareVideoFiles(asset):await createThumbnail(asset);if(!value?.ok)throw new Error(value?.message||'Preview unavailable');return value;},run,{attempts:3,timeout:asset.extension==='PDF'?35000:RAW_IMAGE_EXTENSION_SET.has(extension)?95000:heic||motion||networkScanTimeout(asset.path,0)>0?35000:11000,baseDelay:120,label:`Preview ${asset.filename}`});
   if(!backgroundRunActive(run))return;
@@ -2145,9 +2191,9 @@ ipcMain.handle('library:rescan', async (_event, request) => {
       try{await require('./rescan-access').checkRescanSource(location,subfolder);}catch(error){reportBackgroundProgress(progressId,{label,detail:error.message,done:true,status:'failed'});throw error;}
       if(portfolioId!==activePortfolioId||!(await waitForBackgroundThread(progressId)))return publicLibrarySummary();
     }
-    if(portfolioId===activePortfolioId)await scanLocation(id,{rebuildPreviews:true,subfolder});
+    if(portfolioId===activePortfolioId)await scanLocation(id,{rebuildPreviews:true,subfolder,reason:'manual-rescan'});
   }
-  else for (const location of library.locations.filter((item)=>!item.autoImportLegacyRoot)) await scanLocation(location.id,{notify:true,rebuildPreviews:true});
+  else for (const location of library.locations.filter((item)=>!item.autoImportLegacyRoot)) await scanLocation(location.id,{notify:true,rebuildPreviews:true,reason:'manual-rescan'});
   broadcastLocations();
   return publicLibrarySummary();
 });
@@ -2398,6 +2444,47 @@ ipcMain.handle('tags:replace', async (_event, { from, to } = {}) => {
 ipcMain.handle('tags:delete', async (_event, requestedTags) => {
   const result=libraryCore.deleteTags(library,requestedTags);if(result.assets.length)await persistAssetBatch(result.assets);scheduleSave();return{deletedTags:result.deletedTags,updatedAssets:result.updatedAssets};
 });
+async function removeMissingReferences(scope){
+  const {scopePredicate,findMissing}=require('./remove-missing'),matches=scopePredicate(library,scope,libraryCore.matchesSmartFolder),run=beginBackgroundRun('remove-missing',crypto.randomUUID());
+  if(!run)throw new Error('Missing-reference cleanup is already running');
+  const owner=run.library,permanent=scope.type==='trash',candidates=owner.assets.filter(matches),availability=new Map();
+  try{
+    reportBackgroundProgress(run.progressId,{label:'Checking missing references',completed:0,total:candidates.length});
+    const result=await findMissing(candidates,{
+      isActive:()=>backgroundRunActive(run),
+      canCheck:async asset=>{
+        if(isAssetLocked(asset)||asset.sourcePending)return false;
+        const location=owner.locations.find(item=>item.id===asset.locationId),remote=location&&(location.unstable||location.removable||/^[\\\\/]{2}|[\\/]gvfs[\\/]/i.test(location.path));
+        if(!remote)return true;if(location.online===false)return false;
+        if(!availability.has(location.id))availability.set(location.id,withTimeout(fsp.stat(location.path),2500,'Source unavailable').then(info=>location.type==='file'?info.isFile():info.isDirectory()).catch(()=>false));
+        return availability.get(location.id);
+      },
+      onProgress:(completed,total)=>{if(completed===total||completed%64===0)reportBackgroundProgress(run.progressId,{label:'Checking missing references',completed,total});}
+    });
+    if(!backgroundRunActive(run))return{cancelled:true,changedIds:[],permanent};
+    const stillMissing=asset=>mainAssetIndex.get(asset.id)===asset&&result.checkedPaths.get(asset.id)===asset.path&&matches(asset)&&!isAssetLocked(asset)&&!asset.sourcePending;
+    const changed=result.missing.filter(stillMissing),ids=new Set(changed.map(asset=>asset.id));
+    if(permanent){
+      // Only references are removed: a returning source file must never be deleted here.
+      await flushDeltaPersistence();if(!backgroundRunActive(run))return{cancelled:true,changedIds:[],permanent};
+      for(const asset of changed)if(!stillMissing(asset))ids.delete(asset.id);
+      for(const id of ids){pendingAssetSaves.delete(id);mainAssetIndex.delete(id);}
+      try{await sendDatabaseRequest('delete-assets',{ids:[...ids]});}catch(error){if(backgroundRunActive(run))for(const asset of changed)mainAssetIndex.set(asset.id,asset);throw error;}
+      if(!backgroundRunActive(run))return{cancelled:true,changedIds:[],permanent};
+      owner.assets=owner.assets.filter(asset=>!ids.has(asset.id));for(const id of ids)mainAssetIndex.delete(id);notifySemanticChanges(changed);
+      const affectedLocations=new Set(changed.map(asset=>asset.locationId));
+      for(const location of owner.locations)if(affectedLocations.has(location.id)){if(!backgroundRunActive(run))return{cancelled:true,changedIds:[],permanent};location.assetCount=owner.assets.filter(asset=>asset.locationId===location.id).length;await persistScanBatch(location,[]);}
+    }else{
+      const deletedAt=Date.now(),previous=new Map(changed.map(asset=>[asset.id,asset.deletedAt]));for(const asset of changed)asset.deletedAt=deletedAt;
+      try{await persistAssetBatch(changed);}catch(error){if(backgroundRunActive(run)){for(const asset of changed)if(asset.deletedAt===deletedAt)asset.deletedAt=previous.get(asset.id);scheduleAssetSave(changed);}throw error;}
+      if(!backgroundRunActive(run))return{cancelled:true,changedIds:[],permanent};
+      broadcastAssetPatches(changed.map(asset=>({id:asset.id,deletedAt:asset.deletedAt})));
+    }
+    if(backgroundRunActive(run))broadcastSidebar();
+    return{changedIds:[...ids],permanent,deletedAt:permanent?null:changed[0]?.deletedAt,skipped:result.skipped.length+result.missing.length-ids.size};
+  }finally{reportBackgroundProgress(run.progressId,{label:'Missing-reference cleanup finished',done:true});finishBackgroundRun(run);}
+}
+ipcMain.handle('references:remove-missing',(_event,scope)=>removeMissingReferences(scope));
 ipcMain.handle('trash:empty', async (_event, request = {}) => {
   const requestedMode=typeof request==='string'?request:request.mode,selectedIds=Array.isArray(request.ids)?new Set(request.ids):null,mode=requestedMode === 'recycle' ? 'recycle' : 'permanent', trashed = library.assets.filter((asset) => asset.deletedAt&&(!selectedIds||selectedIds.has(asset.id))), removed = new Set(), failures = [],progressId=`${activePortfolioId}:trash-empty:${Date.now()}`,total=trashed.length;
   reportBackgroundProgress(progressId,{label:mode==='recycle'?'Moving Trash to Recycle Bin':'Clearing Trash',detail:`0 of ${total.toLocaleString()} files`,completed:0,total});
@@ -2610,6 +2697,7 @@ function getSemanticService() {
     getAssets: () => library.assets.filter(asset=>!isAssetLocked(asset)&&!asset.encrypted),
     getAllAssetIds: () => library.assets.map(asset=>asset.id),
     getAsset: id => { const asset=mainAssetIndex.get(id)||library.assets.find(item=>item.id===id);return asset&&!isAssetLocked(asset)&&!asset.encrypted?asset:null; },
+    isForegroundBusy: foregroundWorkPending,
     getIdleSeconds: () => { try { return powerMonitor.getSystemIdleTime(); } catch { return 0; } },
     getIdleMinutes: () => library.settings?.preferences?.semanticIdleMinutes??10,
     emit: status => { if(mainWindow&&!mainWindow.isDestroyed()) mainWindow.webContents.send('semantic:status',status); },

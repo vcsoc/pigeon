@@ -15,13 +15,21 @@ test('physical roots and newly discovered branches default to collapsed without 
   h.context.state.library.activePortfolioId='B';h.context.folderTreeCachePortfolioId='B';assert(h.collapsed().has('location:root'));
   h.context.state.library.activePortfolioId='A';h.context.folderTreeCachePortfolioId='A';assert(!h.collapsed().has('location:root'));
 });
-test('double-click fully collapses a physical branch even if it was partially or already collapsed',()=>{
+test('double-click toggles physical branches and expands only one level',()=>{
   const h=harness();h.collapsed();for(const key of ['location:root','subfolder:root:parent','subfolder:root:parent/child','subfolder:root:other'])h.set(key,false);
   h.context.row={dataset:{locationId:'root',subfolder:'parent'},matches:selector=>selector.split(',').includes('.location-folder-item')};
   vm.runInContext('toggleHierarchyBranch(row)',h.context);assert(h.collapsed().has('subfolder:root:parent'));assert(h.collapsed().has('subfolder:root:parent/child'));assert(!h.collapsed().has('subfolder:root:other'));
-  vm.runInContext('toggleHierarchyBranch(row)',h.context);assert(h.collapsed().has('subfolder:root:parent/child'),'repeated double-click must not expand descendants');
+  vm.runInContext('toggleHierarchyBranch(row)',h.context);assert(!h.collapsed().has('subfolder:root:parent'),'double-click opens the selected collapsed folder');assert(h.collapsed().has('subfolder:root:parent/child'),'deeper descendants must stay collapsed');
   h.context.row={dataset:{locationId:'root'},matches:selector=>selector.split(',').includes('.location-root-button')};vm.runInContext('toggleHierarchyBranch(row)',h.context);
   for(const key of ['location:root','subfolder:root:parent','subfolder:root:parent/child','subfolder:root:other'])assert(h.collapsed().has(key));
+  h.context.row={dataset:{},matches:selector=>selector.split(',').includes('.location-root-button'),closest:()=>({dataset:{locationId:'root'}})};vm.runInContext('toggleHierarchyBranch(row)',h.context);
+  assert(!h.collapsed().has('location:root'));for(const key of ['subfolder:root:parent','subfolder:root:parent/child','subfolder:root:other'])assert(h.collapsed().has(key));
+});
+for(const [group,selector,attribute,prefix]of [['collections','.collection-item','collectionId','collection'],['smartFolders','.smart-folder-item','smartFolderId','smart-folder']])test(`double-click ${group} toggles the selected state and never restores deeper expansion`,()=>{
+  const h=harness();h.context.state.library[group]=[{id:'r'},{id:'c',parentId:'r'},{id:'g',parentId:'c'},{id:'leaf',parentId:'g'},{id:'unrelated'},{id:'unrelated-child',parentId:'unrelated'}];h.set(`${prefix}:r`,false);h.set(`${prefix}:c`,true);h.set(`${prefix}:g`,false);h.set(`${prefix}:unrelated`,false);
+  h.context.row={dataset:{[attribute]:'r'},matches:value=>value.split(',').includes(selector)};vm.runInContext('toggleHierarchyBranch(row)',h.context);assert(h.collapsed().has(`${prefix}:r`),'an expanded parent collapses even when a child was already collapsed');
+  vm.runInContext('toggleHierarchyBranch(row)',h.context);assert(!h.collapsed().has(`${prefix}:r`));assert(h.collapsed().has(`${prefix}:c`));assert(h.collapsed().has(`${prefix}:g`));assert(!h.collapsed().has(`${prefix}:unrelated`));
+  h.context.row.dataset[attribute]='c';vm.runInContext('toggleHierarchyBranch(row)',h.context);assert(!h.collapsed().has(`${prefix}:c`));assert(h.collapsed().has(`${prefix}:g`));
 });
 test('folder metadata is not paginated and collapsed descendants are not rendered',()=>{
   assert.match(source,/\[location.id,Number.MAX_SAFE_INTEGER\]/);assert.doesNotMatch(source,/data-load-location-tree|Show \$\{Math.min\(500/);

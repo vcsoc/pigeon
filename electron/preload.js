@@ -110,6 +110,7 @@ contextBridge.exposeInMainWorld('pigeon', {
   replaceTags: (from, to) => ipcRenderer.invoke('tags:replace', { from, to }),
   deleteTag: (tag) => ipcRenderer.invoke('tags:delete', tag),
   deleteTags: (tags) => ipcRenderer.invoke('tags:delete', tags),
+  removeMissing: (scope) => ipcRenderer.invoke('references:remove-missing', scope),
   emptyTrash: (mode = 'permanent', ids = null) => ipcRenderer.invoke('trash:empty', { mode, ids }),
   importUrl: (url, options = {}) => ipcRenderer.invoke('library:import-url', { url, options }),
   importClipboard: () => ipcRenderer.invoke('library:import-clipboard'),
