@@ -119,11 +119,11 @@ test('Smart Folders filter privacy effects, hotkey is editable, and level sortin
 });
 
 test('privacy ranges extend into previews/viewer, modifier wheel scrolls, submenu and parent trunks work',()=>{
-  assert.match(renderer,/minimum=mode==='pixelate'\?6:8/);assert.match(renderer,/maximum=mode==='pixelate'\?60:40/);assert.match(html,/id="sidebar-order-submenu"/);assert.match(renderer,/privacy-effect-view/);assert.match(styles,/\.thumbnail-effect-reveal \.privacy-effect-view :is\(img,video,iframe\)/);assert.match(renderer,/event\.ctrlKey\|\|event\.shiftKey/);assert.match(renderer,/sidebar-order-submenu/);assert.match(styles,/location-subfolder-list::before/);assert.match(folderTreeWorker,/updatedAt/);
+  assert.match(renderer,/PigeonPrivacyEffects\.normalize/);assert.match(html,/id="thumbnail-effect-strength" type="range" min="8" max="80"/);assert.match(html,/id="sidebar-order-submenu"/);assert.match(renderer,/privacy-effect-view/);assert.match(styles,/\.thumbnail-effect-reveal \.privacy-effect-view :is\(img,video,iframe\)/);assert.match(renderer,/event\.ctrlKey\|\|event\.shiftKey/);assert.match(renderer,/sidebar-order-submenu/);assert.doesNotMatch(styles,/location-subfolder-list::before/);assert.match(folderTreeWorker,/updatedAt/);
 });
 
 test('unfocused hover audio, complete menus, tree trunks, preference spacing and branch ordering are wired',()=>{
-  assert.match(main,/GetAsyncKeyState/);assert.match(main,/startHoverControlMonitor/);assert.match(preload,/onHoverControl/);assert.match(renderer,/monitorHoverControl\(true\)/);assert.match(renderer,/asset-context-menu-expanded/);assert.match(styles,/overflow:visible/);assert.match(styles,/\.location-subfolder-list::before\{[^}]*left:13px/);assert.match(styles,/preferences-nav nav button[^}]*gap:9px/);assert.match(renderer,/showBranchOrderMenu/);assert.match(main,/sidebar:set-branch-sort/);assert.match(renderer,/created-desc/);
+  assert.match(main,/GetAsyncKeyState/);assert.match(main,/startHoverControlMonitor/);assert.match(preload,/onHoverControl/);assert.match(renderer,/monitorHoverControl\(true\)/);assert.match(renderer,/asset-context-menu-expanded/);assert.match(styles,/overflow:visible/);assert.match(styles,/:is\(#collection-list,#smart-folder-list,#location-list\) \.folder-tree-toggle::before/);assert.match(styles,/preferences-nav nav button[^}]*gap:9px/);assert.match(renderer,/showBranchOrderMenu/);assert.match(main,/sidebar:set-branch-sort/);assert.match(renderer,/created-desc/);
 });
 
 test('actions support topbar editing, reordered clearing/move/rename steps and larger fields',()=>{
@@ -139,11 +139,11 @@ test('privacy-affected motion previews and opened videos retain every privacy mo
 
 test('hovered video uses hold-Control or Alt sound and tree screenshots have terminal branches',()=>{
   assert.match(renderer,/temporaryShortcutPressed\(event,preferences\.hoverAudioShortcut\)/);assert.match(renderer,/media\.muted=!controlHeld/);assert.match(renderer,/window\.addEventListener\('keyup',keyUp,true\)/);assert.match(renderer,/window\.removeEventListener\('keydown',keyDown,true\)/);assert.match(renderer,/hoverAudioShortcut:'Ctrl'/);assert.match(html,/id="hover-audio-shortcut"/);assert.match(renderer,/String\(event\.key\|\|''\)/);assert.match(renderer,/rawKey\|\|activeModifier&&key/);
-  assert.match(renderer,/tree-last/);assert.match(styles,/\.collection-item\.tree-last::after/);assert.match(main,/PIGEON_SMOKE_CAPTURE_TREE/);assert.match(main,/pigeon-tree-smoke\.png/);
+  assert.match(renderer,/tree-last/);assert.doesNotMatch(styles,/\.collection-item\.tree-last::after/);assert.match(main,/PIGEON_SMOKE_CAPTURE_TREE/);assert.match(main,/pigeon-tree-smoke\.png/);
 });
 
 test('polished tree, stable post-move reveal and configurable thumbnail privacy effects are wired',()=>{
-  assert.match(styles,/isolation:isolate/);assert.match(styles,/linear-gradient\(90deg,color-mix/);assert.match(styles,/border-radius:0 0 0 5px/);assert.match(styles,/\.folder-tree-toggle \{[^}]*background:transparent[^}]*box-shadow:none/);
+  assert.match(styles,/isolation:isolate/);assert.match(styles,/linear-gradient\(90deg,color-mix/);assert.match(styles,/\.hierarchy-group-root\.hierarchy-group-end\{border-radius:7px/);assert.match(styles,/\.folder-tree-toggle \{[^}]*background:transparent[^}]*box-shadow:none/);
   assert.match(renderer,/postMoveRevealUntil=Date\.now\(\)\+900/);assert.match(renderer,/focusSelectedAsset\(\{lockScroll:true,block:'center'\}\)/);assert.match(renderer,/if\(selectedCardFullyVisible\(visibleCard\)\)/);assert.match(renderer,/delays=lockScroll&&block==='center'\?\[0,80,200,500,1000,1800,3000,5000\]/);assert.match(renderer,/interaction!==gridScrollInteractionVersion/);
   assert.match(html,/id="thumbnail-effect-shortcut"/);assert.match(html,/id="thumbnail-effect-strength"/);assert.match(html,/id="blur-effect-preview"/);assert.match(renderer,/function toggleThumbnailEffect/);assert.match(renderer,/thumbnailEffectRevealKey/);assert.match(html,/id="thumbnail-effect-reveal-shortcut"/);assert.match(renderer,/revealShortcutPressed/);assert.match(renderer,/thumbnail-effect-reveal/);assert.match(styles,/thumbnail-effect-applied/);assert.match(libraryCore,/thumbnailEffect/);assert.match(main,/'thumbnailEffect'/);
 });
@@ -165,7 +165,7 @@ test('appearance tree colors, hierarchical action destinations, custom F2 and fa
 });
 
 test('animated image hover, viewport magnifier, reorder markers and sidebar-only mutation broadcasts are wired',()=>{
-  assert.match(renderer,/animatedImage=asset\.kind==='image'/);assert.match(renderer,/thumbnail-hover-media animated-image/);assert.match(main,/ANIMATED_IMAGE_EXTENSIONS/);assert.match(main,/createAnimatedImageFallback/);assert.match(main,/MOTION_PREVIEW_VERSION/);assert.match(styles,/\.thumbnail-hover-media\.animated-image/);assert.match(renderer,/asset\.mediaUrl\|\|asset\.previewUrl/);assert.match(renderer,/function stopAllHoverPreviews/);assert.match(renderer,/elements\.gridWrap\.addEventListener\('scroll',stopAllHoverPreviews/);assert.match(renderer,/pointerIsOverPreview/);assert.match(renderer,/document\.elementFromPoint\(pointerX,pointerY\)/);assert.match(renderer,/const hoverLifecycleActive=\(\)=>hovering&&card\.isConnected/);assert.match(renderer,/if\(media!==activeMedia\|\|!hoverLifecycleActive\(\)\)return/);assert.match(renderer,/revealEvent\?hoverLifecycleActive\(\):pointerIsOverPreview\(\)/);assert.match(renderer,/addEventListener\('loadeddata',showReady/);assert.match(renderer,/addEventListener\('load',showReady/);assert.match(renderer,/classList\.add\('hover-media-ready'\)/);assert.match(renderer,/enter=\(event\)=>\{updatePointer\(event\);hovering=true;seekFromPointer\(event\)/);assert.match(renderer,/activeMedia\.preload='auto'/);assert.ok(renderer.indexOf("addEventListener('loadeddata',showReady")<renderer.indexOf('activeMedia.src=asset.mediaUrl'),'video readiness must be observed before loading starts');assert.match(styles,/thumbnail-hover-media\.hover-media-ready\{opacity:1!important;visibility:visible/);assert.match(styles,/\.asset-preview:is\(\.media-hovering,\.animated-hovering\)>img:not\(\.thumbnail-hover-media\)\{visibility:hidden/);
+  assert.match(renderer,/animatedImage=asset\.kind==='image'/);assert.match(renderer,/thumbnail-hover-media animated-image/);assert.match(main,/ANIMATED_IMAGE_EXTENSIONS/);assert.match(main,/createAnimatedImageFallback/);assert.match(main,/MOTION_PREVIEW_VERSION/);assert.match(styles,/\.thumbnail-hover-media\.animated-image/);assert.match(renderer,/asset\.mediaUrl\|\|asset\.previewUrl/);assert.match(renderer,/function stopAllHoverPreviews/);assert.match(renderer,/elements\.gridWrap\.addEventListener\('scroll',stopAllHoverPreviews/);assert.match(renderer,/pointerIsOverPreview/);assert.match(renderer,/document\.elementFromPoint\(pointerX,pointerY\)/);assert.match(renderer,/const hoverLifecycleActive=\(\)=>hovering&&card\.isConnected/);assert.match(renderer,/if\(media!==activeMedia\|\|!hoverLifecycleActive\(\)\)return/);assert.match(renderer,/const start=\(event\)=>\{if\(!pointerIsOverPreview\(\)/);assert.match(renderer,/hoverLifecycleActive=\(\)=>hovering&&card\.isConnected&&pointerIsOverPreview\(\)/);assert.match(renderer,/addEventListener\('loadeddata',showReady/);assert.match(renderer,/addEventListener\('load',showReady/);assert.match(renderer,/classList\.add\('hover-media-ready'\)/);assert.match(renderer,/enter=\(event\)=>\{updatePointer\(event\);hovering=true;seekFromPointer\(event\)/);assert.match(renderer,/activeMedia\.preload='auto'/);assert.ok(renderer.indexOf("addEventListener('loadeddata',showReady")<renderer.indexOf('activeMedia.src=asset.mediaUrl'),'video readiness must be observed before loading starts');assert.match(styles,/thumbnail-hover-media\.hover-media-ready\{opacity:1!important;visibility:visible/);assert.match(styles,/\.asset-preview:is\(\.media-hovering,\.animated-hovering\)>img:not\(\.thumbnail-hover-media\)\{visibility:hidden/);
   assert.match(styles,/\.hover-fit-preview \{ position:fixed/);assert.match(styles,/background:transparent/);assert.match(renderer,/elements\.gridWrap\.getBoundingClientRect/);assert.match(renderer,/delayDone/);
   assert.match(renderer,/function sidebarDropZone/);assert.match(renderer,/drop-before/);assert.match(renderer,/drop-after/);assert.match(renderer,/dropZone/);assert.match(styles,/\.collection-item\.drop-before::after/);assert.match(styles,/background:rgba\(102,166,255,\.48\)/);
   assert.match(main,/collection:rename[\s\S]{0,220}broadcastSidebar\(\)/);assert.match(main.slice(main.indexOf("ipcMain.handle('collection:move'"),main.indexOf("ipcMain.handle('collection:set-password'")),/broadcastSidebar\(\)/);assert.match(main.slice(main.indexOf("ipcMain.handle('smart-folder:move'"),main.indexOf("ipcMain.handle('smart-folder:remove'")),/broadcastSidebar\(\)/);assert.match(main,/sidebar:reorder-items[\s\S]{0,1000}broadcastSidebar\(\)/);
@@ -193,7 +193,7 @@ test('startup restores scoped layout before reveal and automatic updates use act
 });
 
 test('clean hierarchy, delayed fit preview, move continuity and contact sheets are wired',()=>{
-  assert.doesNotMatch(styles,/background-image:repeating-linear-gradient\(to right/);assert.match(styles,/border-left:1px solid #4d5561/);assert.match(styles,/\.location-folder-item\.active::before/);
+  assert.doesNotMatch(styles,/background-image:repeating-linear-gradient\(to right/);assert.doesNotMatch(styles,/border-left:1px solid #4d5561/);assert.doesNotMatch(styles,/\.location-folder-item\.active::before/);
   assert.match(renderer,/hoverFitPreviewTimer=setTimeout/);assert.match(renderer,/,300\)/);assert.match(styles,/clip-path:polygon\(100% 0,100% 100%,0 100%\)/);assert.match(styles,/max-width:100%!important/);assert.match(styles,/object-fit:contain!important/);
   assert.match(renderer,/function successorAfterRemoving/);assert.match(renderer,/function selectAndRevealSuccessor/);assert.match(renderer,/successorId=leavesCurrent\?successorAfterRemoving/);assert.match(renderer,/lockScroll\?\[0,60,140,260,480\]:\[0,90,240\]/);assert.match(renderer,/focusSelectedAsset\(\)/);assert.match(html,/id="contact-sheet-view"/);assert.match(renderer,/function openContactSheet/);assert.match(renderer,/function renderContactSheet/);assert.match(renderer,/data-folder-action="contact-sheet"/);assert.match(renderer,/data-location-action="contact-sheet"/);assert.match(renderer,/data-context-action="contact-sheet"/);assert.match(styles,/@media print/);
 });
@@ -710,7 +710,7 @@ test('internal viewer has lightweight context actions, keyboard close, compact f
   assert.match(renderer,/event\.code === 'Space'/);
   assert.match(renderer,/viewerZoom/);
   assert.match(renderer,/\.viewer-stage'\)\.addEventListener\('wheel'/);
-  assert.match(html,/id="viewer-image-surface"/);assert.match(renderer,/renderPixelatedSurface\(\$\('#viewer-image-surface'\),elements\.viewerImage/);assert.match(renderer,/host\.id==='viewer-image-surface'\?\{left:'0',top:'0',width:'100%',height:'100%'\}/);assert.match(renderer,/Math\.abs\(next-oldScale\)<1e-9\)return/);assert.match(renderer,/viewerPanStart=\{x:event\.clientX,y:event\.clientY,panX:viewerPan\.x/);assert.match(renderer,/function clampViewerPan/);assert.match(styles,/\.viewer-image-surface\{/);assert.match(styles,/\.media-viewer\.full-view \.viewer-stage img[^}]*object-fit:fill/);assert.doesNotMatch(styles,/\.media-viewer\.full-view \.viewer-stage img[^}]*object-fit:\s*none/);
+  assert.match(html,/id="viewer-image-surface"/);assert.match(renderer,/host=\$\('#viewer-image-surface'\)/);assert.match(renderer,/renderPixelatedSurface\(host,elements\.viewerImage/);assert.match(renderer,/host\.id==='viewer-image-surface'\?\{left:'0',top:'0',width:'100%',height:'100%'\}/);assert.match(renderer,/Math\.abs\(next-oldScale\)<1e-9\)return/);assert.match(renderer,/viewerPanStart=\{x:event\.clientX,y:event\.clientY,panX:viewerPan\.x/);assert.match(renderer,/function clampViewerPan/);assert.match(styles,/\.viewer-image-surface\{/);assert.match(styles,/\.media-viewer\.full-view \.viewer-stage img[^}]*object-fit:fill/);assert.doesNotMatch(styles,/\.media-viewer\.full-view \.viewer-stage img[^}]*object-fit:\s*none/);
   assert.match(styles,/\.media-viewer footer \{ height:28px/);
   assert.match(styles,/\.viewer-stage \{ height:calc\(100% - 28px\)/);
 });
@@ -1036,7 +1036,7 @@ test('diagnostics controls and cross-portfolio grouping transfer are wired', () 
   assert.match(renderer, /openPortfolioTransfer/);
   assert.match(styles, /--tree-step: 18px/);
   assert.match(styles, /--sidebar-width: 275px/);
-  assert.match(styles, /border-left:1px solid #4d5561/);
+  assert.doesNotMatch(styles, /border-left:1px solid #4d5561/);
 });
 
 test('SQLite persistence replaces library.json with automatic migration', () => {
@@ -1118,7 +1118,7 @@ test('folder and collection context menus expose consistent hierarchy and destru
 });
 
 test('folder, collection, and Smart Folder collapse paints immediately before reconciliation',()=>{
-  assert.match(renderer,/function paintFolderCollapseImmediately/);assert.match(renderer,/function toggleFolderCollapsed\(key\) \{ const collapsed=!isFolderCollapsed\(key\);paintFolderCollapseImmediately\(key,collapsed\);setFolderCollapsed\(key,collapsed\)/);assert.match(renderer,/function setHierarchyGroupCollapsed/);assert.match(renderer,/data-folder-lock/);assert.doesNotMatch(renderer,/data-total-collapse-key/);assert.match(renderer,/addEventListener\('click',[\s\S]{0,420},true\)/);assert.match(renderer,/control\.textContent=collapsed\?'＋':'−'/);assert.match(renderer,/sibling\.hidden=collapsed\|\|blockedDepth!==null/);assert.match(renderer,/ancestorHidden\|\|collapsed/);assert.match(renderer,/location-subfolder-list" \$\{rootCollapsed\?'hidden':''\}/);assert.doesNotMatch(renderer,/deferredHierarchyRenderFrame/);
+  assert.match(renderer,/function paintFolderCollapseImmediately/);assert.match(renderer,/function toggleFolderCollapsed\(key\) \{ const collapsed=!isFolderCollapsed\(key\);paintFolderCollapseImmediately\(key,collapsed\);setFolderCollapsed\(key,collapsed\)/);assert.match(renderer,/function setHierarchyGroupCollapsed/);assert.match(renderer,/data-folder-lock/);assert.doesNotMatch(renderer,/data-total-collapse-key/);assert.match(renderer,/addEventListener\('click',[\s\S]{0,420},true\)/);assert.match(renderer,/control\.textContent=''/);assert.match(renderer,/sibling\.hidden=collapsed\|\|blockedDepth!==null/);assert.match(renderer,/ancestorHidden\|\|collapsed/);assert.match(renderer,/location-subfolder-list" \$\{rootCollapsed\?'hidden':''\}/);assert.doesNotMatch(renderer,/deferredHierarchyRenderFrame/);
 });
 
 test('show content from subfolders includes nested physical folders and collections but defaults off',()=>{
@@ -1147,7 +1147,7 @@ test('nested collection trees, smart subfolders, and inline password forms are w
   assert.match(renderer, /#inline-unlock-password'\)\.addEventListener\('keydown'/);
   assert.match(renderer, /#inline-unlock-confirmation'\)\.addEventListener\('keydown'/);
   assert.match(renderer, /#inline-unlock-form'\)\.requestSubmit\(\)/);
-  assert.match(styles, /\.collection-item::before/);
+  assert.doesNotMatch(styles, /\.collection-item::before/);
 });
 
 test('availability refresh and inline About Pigeon view are wired', () => {
@@ -1197,7 +1197,7 @@ test('inspector tags sort alphabetically and cached grid nodes survive internal 
 });
 
 test('large privacy surfaces use scaled blur and pixel mosaics',()=>{
-  assert.match(renderer,/function renderPixelatedSurface/);assert.match(renderer,/bounds\.width\/320/);assert.match(renderer,/renderPixelatedSurface\(\$\('#viewer-image-surface'\)/);assert.match(renderer,/renderPixelatedSurface\(\$\('#inspector-preview-section \.preview-card'\)/);assert.match(renderer,/if\(!collapsed\)renderInspector\(\)/);assert.match(styles,/thumbnail-effect-strength\) \* 1\.5px/);assert.match(styles,/\.privacy-surface-pixel-canvas/);
+  assert.match(renderer,/function renderPixelatedSurface/);assert.match(renderer,/bounds\.width\/320/);assert.match(renderer,/renderPixelatedSurface\(host,elements\.viewerImage/);assert.match(renderer,/renderPixelatedSurface\(\$\('#inspector-preview-section \.preview-card'\)/);assert.match(renderer,/if\(!collapsed\)renderInspector\(\)/);assert.match(styles,/thumbnail-effect-strength\) \* 1\.5px/);assert.match(styles,/\.privacy-surface-pixel-canvas/);
 });
 
 test('preferences constrain both columns and keep navigation and actions reachable',()=>{
@@ -1205,7 +1205,7 @@ test('preferences constrain both columns and keep navigation and actions reachab
 });
 
 test('privacy supports true pixel mosaics and fully hidden thumbnails with reveal overrides',()=>{
-  assert.match(html,/<option value="hidden">Hidden<\/option>/);assert.match(renderer,/\['blur','pixelate','hidden'\]\.includes/);assert.match(renderer,/function renderPixelatedCard/);assert.match(renderer,/canvas\.width=Math\.max\(2,Math\.ceil\(bounds\.width\/block\)\)/);assert.match(renderer,/context\.imageSmoothingEnabled=false/);assert.match(styles,/\.privacy-pixel-canvas/);assert.match(styles,/data-thumbnail-effect-mode="hidden"/);assert.match(styles,/opacity:0/);assert.match(styles,/privacy-effects-disabled[\s\S]*opacity:1!important/);
+  assert.match(html,/<option value="hidden">Hidden<\/option>/);assert.match(html,/<option value="spoiler">Spoiler<\/option>/);assert.match(html,/<option value="glitch">Glitch<\/option>/);assert.match(html,/<filter id="privacy-glitch"/);assert.match(styles,/filter:url\("#privacy-glitch"\)/);assert.match(renderer,/function renderPixelatedCard/);assert.match(renderer,/width=glitch\|\|spoiler\?columns:Math\.max\(2,Math\.ceil\(bounds\.width\/strength\)\)/);assert.match(renderer,/context\.imageSmoothingEnabled=false/);assert.match(styles,/\.privacy-pixel-canvas/);assert.match(styles,/data-thumbnail-effect-mode="hidden"/);assert.match(styles,/opacity:0/);assert.match(styles,/privacy-effects-disabled[\s\S]*opacity:1!important/);
 });
 
 test('inspector privacy, Quick Check, aligned shortcuts, and developer telemetry overlay are wired',()=>{
@@ -1339,7 +1339,7 @@ test('plugin worker blocks Node capability access', async () => {
 test('Help Tutorials provides a comic guided tour with complete navigation and privacy guidance',()=>{
   for(const id of ['tutorial-overlay','tutorial-highlight','tutorial-bubble','tutorial-back','tutorial-next','tutorial-end'])assert.match(html,new RegExp(`id="${id}"`));
   assert.match(renderer,/help: \[\['Tutorials', 'tutorials'/);assert.match(renderer,/function startTutorial\(/);assert.match(renderer,/function showTutorialStep\(/);assert.match(renderer,/Help → Tutorials/);
-  assert.match(renderer,/Password-protect a collection/);assert.match(renderer,/Password protect folder/);assert.match(renderer,/Apply—and remove—privacy effects/);assert.match(renderer,/Blur or Pixelate/);assert.match(renderer,/state\.thumbnailEffectShortcut\|\|'W'/);assert.match(renderer,/state\.privacyEffectsToggleShortcut\|\|'Alt\+W'/);
+  assert.match(renderer,/Password-protect a collection/);assert.match(renderer,/Password protect folder/);assert.match(renderer,/Apply—and remove—privacy effects/);assert.match(renderer,/Blur, Pixelate, Spoiler, Glitch, or Hidden/);assert.match(renderer,/state\.thumbnailEffectShortcut\|\|'W'/);assert.match(renderer,/state\.privacyEffectsToggleShortcut\|\|'Alt\+W'/);
   assert.match(renderer,/typeof step\.copy==='function'\?step\.copy\(\):step\.copy/);assert.match(renderer,/preferences\.thumbnailEffectRevealKey\|\|'Alt'/);assert.match(renderer,/preferences\.hoverAudioShortcut\|\|'Ctrl'/);
   assert.match(renderer,/Hover to preview motion/);assert.match(renderer,/GIF, or animated WebP/);assert.match(renderer,/temporaryShortcutPressed/);
   assert.match(renderer,/Open a whole hierarchy at once/);assert.match(renderer,/Select folders as a team/);assert.match(renderer,/Shift-click selects the visible range/);assert.match(renderer,/Threads show real work/);assert.match(renderer,/Clicking Update now opens this tab automatically/);assert.match(renderer,/Know what portfolio transfer means/);assert.match(renderer,/independent physical copies/);assert.match(renderer,/adds references to files where they already live/);
@@ -1362,7 +1362,7 @@ test('HEIC and HEIF thumbnails use a bounded worker decoder and versioned cache 
 });
 
 test('focused file indexing and delayed hover playback are configurable',()=>{
-  assert.match(html,/data-preference-page="indexing"/);assert.match(html,/data-pref="indexAllFiles"/);assert.match(html,/data-index-category="images"/);assert.match(html,/data-index-category="documents"/);assert.match(html,/Documents and Markdown/);assert.match(html,/Presentations and PowerPoint/);assert.match(html,/data-pref="hoverPreviewDelay"/);
+  assert.match(html,/data-preference-page="indexing"/);assert.match(html,/data-pref="indexAllFiles"/);assert.match(html,/data-index-category="images"/);assert.match(html,/data-index-category="documents"/);assert.match(html,/Documents, Markdown and subtitles/);assert.match(html,/Presentations and PowerPoint/);assert.match(html,/data-pref="hoverPreviewDelay"/);
   assert.match(renderer,/hoverPreviewDelay:250/);assert.match(renderer,/const scheduleStart=/);assert.match(renderer,/setTimeout\(\(\)=>\{startTimer=null;if\(pointerIsOverPreview\(\)\)start\(modifiers\);\},delay\)/);assert.match(renderer,/clearTimeout\(startTimer\);startTimer=null/);
   assert.match(main,/shouldIndexFile\(filePath,indexingPreferences\)/);assert.match(main,/preferences\.indexAllFiles===true/);assert.match(main,/previousPolicy!==nextPolicy/);assert.match(fileTypesSource,/DEFAULT_INDEX_CATEGORIES/);assert.match(fileTypesSource,/\.pptx/);assert.match(fileTypesSource,/\.markdown/);
 });
@@ -1377,7 +1377,7 @@ test('thumbnail magnifier dismisses on pointer departure or browsing scroll with
   assert.match(styles,/\.hover-fit-preview[^}]*pointer-events:none/);
   assert.match(hideBody,/activeMagnifierCard=null;cancelMagnifierDismiss\(\);clearTimeout\(hoverFitPreviewTimer\);hoverFitPreviewTimer=null/);
   assert.match(hideBody,/image\.onload=null;image\.removeAttribute\('src'\)/);
-  assert.match(openBody,/if\(activeMagnifierCard===card&&loaded&&delayDone\)hoverPreview\.classList\.remove\('hidden'\)/);
+  assert.match(openBody,/if\(activeMagnifierCard===card&&loaded&&delayDone\)\{hoverPreview\.classList\.remove\('hidden'\);renderMagnifierPrivacySurface\(\);/);
 });
 
 test('portfolio switches remain covered until filtered cards and visible thumbnails settle',()=>{

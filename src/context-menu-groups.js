@@ -1,6 +1,7 @@
 (()=>{
- window.PigeonContextMenuGroups={organize(menu){
+ window.PigeonContextMenuGroups={organize(menu,options={}){
   menu.classList.remove('asset-context-menu-expanded');
+  if(window.PigeonContextMenuLayouts?.apply(menu,options.profile,options.layouts))return;
   if(menu.querySelector(':scope > .context-action-group'))return;
   const buttons=[...menu.children].filter(node=>node.matches('button[data-context-action],button[data-folder-action],button[data-location-action],button[data-smart-action]'));
   if(buttons.length<8)return;

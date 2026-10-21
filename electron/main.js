@@ -7,8 +7,7 @@ const http = require('node:http');
 const crypto = require('node:crypto');
 const sharp = require('sharp');
 const libraryCore = require('./library-core');
-const { createSemanticService } = require('./semantic-service');
-const { semanticPriorityPlan } = require('./semantic-priority');
+const { createSemanticHost } = require('./semantic-host');
 let semanticService = null;
 const {createDatabaseTelemetry}=require('./database-telemetry');
 const {fingerprint:semanticFingerprint,admissible:semanticAdmissible,normalizeIdleMinutes}=require('./semantic-policy');
@@ -28,7 +27,7 @@ const { extractLightroomPreview } = require('./lightroom-preview');
 const {renderImageDerivative,outputFormat}=require('./image-derivative');
 const {enlargeImageWithAi}=require('./ai-enlarger');
 const {createEditedPreview}=require('./edited-preview');
-const {TEXT_PREVIEW_DOCUMENT_EXTENSIONS,createTextDocumentThumbnail}=require('./text-document-preview');
+const {TEXT_PREVIEW_DOCUMENT_EXTENSIONS,createTextDocumentThumbnail,decodeTextDocumentBuffer}=require('./text-document-preview');
 const { IMAGE_EXTENSIONS, RAW_IMAGE_EXTENSION_SET, HEIC_IMAGE_EXTENSION_SET, VIDEO_EXTENSIONS, AUDIO_EXTENSIONS, FONT_EXTENSIONS, DOCUMENT_EXTENSIONS, shouldIndexFile, dialogExtensions, indexingPolicySignature } = require('./file-types');
 const { execFile, spawn } = require('node:child_process');
 const { Worker } = require('node:worker_threads');
@@ -113,6 +112,7 @@ const backgroundHashWorkers = new Set();
 const activeScanJobs = new Set();
 let activeLibraryLoadJob = null;
 const workerTelemetry = new Map();
+const {sampleWorkerResources}=require('./worker-resource-telemetry');
 let backgroundEpoch = 0;
 const backgroundThreadManager=createBackgroundThreadManager({emit:(task)=>{if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('background:progress',task);}});
 let thumbnailGenerationScheduler=null,thumbnailWarmProgress=null,mainAssetIndex=new Map(),mainAssetIndexOwner=null;
@@ -203,12 +203,12 @@ function trackWorker(worker, type, detail = {}) {
   worker.on('messageerror',(error)=>{writeFatalDiagnostic(`worker:${type}:messageerror`,error,{id,threadId:worker.threadId});recordDiagnostic('error',`${type} worker message could not be deserialized`,error);});
   worker.once('exit', (code) => {const entry=workerTelemetry.get(id),successful=code===0||entry?.status==='cancelled'||Boolean(entry?.filesTotal&&entry.filesCompleted>=entry.filesTotal);workerTelemetry.delete(id);if(showProgress&&entry?.status!=='cancelled')reportBackgroundProgress(progressId,{label:successful?`${label} worker complete`:`${label} worker stopped`,detail:successful?'Background work finished':`Exit code ${code}`,completed:entry?.filesTotal||0,total:entry?.filesTotal||0,done:true,status:successful?'completed':'failed',pauseSupported:false});if(code!==0&&!successful&&!entry?.expectedExit&&!app.isQuitting)recordDiagnostic('error',`${type} worker exited unexpectedly`,{id,code});}); return workerTelemetry.get(id);
 }
-async function workerResourceTelemetry(entry) { try { const [cpuUsage, heap] = await Promise.all([typeof entry.worker.cpuUsage === 'function' ? entry.worker.cpuUsage(entry.lastCpuUsage).catch(() => null) : null, typeof entry.worker.getHeapStatistics === 'function' ? entry.worker.getHeapStatistics().catch(() => null) : null]); const elapsed = Math.max(1, Date.now() - (entry.lastSampleAt || entry.startedAt)); entry.lastSampleAt = Date.now(); if (cpuUsage) entry.lastCpuUsage = cpuUsage; return { cpu: cpuUsage ? Math.min(100, ((cpuUsage.user + cpuUsage.system) / 1000 / elapsed) * 100) : (entry.worker.performance?.eventLoopUtilization()?.utilization || 0) * 100, memoryBytes: heap?.usedHeapSize || entry.memoryBytes || 0 }; } catch { return { cpu: 0, memoryBytes: entry.memoryBytes || 0 }; } }
+async function workerResourceTelemetry(entry) { return sampleWorkerResources(entry); }
 async function telemetrySnapshot(options={}) {
   const metrics = app.getAppMetrics(), cpu = metrics.reduce((sum, item) => sum + (item.cpu?.percentCPUUsage || 0), 0), memoryBytes = metrics.reduce((sum, item) => sum + (item.memory?.workingSetSize || 0) * 1024, 0), gpuProcesses = metrics.filter((item) => String(item.type).toLowerCase().includes('gpu'));
-  const threads = await Promise.all([...workerTelemetry.values()].map(async (entry) => { const resource = await workerResourceTelemetry(entry); return { id: entry.id, threadId: entry.threadId, type: entry.type, portfolioId: entry.portfolioId, status: entry.status, startedAt: entry.startedAt, filesCompleted: entry.filesCompleted, filesTotal: entry.filesTotal, currentFile: entry.currentFile, batch: entry.batch, ...resource }; }));
+  const threads = await Promise.all([...workerTelemetry.values()].map(async (entry) => { const resource = await workerResourceTelemetry(entry); return { id: entry.id, threadId: entry.threadId, type: entry.type, portfolioId: entry.portfolioId, status: entry.type==='database'&&![...databaseRequests.values()].some(request=>request.worker===entry.worker)?'idle':entry.status, startedAt: entry.startedAt, filesCompleted: entry.filesCompleted, filesTotal: entry.filesTotal, currentFile: entry.currentFile, batch: entry.batch, ...resource }; }));
   const workerQueued=threads.reduce((sum,item)=>sum+Math.max(0,(Number(item.filesTotal)||0)-(Number(item.filesCompleted)||0)),0),rendererQueued=[...scanBroadcastQueues.values()].reduce((sum,queue)=>sum+queue.items.reduce((count,item)=>count+(item.assets?.length||0),0),0),queuedItems=workerQueued+rendererQueued+pdfWorkerWaiters.length+pendingProtocolUrls.length;
-  let databases=null;if(options?.databases){if(!databaseTelemetry)databaseTelemetry=createDatabaseTelemetry({getContext:()=>({portfolioId:activePortfolioId,databaseFile,thumbnailDir,portfolioDatabases:portfolios.map(portfolio=>portfolio.database||portfolioDatabasePath(portfolio.id)),getExcludedIds:()=>library.assets.filter(isAssetLocked).map(asset=>asset.id)})});databases=await databaseTelemetry.get({force:Boolean(options.refreshDatabases)});if(databases.portfolioId!==activePortfolioId)databases={portfolioId:activePortfolioId,unavailable:true};else{const scan=semanticService?.peekStatus();databases={...databases,scan:scan?.portfolioId===activePortfolioId?scan:null};}}
+  let databases=null;if(options?.databases){if(!databaseTelemetry)databaseTelemetry=createDatabaseTelemetry({getContext:()=>({portfolioId:activePortfolioId,databaseFile,thumbnailDir,accessKey:JSON.stringify([library.collections.map(item=>[item.id,item.parentId,Boolean(item.lock)]),Object.keys(library.settings?.folderLocks||{}),[...unlockedCollections.keys()],[...unlockedFolders.keys()]]),portfolioDatabases:portfolios.map(portfolio=>portfolio.database||portfolioDatabasePath(portfolio.id)),getExcludedIds:()=>library.assets.filter(isAssetLocked).map(asset=>asset.id)})});databases=await databaseTelemetry.get({force:Boolean(options.refreshDatabases)});if(databases.portfolioId!==activePortfolioId)databases={portfolioId:activePortfolioId,unavailable:true};else{const scan=semanticService?.peekStatus();databases={...databases,scan:scan?.portfolioId===activePortfolioId?scan:null};}}
   return { timestamp: Date.now(), databases, collective: { cpu, memoryBytes, gpuCpu: gpuProcesses.reduce((sum, item) => sum + (item.cpu?.percentCPUUsage || 0), 0), gpuMemoryBytes: gpuProcesses.reduce((sum, item) => sum + (item.memory?.workingSetSize || 0) * 1024, 0), filesCompleted: threads.reduce((sum, item) => sum + item.filesCompleted, 0), filesTotal: threads.reduce((sum, item) => sum + item.filesTotal, 0), queuedItems, activeRuns: [...backgroundRuns.values()].filter(backgroundRunActive).length, activeThreads: threads.length, logicalCpus: os.cpus().length, totalMemoryBytes: os.totalmem(), maxBackgroundThreads: MAX_BACKGROUND_THREADS, cpuLimit: INDEX_CPU_LIMIT, uptimeSeconds: process.uptime(), diagnosticErrors: diagnosticEntries.filter((entry)=>entry.level==='error').length }, threads, processes: metrics.map((item) => ({ pid: item.pid, type: item.type, cpu: item.cpu?.percentCPUUsage || 0, memoryBytes: (item.memory?.workingSetSize || 0) * 1024 })),thumbnailScheduler:thumbnailGenerationScheduler?.stats()||null,performanceSpans:performanceRecorder.snapshot() };
 }
 function foregroundWorkPending(){const stats=thumbnailGenerationScheduler?.stats();return Boolean((stats?.activeForeground||0)+(stats?.queuedForeground||0)||[...backgroundRuns.values()].some(run=>run.foreground&&backgroundRunActive(run)));}
@@ -299,14 +299,15 @@ function compatibilityStreamUrl(asset) { return `pigeon-asset://asset/${asset.id
 
 function publicAssetForRenderer(asset,location,locked=isAssetLocked(asset)){return{...lightweightAsset(asset),locked,previewUrl:previewUrlFor(asset,location),mediaUrl:mediaUrlFor(asset)};}
 function mutationVisibilityResult(changedAssets=[]){const assets=[],hiddenIds=[],locationsById=new Map(library.locations.map((location)=>[location.id,location]));for(const asset of changedAssets){if(isAssetLocked(asset)){hiddenIds.push(asset.id);rendererVisibleAssetIds.delete(asset.id);}else{assets.push(publicAssetForRenderer(asset,locationsById.get(asset.locationId),false));rendererVisibleAssetIds.add(asset.id);}}return{assets,hiddenIds};}
-function lockVisibilityResult(){const result=mutationVisibilityResult(library.assets.filter((asset)=>rendererVisibleAssetIds.has(asset.id)&&isAssetLocked(asset)));broadcastSidebar();return result;}
+function lockVisibilityResult(){semanticService?.refreshVisibility();const result=mutationVisibilityResult(library.assets.filter((asset)=>rendererVisibleAssetIds.has(asset.id)&&isAssetLocked(asset)));broadcastSidebar();return result;}
 function publicAssetDetails(asset){return asset?assetDetails(asset):null;}
 const scanBroadcastQueues=new Map();
 function broadcastScanAssets(location,assets,done=false){if(!mainWindow||mainWindow.isDestroyed()||!assets.length&&!done)return;const portfolioId=activePortfolioId,visibleAssets=assets.filter((asset)=>!isAssetLocked(asset)),key=`${portfolioId}:${location.id}`,queue=scanBroadcastQueues.get(key)||{portfolioId,items:[],running:false,timer:null,cancelled:false};for(let offset=0;offset<visibleAssets.length;offset+=100)queue.items.push({portfolioId,locationId:location.id,assets:visibleAssets.slice(offset,offset+100).map((asset)=>publicAssetForRenderer(asset,location)),done:false});if(done){if(queue.items.length)queue.items.at(-1).done=true;else queue.items.push({portfolioId,locationId:location.id,assets:[],done:true});}scanBroadcastQueues.set(key,queue);if(queue.running)return;queue.running=true;const drain=()=>{queue.timer=null;if(queue.cancelled||queue.portfolioId!==activePortfolioId){queue.items.length=0;queue.running=false;scanBroadcastQueues.delete(key);return;}const message=queue.items.shift();if(!message){queue.running=false;scanBroadcastQueues.delete(key);return;}if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('scan:assets',message);queue.timer=setTimeout(drain,16);};drain();}
-function broadcastSidebar(){if(!mainWindow||mainWindow.isDestroyed())return;mainWindow.webContents.send('sidebar:changed',{collections:publicCollections(),smartFolders:library.smartFolders,locations:visibleLocations(library.locations),portfolios:portfolios.map(({id,name})=>({id,name})),settings:{sidebarSort:library.settings?.sidebarSort||{},sidebarBranchSort:library.settings?.sidebarBranchSort||{},folderLocks:publicFolderLocks()},activePortfolioId});}
+function broadcastSidebar(){if(!mainWindow||mainWindow.isDestroyed())return;mainWindow.webContents.send('sidebar:changed',{collections:publicCollections(),smartFolders:library.smartFolders,locations:visibleLocations(library.locations),portfolios:portfolios.map(({id,name})=>({id,name})),settings:{sidebarLocationOrder:library.settings?.sidebarLocationOrder||[],sidebarSort:library.settings?.sidebarSort||{},sidebarBranchSort:library.settings?.sidebarBranchSort||{},folderLocks:publicFolderLocks()},activePortfolioId});}
 const pendingAssetPatches=new Map();let assetPatchTimer=null;
 function broadcastAssetPatches(patches=[]){if(!patches.length)return;const portfolioId=activePortfolioId;for(const patch of patches){const key=`${portfolioId}:${patch.id}`;pendingAssetPatches.set(key,{portfolioId,patch:{...(pendingAssetPatches.get(key)?.patch||{}),...patch}});}if(assetPatchTimer)return;const drain=()=>{assetPatchTimer=null;if(!mainWindow||mainWindow.isDestroyed()){pendingAssetPatches.clear();return;}const batch=[];let batchPortfolioId=null;for(const[key,entry]of pendingAssetPatches){if(batchPortfolioId===null)batchPortfolioId=entry.portfolioId;if(entry.portfolioId!==batchPortfolioId||batch.length>=250)continue;batch.push(entry.patch);pendingAssetPatches.delete(key);}if(batch.length&&batchPortfolioId===activePortfolioId)mainWindow.webContents.send('assets:patched',{portfolioId:batchPortfolioId,patches:batch});if(pendingAssetPatches.size)assetPatchTimer=setTimeout(drain,16);};assetPatchTimer=setTimeout(drain,0);}
 function broadcast() {
+  semanticService?.refreshContext();
   if (!mainWindow || mainWindow.isDestroyed()) return;
   const generationReason='full';
   if(activeVisibilityDelta)activeVisibilityDelta.cancelled=true;
@@ -330,6 +331,7 @@ function broadcast() {
   setImmediate(sendNextBatch);
 }
 function broadcastUnlockVisibilityDelta(generationReason){
+  semanticService?.refreshVisibility();
   if(!mainWindow||mainWindow.isDestroyed())return;
   broadcastSidebar();
   const token={cancelled:false,portfolioId:activePortfolioId,generation:libraryStreamGeneration,library,sourceIndex:0,batchCount:0,added:0,visibleIds:new Set(rendererVisibleAssetIds),locationsById:new Map(library.locations.map((location)=>[location.id,location])),span:performanceRecorder.start('visibility-delta',{portfolioId:activePortfolioId,portfolioSize:library.assets.length,generation:libraryStreamGeneration,generationReason})};
@@ -1394,7 +1396,7 @@ async function duplicateAsset(id) {
   duplicate.duplicateOf=source.id;
   duplicate.collectionIds=[...(source.collectionIds||[])];duplicate.tags=[...(source.tags||[])];duplicate.rating=source.rating||0;duplicate.rotation=source.rotation||0;duplicate.thumbnailEffect=Boolean(source.thumbnailEffect);applyConfiguredCollectionTags(duplicate);
   const previewCopied=await copyDuplicatePreview(source,duplicate);if(library!==owner)throw new Error(`Copy created at ${target}; the portfolio changed. Rescan its original folder to index it.`);const duplicatesCollection=owner.collections.find(collection=>String(collection.name).trim().toLowerCase()==='duplicates')||libraryCore.createCollection(owner,'Duplicates');if(isCollectionLocked(duplicatesCollection.id))throw new Error(`Copy created at ${target}, but the Duplicates collection was locked. Unlock it and rescan.`);duplicate.collectionIds=[...new Set([...duplicate.collectionIds,duplicatesCollection.id])];applyConfiguredCollectionTags(duplicate);library.assets.push(duplicate);mainAssetIndex.set(duplicate.id,duplicate);location.assetCount=(location.assetCount||0)+1;
-  scheduleAssetSave(duplicate);scheduleMetadataSave();broadcastSidebar();if(!previewCopied)schedulePortfolioBackground(warmThumbnailCache,0);
+  scheduleAssetSave(duplicate);scheduleMetadataSave();await flushDeltaPersistence();broadcastSidebar();if(!previewCopied)schedulePortfolioBackground(warmThumbnailCache,0);
   return publicAssetForRenderer(duplicate,location);
 }
 
@@ -2381,6 +2383,11 @@ ipcMain.handle('smart-folder:remove', (_event, id) => {
   const removed = libraryCore.removeSmartFolder(library, id); scheduleSave(); broadcastSidebar(); return removed;
 });
 const SIDEBAR_SORTS=new Set(['manual','name-asc','name-desc','updated-asc','updated-desc','created-asc','created-desc']);
+ipcMain.handle('sidebar:reorder-locations',async(_event,{sourceId,targetId,position,portfolioId})=>{
+  if(portfolioId!==activePortfolioId)throw new Error('The active portfolio changed. Try dragging the folder again.');
+  const order=require('../src/sidebar-location-order').move(library.locations,library.settings?.sidebarLocationOrder,sourceId,targetId,position);
+  library.settings={...(library.settings||{}),sidebarLocationOrder:order};scheduleMetadataSave();await flushDeltaPersistence();broadcastSidebar();return order;
+});
 ipcMain.handle('sidebar:set-sort',(_event,{type,sort})=>{if(!['collections','smartFolders','folders'].includes(type)||!SIDEBAR_SORTS.has(sort))throw new Error('Invalid sidebar sort');library.settings.sidebarSort={...(library.settings.sidebarSort||{}),[type]:sort};scheduleSave();broadcastSidebar();return sort;});
 ipcMain.handle('sidebar:set-branch-sort',(_event,{type,branch,sort})=>{if(!['collections','smartFolders','folders'].includes(type)||!SIDEBAR_SORTS.has(sort))throw new Error('Invalid branch sort');const key=`${type}:${String(branch??'root')}`;library.settings.sidebarBranchSort={...(library.settings.sidebarBranchSort||{}),[key]:sort};scheduleSave();broadcastSidebar();return sort;});
 ipcMain.on('hover-control:monitor',(_event,enabled)=>{if(enabled)startHoverControlMonitor();else stopHoverControlMonitor();});
@@ -2645,7 +2652,7 @@ ipcMain.handle('pigeon-collection:export',(_event,{scope,name})=>exportPigeonCol
 ipcMain.handle('pigeon-collection:open',async(_event,filePath='')=>{let target=String(filePath||'');if(!target){const result=await dialog.showOpenDialog(mainWindow,{title:'Open Pigeon Collection',properties:['openFile'],filters:[{name:'Pigeon Collection',extensions:['pigeon']}]});if(result.canceled||!result.filePaths[0])return null;target=result.filePaths[0];}return openPigeonCollection(target);});
 ipcMain.handle('pigeon-collection:import',(_event,{path:filePath,ids})=>importPigeonCollection(filePath,ids));
 ipcMain.handle('asset:export',async(_event,id)=>{const asset=library.assets.find((item)=>item.id===id&&!item.deletedAt);if(!asset||!(await pathAvailable(asset.path)))return null;const result=await dialog.showSaveDialog(mainWindow,{title:'Export file',defaultPath:asset.filename});if(result.canceled||!result.filePath)return null;const outcome=await copyExportAsset(asset,result.filePath,{});return outcome.copied?outcome.target:null;});
-ipcMain.handle('asset:read-text',async(_event,id)=>{const asset=library.assets.find((item)=>item.id===id&&!item.deletedAt),allowed=TEXT_PREVIEW_DOCUMENT_EXTENSIONS;if(!asset||!allowed.has(String(asset.extension).toUpperCase())||!(await pathAvailable(asset.path)))return null;const stat=await fsp.stat(asset.path);if(stat.size>8*1024*1024)throw new Error('Text reader supports files up to 8 MB');return{content:await fsp.readFile(asset.path,'utf8'),extension:String(asset.extension).toLowerCase(),filename:asset.filename};});
+ipcMain.handle('asset:read-text',async(_event,id)=>{const asset=library.assets.find((item)=>item.id===id&&!item.deletedAt),allowed=TEXT_PREVIEW_DOCUMENT_EXTENSIONS;if(!asset||isAssetLocked(asset)||!allowed.has(String(asset.extension).toUpperCase())||!(await pathAvailable(asset.path)))return null;const stat=await fsp.stat(asset.path);if(stat.size>8*1024*1024)throw new Error('Text reader supports files up to 8 MB');return{content:decodeTextDocumentBuffer(await fsp.readFile(asset.path)),extension:String(asset.extension).toLowerCase(),filename:asset.filename};});
 require('./combine-images').register({ipcMain,dialog,getLibrary:()=>library,getWindow:()=>mainWindow,isAssetLocked});
 ipcMain.handle('contact-sheet:export',async(event,payload)=>{const format=typeof payload==='string'?payload:payload?.format,extension=['pdf','jpeg','png','webp'].includes(String(format).toLowerCase())?String(format).toLowerCase():'pdf',result=await dialog.showSaveDialog(mainWindow,{title:'Export contact sheet',defaultPath:`contact-sheet.${extension}`,filters:[{name:extension.toUpperCase(),extensions:[extension]}]});if(result.canceled||!result.filePath)return null;if(extension==='pdf'){const pdf=await event.sender.printToPDF({printBackground:true,pageSize:'A4'});await fsp.writeFile(result.filePath,pdf);}else{const rect=payload?.rect&&Number.isFinite(payload.rect.width)?payload.rect:undefined,image=await event.sender.capturePage(rect),png=image.toPNG();if(extension==='png')await fsp.writeFile(result.filePath,png);else await sharp(png)[extension==='jpeg'?'jpeg':'webp']({quality:92}).toFile(result.filePath);}return result.filePath;});
 ipcMain.handle('extension:open-folder', () => shell.openPath(app.isPackaged ? path.join(process.resourcesPath, 'browser-extension') : path.join(process.cwd(), 'browser-extension')));
@@ -2692,13 +2699,13 @@ ipcMain.handle('asset:ensure-playable', async (_event, payload) => {
   return mediaUrlFor(asset);
 });
 function getSemanticService() {
-  if (!semanticService) semanticService = createSemanticService({
+  if (!semanticService) semanticService = createSemanticHost({
     userData: app.getPath('userData'), ffmpeg: ffmpegExecutable,
-    getContext: () => ({portfolioId:activePortfolioId,databaseFile,loading:library.loading}),
-    getLocations: () => library.locations, resolveScope: scope => semanticPriorityPlan(library,scope),
-    getAssets: () => library.assets.filter(asset=>!isAssetLocked(asset)&&!asset.encrypted),
-    getAllAssetIds: () => library.assets.map(asset=>asset.id),
-    getAsset: id => { const asset=mainAssetIndex.get(id)||library.assets.find(item=>item.id===id);return asset&&!isAssetLocked(asset)&&!asset.encrypted?asset:null; },
+    getContext: () => ({portfolioId:activePortfolioId,databaseFile,loading:library.loading,accessKey:JSON.stringify([library.collections.map(item=>[item.id,item.parentId,Boolean(item.lock)]),Object.keys(library.settings?.folderLocks||{}),[...unlockedCollections.keys()],[...unlockedFolders.keys()]])}),
+    getMetadata: () => ({locations:library.locations.map(({id,name,type,path})=>({id,name,type,path})),collections:library.collections.map(({id,name,parentId})=>({id,name,parentId})),smartFolders:library.smartFolders}),
+    getAssets: () => library.assets,
+    getAsset: id => mainAssetIndex.get(id),
+    isAvailable: asset => !isAssetLocked(asset)&&!asset.encrypted,
     isForegroundBusy: foregroundWorkPending,
     getIdleSeconds: () => { try { return powerMonitor.getSystemIdleTime(); } catch { return 0; } },
     getIdleMinutes: () => library.settings?.preferences?.semanticIdleMinutes??10,
@@ -2717,7 +2724,7 @@ async function semanticSampleForPath(filePath) {
 ipcMain.handle('semantic:status',()=>getSemanticService().getStatus());
 ipcMain.handle('semantic:setup',()=>getSemanticService().setup());
 ipcMain.handle('semantic:configure',(_event,input)=>getSemanticService().configure({automatic:input?.automatic,resourcePercent:input?.resourcePercent,pauseOnActivity:input?.pauseOnActivity}));
-ipcMain.handle('semantic:start',(_event,input={})=>getSemanticService().start({portfolioId:input?.portfolioId,priorityPlan:semanticPriorityPlan(library,input?.scope),forceActivity:input?.forceActivity===true}));
+ipcMain.handle('semantic:start',(_event,input={})=>getSemanticService().start({portfolioId:input?.portfolioId,scope:input?.scope,forceActivity:input?.forceActivity===true}));
 ipcMain.handle('semantic:pause',(_event,value)=>getSemanticService().pause(Boolean(value)));
 ipcMain.handle('semantic:continue',()=>getSemanticService().continueAnalysis());
 ipcMain.handle('semantic:choose-sample',async()=>{const result=await dialog.showOpenDialog(mainWindow,{title:'Choose a semantic search sample',properties:['openFile']});return result.canceled?null:{path:result.filePaths[0],name:path.basename(result.filePaths[0])};});
@@ -2864,7 +2871,9 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', () => {
+let semanticShutdownComplete=false;
+app.on('before-quit', (event) => {
+  if(semanticService&&!semanticShutdownComplete){event.preventDefault();app.isQuitting=true;semanticService.close().catch(error=>recordDiagnostic('warning','Semantic shutdown cleanup',error.message)).finally(()=>{semanticShutdownComplete=true;app.quit();});return;}
   app.isQuitting = true;
   for (const watcher of watchers.values()) watcher.close();
   for (const timer of portfolioBackgroundTimers) clearTimeout(timer);

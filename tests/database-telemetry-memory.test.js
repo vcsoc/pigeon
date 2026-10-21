@@ -1,0 +1,9 @@
+'use strict';
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path'),{Worker}=require('node:worker_threads'),{DatabaseSync}=require('node:sqlite'),{createLibraryStore}=require('../electron/database');
+test('database inventory streams large payloads within a bounded worker heap',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'pigeon-audit-memory-')),file=path.join(root,'library.db');let worker;
+ try{const store=createLibraryStore(file);store.close();const db=new DatabaseSync(file),statement=db.prepare('INSERT INTO assets(id,path,kind,payload) VALUES (?,?,?,?)'),extra='x'.repeat(32768);db.exec('BEGIN');for(let i=0;i<4000;i++){const asset={id:String(i),path:path.join(root,`file-${i}.png`),kind:'image',size:100,modified:1,tags:[],technicalMetadata:{unused:extra}};statement.run(asset.id,asset.path,asset.kind,JSON.stringify(asset));}db.exec('COMMIT');db.close();
+ worker=new Worker(path.resolve(__dirname,'../electron/database-telemetry-worker.js'),{workerData:{portfolioId:'memory-test',databaseFile:file,thumbnailDir:path.join(root,'cache'),portfolioDatabases:[file]},resourceLimits:{maxOldGenerationSizeMb:64}});
+ const result=await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Inventory timed out')),9000);worker.once('message',message=>{clearTimeout(timer);message.error?reject(Error(message.error)):resolve(message.result);});worker.once('error',error=>{clearTimeout(timer);reject(error);});worker.once('exit',code=>{clearTimeout(timer);if(code)reject(Error('Inventory worker exited: '+code));});});assert.equal(result.main.items,4000);assert.equal(result.main.typeCounts.image,4000);assert.equal(result.semantic.eligible,4000);assert.deepEqual(result.errors,[]);
+ }finally{await worker?.terminate();fs.rmSync(root,{recursive:true,force:true});}
+});

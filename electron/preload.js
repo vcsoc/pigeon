@@ -74,6 +74,7 @@ contextBridge.exposeInMainWorld('pigeon', {
   movePhysicalFolder: (sourceLocationId, sourceSubfolder, destinationLocationId, destinationParentSubfolder = '', name = null) => ipcRenderer.invoke('folder:move-physical', { sourceLocationId, sourceSubfolder, destinationLocationId, destinationParentSubfolder, name }),
   renameCollection: (id, name) => ipcRenderer.invoke('collection:rename', { id, name }),
   moveCollection: (id, parentId, placement) => ipcRenderer.invoke('collection:move', { id, parentId, ...(placement?{placement}:{}) }),
+  reorderLocations: (sourceId,targetId,position,portfolioId) => ipcRenderer.invoke('sidebar:reorder-locations',{sourceId,targetId,position,portfolioId}),
   reorderSidebarItems: (type, parentId, orderedIds) => ipcRenderer.invoke('sidebar:reorder-items', { type, parentId, orderedIds }),
   setSidebarSort: (type, sort) => ipcRenderer.invoke('sidebar:set-sort', { type, sort }),
   setSidebarBranchSort: (type, branch, sort) => ipcRenderer.invoke('sidebar:set-branch-sort', { type, branch, sort }),

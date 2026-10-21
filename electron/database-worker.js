@@ -5,7 +5,8 @@ const { writeSemanticMetadata } = require('./semantic-metadata');
 
 const store = createLibraryStore(workerData.databaseFile);
 parentPort.on('message', ({ id, action, library, target }) => {
-  const serializationStartedAt=performance.now();JSON.stringify(library??null);const serializationMs=performance.now()-serializationStartedAt,startedAt=performance.now();
+  // Structured cloning already delivered the request; do not stringify a second full snapshot just to time it.
+  const serializationMs=0,startedAt=performance.now();
   try {
     let changedRecords=0;
     if (action === 'save') {store.save(library);changedRecords=Array.isArray(library?.assets)?library.assets.length:0;}

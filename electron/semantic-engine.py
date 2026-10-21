@@ -30,7 +30,7 @@ for name,definition in [('content_fingerprint',"TEXT DEFAULT ''"),('metadata',"T
 DB.execute("DELETE FROM vectors WHERE asset_id IN (SELECT id FROM assets WHERE version != ?)",(MODEL_VERSION,))
 DB.execute("DELETE FROM assets WHERE version != ?",(MODEL_VERSION,)); DB.commit()
 FFMPEG = os.environ.get('PIGEON_SEMANTIC_FFMPEG','ffmpeg')
-TEXT_EXT = set('txt md markdown json jsonc yaml yml csv tsv xml html htm css js cjs mjs ts tsx jsx py sh bash lua conf ini toml log rst sql c cpp h hpp rs go java rb php swift kt tex srt vtt'.split())
+TEXT_EXT = set('txt md markdown json jsonc yaml yml csv tsv xml html htm css js cjs mjs ts tsx jsx py sh bash lua conf ini toml log rst sql c cpp h hpp rs go java rb php swift kt tex srt vtt ass ssa sbv smi sami ttml dfxp lrc scc sub idx'.split())
 def reply(value):
     sys.stdout.write(json.dumps(value,ensure_ascii=False,allow_nan=False,separators=(',',':'))+'\n');sys.stdout.flush()
 def load_model():
