@@ -24,7 +24,7 @@ for line in sys.stdin:
  else:value=info
  print(json.dumps({'id':r['id'],'result':value}),flush=True)
 `,{mode:0o755});
- await fs.writeFile(path.join(fixture.profile,'semantic-runtime.json'),JSON.stringify({python}));await fs.writeFile(path.join(fixture.profile,'library.db.semantic-settings.json'),JSON.stringify({automatic:false}));let app;
+ await fs.writeFile(path.join(fixture.profile,'semantic-plugin.json'),JSON.stringify({enabled:true}));await fs.writeFile(path.join(fixture.profile,'semantic-runtime.json'),JSON.stringify({python}));await fs.writeFile(path.join(fixture.profile,'library.db.semantic-settings.json'),JSON.stringify({automatic:false}));let app;
  try{
   app=await launch(fixture.profile,report);await app.wait("document.querySelector('#startup-splash').classList.contains('hidden')&&!state.library.assetStreamPending");
   const initial=await app.evaluate('window.pigeon.semanticStatus()');assert.equal(initial.total,10);

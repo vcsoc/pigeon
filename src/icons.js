@@ -29,6 +29,7 @@
     upload:'<path d="M12 16V3m-5 5 5-5 5 5M4 14v7h16v-7"/>', download:'<path d="M12 3v13m-5-5 5 5 5-5M4 19v2h16v-2"/>',
     link:'<path d="M10 13a5 5 0 0 0 7.5.5l2-2a5 5 0 0 0-7-7l-1.2 1.2M14 11a5 5 0 0 0-7.5-.5l-2 2a5 5 0 0 0 7 7l1.2-1.2"/>',
     filter:'<path d="M3 4h18l-7 8v7l-4 2v-9z"/>', menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',
+    'context-menu':'<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M7 8h7M7 12h4M7 16h7m3-9 2 1-2 1m0 6 2 1-2 1"/>',
     eye:'<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
     back:'<path d="m15 5-7 7 7 7"/>', forward:'<path d="m9 5 7 7-7 7"/>',
     layout:'<rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="5" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="10" width="8" height="11" rx="1"/>',

@@ -1,0 +1,3 @@
+'use strict';
+const test=require('node:test'),assert=require('node:assert/strict');const {describe}=require('../src/semantic-analysis-status');
+test('disabled semantic plugin guides opt-in rather than offering a misleading resume',()=>{const status=describe({state:'disabled',pluginEnabled:false,paused:true,total:100,detail:'Models are kept.'});assert.equal(status.kind,'disabled');assert.match(status.title,/plugin disabled/);assert.match(status.hint,/Plugin Manager/);assert.doesNotMatch(status.hint,/Continue/);assert.equal(status.barLabel,'Plugin disabled');assert.match(status.countLabel,/checkpoints.*retained/);assert.equal(status.busy,false);});

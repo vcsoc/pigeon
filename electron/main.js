@@ -7,7 +7,7 @@ const http = require('node:http');
 const crypto = require('node:crypto');
 const sharp = require('sharp');
 const libraryCore = require('./library-core');
-const { createSemanticHost } = require('./semantic-host');
+const { createSemanticPlugin } = require('./semantic-plugin');
 let semanticService = null;
 const {createDatabaseTelemetry}=require('./database-telemetry');
 const {fingerprint:semanticFingerprint,admissible:semanticAdmissible,normalizeIdleMinutes}=require('./semantic-policy');
@@ -417,7 +417,7 @@ function sendDatabaseRequest(action,snapshot,target=null) { if (!databaseWorker)
 function sendDatabaseSave(snapshot){ return sendDatabaseRequest('save',snapshot); }
 function persistScanBatch(location,assets){ return sendDatabaseRequest('save-batch',{location:location?{...location,scanning:false,checking:false}:null,assets}); }
 function notifySemanticChanges(assets){try{semanticService?.assetsChanged(assets);}catch(error){recordDiagnostic('warning','Semantic update notification failed',error);}}
-function semanticMutationTarget(assets){return semanticService?{semanticRecords:assets.filter(asset=>semanticAdmissible(asset)&&!isAssetLocked(asset)).map(asset=>({fingerprint:semanticFingerprint(asset),asset:semanticService.assetRecord(asset)}))}:null;}
+function semanticMutationTarget(assets){return semanticService?.isEnabled()?{semanticRecords:assets.filter(asset=>semanticAdmissible(asset)&&!isAssetLocked(asset)).map(asset=>({fingerprint:semanticFingerprint(asset),asset:semanticService.assetRecord(asset)}))}:null;}
 function persistAssetBatch(assets){notifySemanticChanges(assets);return sendDatabaseRequest('upsert-assets',{assets},semanticMutationTarget(assets));}
 function persistLibrary(snapshot = library) {
   pendingDatabaseSnapshot = snapshot; if(databaseSaveInFlight) return databaseSaveInFlight;
@@ -2656,17 +2656,19 @@ ipcMain.handle('asset:read-text',async(_event,id)=>{const asset=library.assets.f
 require('./combine-images').register({ipcMain,dialog,getLibrary:()=>library,getWindow:()=>mainWindow,isAssetLocked});
 ipcMain.handle('contact-sheet:export',async(event,payload)=>{const format=typeof payload==='string'?payload:payload?.format,extension=['pdf','jpeg','png','webp'].includes(String(format).toLowerCase())?String(format).toLowerCase():'pdf',result=await dialog.showSaveDialog(mainWindow,{title:'Export contact sheet',defaultPath:`contact-sheet.${extension}`,filters:[{name:extension.toUpperCase(),extensions:[extension]}]});if(result.canceled||!result.filePath)return null;if(extension==='pdf'){const pdf=await event.sender.printToPDF({printBackground:true,pageSize:'A4'});await fsp.writeFile(result.filePath,pdf);}else{const rect=payload?.rect&&Number.isFinite(payload.rect.width)?payload.rect:undefined,image=await event.sender.capturePage(rect),png=image.toPNG();if(extension==='png')await fsp.writeFile(result.filePath,png);else await sharp(png)[extension==='jpeg'?'jpeg':'webp']({quality:92}).toFile(result.filePath);}return result.filePath;});
 ipcMain.handle('extension:open-folder', () => shell.openPath(app.isPackaged ? path.join(process.resourcesPath, 'browser-extension') : path.join(process.cwd(), 'browser-extension')));
-ipcMain.handle('plugins:list',()=>pluginManager.list());
-ipcMain.handle('plugins:install',(_event,id)=>pluginManager.install(id));
-ipcMain.handle('plugins:setup',(_event,id)=>pluginManager.setup(id));
-ipcMain.handle('plugins:prepare',(_event,id)=>pluginManager.prepare(id));
-ipcMain.handle('plugins:cancel-setup',(_event,id)=>pluginManager.cancelSetup(id));
+async function listManagedPlugins(){return [...await pluginManager.list(),getSemanticService().descriptor()];}
+async function updateManagedPlugins(operation){await operation;return listManagedPlugins();}
+ipcMain.handle('plugins:list',()=>listManagedPlugins());
+ipcMain.handle('plugins:install',(_event,id)=>updateManagedPlugins(pluginManager.install(id)));
+ipcMain.handle('plugins:setup',async(_event,id)=>{if(id!=='local-semantic')return updateManagedPlugins(pluginManager.setup(id));await getSemanticService().setup();return listManagedPlugins();});
+ipcMain.handle('plugins:prepare',(_event,id)=>updateManagedPlugins(pluginManager.prepare(id)));
+ipcMain.handle('plugins:cancel-setup',(_event,id)=>updateManagedPlugins(id==='local-semantic'?getSemanticService().setEnabled(false):pluginManager.cancelSetup(id)));
 ipcMain.handle('plugins:health',(_event,id)=>pluginManager.health(id,{attempts:2}));
-ipcMain.handle('plugins:remove-model',(_event,id)=>pluginManager.removeModel(id));
-ipcMain.handle('plugins:import-model',async(_event,id)=>{const result=await dialog.showOpenDialog(mainWindow,{title:'Import Simple LaMa ONNX model',properties:['openFile'],filters:[{name:'ONNX model',extensions:['onnx']}]});return result.canceled||!result.filePaths[0]?pluginManager.list():pluginManager.importModel(id,result.filePaths[0]);});
-ipcMain.handle('plugins:uninstall',(_event,id)=>pluginManager.uninstall(id));
-ipcMain.handle('plugins:set-enabled',(_event,{id,enabled})=>pluginManager.setEnabled(id,enabled));
-ipcMain.handle('plugins:configure',(_event,{id,config})=>pluginManager.configure(id,config));
+ipcMain.handle('plugins:remove-model',(_event,id)=>updateManagedPlugins(pluginManager.removeModel(id)));
+ipcMain.handle('plugins:import-model',async(_event,id)=>{const result=await dialog.showOpenDialog(mainWindow,{title:'Import Simple LaMa ONNX model',properties:['openFile'],filters:[{name:'ONNX model',extensions:['onnx']}]});return result.canceled||!result.filePaths[0]?listManagedPlugins():updateManagedPlugins(pluginManager.importModel(id,result.filePaths[0]));});
+ipcMain.handle('plugins:uninstall',(_event,id)=>updateManagedPlugins(pluginManager.uninstall(id)));
+ipcMain.handle('plugins:set-enabled',async(_event,{id,enabled})=>{if(id!=='local-semantic')return updateManagedPlugins(pluginManager.setEnabled(id,enabled));await getSemanticService().setEnabled(enabled);return listManagedPlugins();});
+ipcMain.handle('plugins:configure',(_event,{id,config})=>updateManagedPlugins(pluginManager.configure(id,config)));
 ipcMain.handle('plugins:open-folder', async (_event,id=null) => { const target=id?path.join(pluginsDir,path.basename(id)):pluginsDir;await fsp.mkdir(target,{recursive:true});return shell.openPath(target); });
 ipcMain.handle('plugins:run', (_event, name) => runPlugin(name));
 ipcMain.handle('asset:update', (_event, { id, patch }) => {
@@ -2699,7 +2701,7 @@ ipcMain.handle('asset:ensure-playable', async (_event, payload) => {
   return mediaUrlFor(asset);
 });
 function getSemanticService() {
-  if (!semanticService) semanticService = createSemanticHost({
+  if (!semanticService) semanticService = createSemanticPlugin({
     userData: app.getPath('userData'), ffmpeg: ffmpegExecutable,
     getContext: () => ({portfolioId:activePortfolioId,databaseFile,loading:library.loading,accessKey:JSON.stringify([library.collections.map(item=>[item.id,item.parentId,Boolean(item.lock)]),Object.keys(library.settings?.folderLocks||{}),[...unlockedCollections.keys()],[...unlockedFolders.keys()]])}),
     getMetadata: () => ({locations:library.locations.map(({id,name,type,path})=>({id,name,type,path})),collections:library.collections.map(({id,name,parentId})=>({id,name,parentId})),smartFolders:library.smartFolders}),

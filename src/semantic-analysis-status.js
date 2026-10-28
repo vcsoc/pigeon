@@ -10,7 +10,7 @@
     const completed=Math.min(total,count(status.completed??(count(status.indexed)+count(status.limited))));
     const percent=total?Math.round(completed/total*100):0;
     let kind=status.state||'unavailable';
-    if(kind!=='error'&&kind!=='setup'&&status.paused)kind='paused';
+    if(kind!=='disabled'&&kind!=='error'&&kind!=='setup'&&status.paused)kind='paused';
     else if(starting&&['idle','unavailable'].includes(kind))kind='starting';
     else if(['indexing','waiting'].includes(kind)){
       if(status.waitReason==='foreground')kind='foreground';
@@ -19,6 +19,7 @@
     }
     let title,detail=status.detail||'',hint='';
     switch(kind){
+      case 'disabled':title='Local semantic plugin disabled';hint='Enable Local Semantic Search in Plugin Manager. Existing models and analysis checkpoints are retained.';break;
       case 'starting':title='Starting analysis…';detail='Your request was received. Checking the local engine before analyzing this scope.';break;
       case 'setup':
         title=/download.*(?:embedding|model)/i.test(detail)?'Downloading the local embedding model…':'Preparing the local engine…';
@@ -46,8 +47,8 @@
       current:showCurrent&&(names||status.current)?'Current: '+(names||status.current):'',
       scope:status.currentScope?'Scope: '+status.currentScope+(status.analysisPhase==='subfolders'?' (subfolders)':''):'',
       queue:Array.isArray(status.queuedScopes)&&status.queuedScopes.length?'Queued next: '+status.queuedScopes.join(' → '):'',
-      barLabel:indeterminate?title:kind==='foreground'||kind==='activity'||kind==='waiting'||kind==='paused'||kind==='error'?`${percent}% saved · ${title}`:`${percent}% · ${completed.toLocaleString()} / ${total.toLocaleString()} files`,
-      countLabel:total?`${completed.toLocaleString()} / ${total.toLocaleString()} files analyzed${status.limited?` · ${count(status.limited).toLocaleString()} with content limits`:''}`:kind==='idle'?'No eligible files':'File count will appear when analysis starts'
+      barLabel:kind==='disabled'?'Plugin disabled':indeterminate?title:kind==='foreground'||kind==='activity'||kind==='waiting'||kind==='paused'||kind==='error'?`${percent}% saved · ${title}`:`${percent}% · ${completed.toLocaleString()} / ${total.toLocaleString()} files`,
+      countLabel:kind==='disabled'?'Saved models and checkpoints are retained':total?`${completed.toLocaleString()} / ${total.toLocaleString()} files analyzed${status.limited?` · ${count(status.limited).toLocaleString()} with content limits`:''}`:kind==='idle'?'No eligible files':'File count will appear when analysis starts'
     };
   }
   return{describe};

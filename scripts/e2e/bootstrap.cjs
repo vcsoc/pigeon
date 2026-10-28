@@ -29,6 +29,7 @@ fs.writeFileSync(
 );
 if (process.env.PIGEON_E2E_HEADLESS === "1") {
   app.on("browser-window-created", (_event, window) => {
+    if(process.env.PIGEON_E2E_FOREGROUND_TIMING==='1')window.webContents.setBackgroundThrottling(false);
     window.once("ready-to-show", () => window.setSize(1440, 1000));
   });
 }
