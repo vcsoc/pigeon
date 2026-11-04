@@ -37,7 +37,7 @@ Custom rules run in order and evaluate the item's existing metadata. Generated o
 
 ## Fixed folder/collection tags are separate
 
-Existing **Set/Edit Auto-Tag…** actions assign fixed tags to a physical folder subtree or collection. They are not generated metadata rules and remain enabled independently. Existing tag rename/replacement operations continue to manage those assignments. They do not rewrite literal values in custom generation-rule conditions or templates.
+Existing **Set/Edit Auto-Tag…** actions assign tags to a physical folder subtree or collection. Folder tags can include `[[folder]]` or `[[folder-0]]` for each item's containing folder, `[[folder-1]]` for its parent, and `[[folder-2]]` for its grandparent. Higher numbered ancestors also work, and placeholders can be combined with text. A tag is skipped if a requested ancestor does not exist. Rules apply to existing and future items, including items in subfolders. These assignments are not generated metadata rules and remain enabled independently. Existing tag rename/replacement operations continue to manage those assignments. They do not rewrite literal values in custom generation-rule conditions or templates.
 
 ## Context menus
 

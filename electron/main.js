@@ -691,9 +691,21 @@ function assetMatchesFolder(asset, location, subfolder = '') {
   const relative = normalizedSubfolder(path.relative(location.path, asset.path)).toLowerCase();
   return relative !== '..' && !relative.startsWith('../') && relative.startsWith(`${folder}/`);
 }
+function expandFolderTags(tags, filePath) {
+  const folders = path.dirname(filePath).split(path.sep).filter(Boolean).reverse();
+  return tags.map((tag) => {
+    let missing = false;
+    const value = String(tag).replace(/\[\[folder(?:-(\d+))?\]\]/gi, (_match, depth) => {
+      const folder = folders[Number(depth || 0)];
+      if (!folder || /^[A-Za-z]:$/.test(folder)) missing = true;
+      return folder || '';
+    });
+    return missing ? '' : value.trim();
+  }).filter(Boolean);
+}
 function configuredFolderTags(location, filePath) {
   const rules = Object.values(library.settings?.folderAutoTags || {}), candidate = { locationId: location.id, path: filePath };
-  return [...new Set(rules.filter((rule) => rule.locationId === location.id && assetMatchesFolder(candidate, location, rule.subfolder)).flatMap((rule) => rule.tags || []))];
+  return [...new Set(rules.filter((rule) => rule.locationId === location.id && assetMatchesFolder(candidate, location, rule.subfolder)).flatMap((rule) => expandFolderTags(rule.tags || [], filePath)))];
 }
 function collectionDescendants(collectionId) {
   const ids = new Set([collectionId]); let changed = true;
@@ -2415,7 +2427,7 @@ ipcMain.handle('folder:set-auto-tags', (_event, { locationId, subfolder = '', ta
   const key = folderRuleKey(locationId, folder), normalizedTags = canonicalTags(tags);
   if (normalizedTags.length) library.settings.folderAutoTags[key] = { locationId, subfolder: folder, tags: normalizedTags, updatedAt: Date.now() };
   else delete library.settings.folderAutoTags[key];
-  if(normalizedTags.length)applyTagsInBackground((asset)=>assetMatchesFolder(asset,location,folder),()=>normalizedTags,'Applying folder Auto-Tag');scheduleSave();broadcastSidebar();return{locationId,subfolder:folder,tags:normalizedTags,pending:Boolean(normalizedTags.length)};
+  if(normalizedTags.length)applyTagsInBackground((asset)=>assetMatchesFolder(asset,location,folder),(asset)=>expandFolderTags(normalizedTags,asset.path),'Applying folder Auto-Tag');scheduleSave();broadcastSidebar();return{locationId,subfolder:folder,tags:normalizedTags,pending:Boolean(normalizedTags.length)};
 });
 ipcMain.handle('assets:batch-update', (_event, { ids, operation, options = {} }) => {
   if(options.async&&operation.addTags){const selected=new Set(ids);applyTagsInBackground((asset)=>selected.has(asset.id),()=>operation.addTags,'Applying tags');return selected.size;}
