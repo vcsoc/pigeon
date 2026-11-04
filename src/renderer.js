@@ -1429,6 +1429,26 @@ function paintActiveNavigation(){
   $$('.nav-item.active,.collection-item.active,.smart-folder-item.active,.location-folder-item.active,.location-root-button.active').forEach((item)=>{item.classList.remove('active');item.setAttribute('aria-selected','false');});paintPhysicalFolderSelection();
   let target;if(state.collectionId)target=document.querySelector(`[data-collection-id="${CSS.escape(state.collectionId)}"]`);else if(state.smartFolderId)target=document.querySelector(`[data-smart-folder-id="${CSS.escape(state.smartFolderId)}"]`);else if(state.locationId){const row=elements.locationList.querySelector(`.location-item[data-location-id="${CSS.escape(state.locationId)}"]`);target=state.locationSubfolder?row?.querySelector(`[data-subfolder="${CSS.escape(encodeURIComponent(state.locationSubfolder))}"]`):row?.querySelector('.location-root-button');}else target=document.querySelector(`.nav-item[data-view="${CSS.escape(state.view)}"]`);target?.classList.add('active');target?.setAttribute('aria-selected','true');
 }
+function revealCurrentSidebarItem(){
+  let section,keys=[],target;
+  if(state.collectionId||state.smartFolderId){
+    const collections=Boolean(state.collectionId),items=collections?state.library.collections:state.library.smartFolders,id=state.collectionId||state.smartFolderId,key=collections?collectionCollapseKey:smartFolderCollapseKey;
+    section=collections?'collections':'smart-folders';const seen=new Set([id]);let item=(items||[]).find(value=>value.id===id);
+    while(item?.parentId&&!seen.has(item.parentId)){seen.add(item.parentId);keys.push(key(item.parentId));item=(items||[]).find(value=>value.id===item.parentId);}
+  }else if(state.locationId){
+    section='indexed-locations';const parts=String(state.locationSubfolder||'').split('/').filter(Boolean);if(parts.length){keys.push(locationCollapseKey(state.locationId));for(let i=1;i<parts.length;i++)keys.push(locationCollapseKey(state.locationId,parts.slice(0,i).join('/')));}
+  }else return;
+  const content=$(`#sidebar-section-${section}`);if(!content||content.classList.contains('preference-hidden'))return;
+  const shell=$('.app-shell');if(shell.classList.contains('sidebar-collapsed')){const anchor=captureVirtualLayoutAnchor();shell.classList.remove('sidebar-collapsed');scheduleVirtualLayoutRefresh(anchor);}
+  if(content.classList.contains('collapsed'))setSidebarSectionExpanded(section,true);
+  if(keys.length)setFolderCollapseStates(keys,false);
+  renderSidebar(false);
+  if(state.collectionId)target=document.querySelector(`#collection-list [data-collection-id="${CSS.escape(state.collectionId)}"]`);
+  else if(state.smartFolderId)target=document.querySelector(`#smart-folder-list [data-smart-folder-id="${CSS.escape(state.smartFolderId)}"]`);
+  else {const row=elements.locationList.querySelector(`.location-item[data-location-id="${CSS.escape(state.locationId)}"]`);target=state.locationSubfolder?row?.querySelector(`[data-subfolder="${CSS.escape(encodeURIComponent(state.locationSubfolder))}"]`):row?.querySelector('.location-root-button');}
+  const scroll=$('#sidebar-tree-scroll');if(!target||!scroll||target.hidden)return;
+  const rect=target.getBoundingClientRect(),viewport=scroll.getBoundingClientRect();scroll.scrollTop+=rect.top+rect.height/2-(viewport.top+viewport.height/2);
+}
 function renderNavigationDestination({waitUntilReady=false}={}){
   saveNavigationState({allowPending:true});
   if(!elements.annotationView.classList.contains('hidden')||elements.grid.inert)closeAnnotationEditor({render:false});
