@@ -16,7 +16,8 @@
     // not a condition, even in "any" mode; null checks intentionally need no value.
     const active=(filters.rules||[]).filter((rule)=>rule&&(['null','not-null'].includes(rule.operator)||ruleValues(rule).length));
     if(!active.length)return true;
-    return filters.ruleMatch==='any'?active.some((rule)=>evaluator(asset,rule)):active.every((rule)=>evaluator(asset,rule));
+    const matched=filters.ruleMatch==='any'?active.some((rule)=>evaluator(asset,rule)):active.every((rule)=>evaluator(asset,rule));
+    return filters.ruleAction==='exclude'?!matched:matched;
   }
   return{resolve,matches,matchesResolved,dependsOnField,ruleValues,matchesRuleValues,matchesRules};
 });

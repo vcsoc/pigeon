@@ -1,0 +1,11 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os'),{createFixtures}=require('./fixtures.cjs'),{launch}=require('./driver.cjs'),{createLibraryStore}=require('../../electron/database');process.env.PIGEON_E2E_HEADLESS='1';
+(async()=>{const count=Number(process.argv[2])||32,root=await fs.mkdtemp(path.join(os.tmpdir(),'pigeon-privacy-membership-')),fixture=await createFixtures(root,{count,coldCount:0}),report=path.join(root,'report');await fs.mkdir(report);const store=createLibraryStore(path.join(fixture.profile,'library.db')),library=store.load(),filters={ruleMatch:'all',rules:[{field:'privacyEffect',operator:'equals',value:'false'}]};library.settings.builtinSmartFolders={all:{filters}};library.smartFolders.push({id:'privacy-filter',name:'Privacy filter',filters});store.save(library);store.close();let app;
+try{app=await launch(fixture.profile,report);await app.wait("document.querySelector('#startup-splash').classList.contains('hidden')&&!state.library.assetStreamPending");
+for(const type of ['all','smart']){
+ await app.evaluate(type==='all'?"selectView('all','All')":"selectSmartFolder('privacy-filter')");await app.wait("state.library.assets.length<1000||Boolean(cooperativeAssetView?.ready&&cooperativeAssetView.signature===assetViewSignature())",15000);await app.wait("Boolean(elements.grid.querySelector('.asset-card'))");
+ const result=await app.evaluate(`(()=>{const card=elements.grid.querySelector('.asset-card'),id=card.dataset.assetId;state.selectedId=id;state.selectedIds=new Set([id]);const before=currentViewIndices().length;window.__privacySave=toggleThumbnailEffect();return {id,before,after:currentViewIndices().length,visible:!!elements.grid.querySelector('[data-asset-id="'+CSS.escape(id)+'"]'),effect:assetById(id).thumbnailEffect};})()`);
+ assert.equal(result.effect,true,JSON.stringify(result));assert.equal(result.visible,false,JSON.stringify(result));assert.equal(result.after,result.before-1,JSON.stringify(result));await app.evaluate('window.__privacySave');if(type==='all')await app.wait(`Number(document.querySelector('#all-count').textContent)===${result.after}`,15000);console.log(type,JSON.stringify(result));
+ }
+ assert.deepEqual(app.errors,[]);
+}finally{await app?.close();}})().catch(error=>{console.error(error);process.exitCode=1;});

@@ -37,7 +37,6 @@ test('removed multi-selection advances to a centered surviving thumbnail', () =>
 test('rename, privacy, trash, and automatic tags use the Smart Folder delta path', () => {
   const sources = [
     between('async function renameAssetFile', 'function beginInlineFilenameRename'),
-    between('async function toggleThumbnailEffect', 'async function toggleQuickCheck'),
     between('async function setAssetTrashWithoutGridRefresh', 'async function handleDeleteSelection'),
     between('function applyTagsToMatchingAssetsAsync', 'function runAutoTagOptimistically'),
     between('function runAutoTagOptimistically', 'function applyTagsToAssetsOptimistically'),
@@ -46,4 +45,7 @@ test('rename, privacy, trash, and automatic tags use the Smart Folder delta path
     assert.match(source, /applyMetadataViewDelta\(/);
     assert.doesNotMatch(source, /renderGrid\(/);
   }
+  const privacy=between('async function toggleThumbnailEffect','async function toggleQuickCheck');
+  assert.match(privacy,/applyMetadataViewDelta\(/);
+  assert.match(privacy,/===false\)\{invalidateAssetViewCache\(\);renderGrid\(\{preserveCards:true\}\);\}/);
 });

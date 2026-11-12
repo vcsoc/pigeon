@@ -1,0 +1,11 @@
+(function(root){
+  'use strict';
+  function apply(cache,locations,changes){
+    const roots=new Map((locations||[]).map(location=>[location.id,String(location.path||'').replace(/\\/g,'/').replace(/\/$/,'')||'/'])),deltas=new Map();
+    const collect=(asset,amount)=>{if(!asset?.locationId||!asset.path)return;const root=roots.get(asset.locationId),file=String(asset.path).replace(/\\/g,'/');const prefix=root==='/'?'/':`${root}/`;if(!root||!file.toLowerCase().startsWith(prefix.toLowerCase()))return;const parts=file.slice(prefix.length).split('/').slice(0,-1).filter(Boolean);for(let index=0;index<parts.length;index++){const path=parts.slice(0,index+1).join('/'),key=`${asset.locationId}\n${path.toLowerCase()}`,entry=deltas.get(key)||{locationId:asset.locationId,path,count:0,directCount:0};entry.count+=amount;if(index===parts.length-1)entry.directCount+=amount;deltas.set(key,entry);}};
+    for(const change of changes||[]){collect(change.before,-1);collect(change.after,1);}
+    const byLocation=new Map();for(const delta of deltas.values()){if(!delta.count&&!delta.directCount)continue;const tree=cache.get(delta.locationId);if(!tree)continue;if(!byLocation.has(tree))byLocation.set(tree,new Map(tree.folders.map(folder=>[folder.path.toLowerCase(),folder])));const folders=byLocation.get(tree),key=delta.path.toLowerCase();let folder=folders.get(key);if(!folder){if(delta.count<=0)continue;const parts=delta.path.split('/');folder={path:delta.path,name:parts.at(-1),depth:parts.length-1,count:0,directCount:0,hasChildren:false};tree.folders.push(folder);folders.set(key,folder);}folder.count=Math.max(0,(Number(folder.count)||0)+delta.count);folder.directCount=Math.max(0,(Number(folder.directCount)||0)+delta.directCount);}
+    for(const [tree,folders] of byLocation){for(const folder of tree.folders){const parent=folder.path.split('/').slice(0,-1).join('/').toLowerCase();if(parent&&folders.has(parent))folders.get(parent).hasChildren=true;}tree.folders.sort((a,b)=>a.path.localeCompare(b.path,undefined,{numeric:true,sensitivity:'base'}));tree.totalFolders=tree.visibleFolders=tree.folders.length;}
+  }
+  const api={apply};if(typeof module==='object'&&module.exports)module.exports=api;else root.PigeonFolderTreeCounts=api;
+})(typeof window==='object'?window:globalThis);
