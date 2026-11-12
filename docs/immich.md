@@ -1,0 +1,7 @@
+# Immich integration
+
+Open Preferences > Immich, enter the server URL and your Immich email and password, enable Immich, and choose **Save and Connect**. Pigeon validates the connection before saving it. Passwords are protected by the operating system's secure storage; on Linux Pigeon can also use the Secret Service keyring. No password or access token is stored in the library or included in the URL. HTTP connections are not encrypted in transit: use HTTPS where possible.
+
+The Immich collection is the default view when the integration is enabled. Its Annual branch contains a year for each image year and twelve month collections per year. Images are grouped by the local date provided by Immich, and previews and originals are requested from Immich rather than treated as local files. The account can only see images and tags that Immich permits it to access.
+
+Pigeon imports server tags and refreshes the library at startup and every five minutes. Use **Sync Now** for an immediate refresh. Tags added to an Immich image in Pigeon are sent to Immich; if the server is unavailable, Pigeon retains the local tag and retries. Tag removal in Pigeon does not delete a tag in Immich. Disabling the connection does not delete files or images on the server. Immich originals are not local files, so Pigeon actions that require a local file, such as moving or editing the source in an external application, are not supported for these references.

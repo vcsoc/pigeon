@@ -16,7 +16,7 @@ function systemCpuDelta(previous, current) {
 }
 function contentFingerprint(asset){return JSON.stringify([asset.path,asset.size,asset.modified,asset.contentHash||'',asset.editedPath||'',asset.editedAt||0,asset.editedPreviewPath||'',asset.proxyPath||'',asset.thumbnailPath||'']);}
 function fingerprint(asset) {return JSON.stringify([contentFingerprint(asset),asset.name||asset.filename,asset.note||'',asset.tags||[]]);}
-function admissible(asset) {return Boolean(asset?.id&&asset.path&&!asset.deletedAt&&!asset.sourceMissing&&!asset.sourcePending&&!asset.locked&&!asset.encrypted);}
+function admissible(asset) {return Boolean(asset?.id&&asset.path&&!asset.immichRemoteId&&!asset.deletedAt&&!asset.sourceMissing&&!asset.sourcePending&&!asset.locked&&!asset.encrypted);}
 // Cache paths and a first hash do not change the source; losing a known hash does.
 function contentFingerprintsMatch(current,stored){if(current===stored)return Boolean(current);try{const a=JSON.parse(current),b=JSON.parse(stored);return Array.isArray(a)&&Array.isArray(b)&&a.length===9&&b.length===9&&[0,1,2,4,5,6].every(index=>a[index]===b[index])&&(!b[3]||a[3]===b[3]);}catch{return false;}}
 function fingerprintsMatch(current,stored){if(current===stored)return true;try{const unpack=value=>{const item=JSON.parse(value);if(!Array.isArray(item))return null;if(item.length===4)return{content:item[0],metadata:item.slice(1)};if(item.length===9)return{content:JSON.stringify([...item.slice(0,4),'',0,'',...item.slice(7,9)]),metadata:item.slice(4,7)};return null;},a=unpack(current),b=unpack(stored);return Boolean(a&&b&&contentFingerprintsMatch(a.content,b.content)&&JSON.stringify(a.metadata)===JSON.stringify(b.metadata));}catch{return false;}}

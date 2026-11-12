@@ -5,6 +5,7 @@ release-rebuild/
 .pi/history/
 .pi-build/
 .obsidian/
+.immich
 NUL
 pigeon-smoke.png
 pigeon-tree-smoke.png

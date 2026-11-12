@@ -1,4 +1,8 @@
-const { app, BrowserWindow, dialog, ipcMain, protocol, shell, clipboard, desktopCapturer, crashReporter, utilityProcess, screen, nativeImage, net, powerMonitor } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, protocol, shell, clipboard, desktopCapturer, crashReporter, utilityProcess, screen, nativeImage, net, powerMonitor, safeStorage } = require('electron');
+const {createImmichService}=require('./immich-service');
+const {applyImmichSnapshot}=require('./immich-library');
+let immichService=null,immichSyncInFlight=null,immichTagTimer=null;
+const pendingImmichTagIds=new Set();
 const {createObservability}=require('./observability');
 const observability=createObservability({version:app.getVersion(),disabled:process.argv.includes('--smoke-test')||Boolean(process.env.PIGEON_E2E_PROFILE)});
 const fsp = require('node:fs/promises');
@@ -421,13 +425,13 @@ function sendDatabaseSave(snapshot){ return sendDatabaseRequest('save',snapshot)
 function persistScanBatch(location,assets){ return sendDatabaseRequest('save-batch',{location:location?{...location,scanning:false,checking:false}:null,assets}); }
 function notifySemanticChanges(assets){try{semanticService?.assetsChanged(assets);}catch(error){recordDiagnostic('warning','Semantic update notification failed',error);}}
 function semanticMutationTarget(assets){return semanticService?.isEnabled()?{semanticRecords:assets.filter(asset=>semanticAdmissible(asset)&&!isAssetLocked(asset)).map(asset=>({fingerprint:semanticFingerprint(asset),asset:semanticService.assetRecord(asset)}))}:null;}
-function persistAssetBatch(assets){notifySemanticChanges(assets);return sendDatabaseRequest('upsert-assets',{assets},semanticMutationTarget(assets));}
+function persistAssetBatch(assets){notifySemanticChanges(assets);queueImmichTagSync(assets);return sendDatabaseRequest('upsert-assets',{assets},semanticMutationTarget(assets));}
 function persistLibrary(snapshot = library) {
   pendingDatabaseSnapshot = snapshot; if(databaseSaveInFlight) return databaseSaveInFlight;
   databaseSaveInFlight=(async()=>{ while(pendingDatabaseSnapshot){ const next=pendingDatabaseSnapshot; pendingDatabaseSnapshot=null; await sendDatabaseSave(next); } })().finally(()=>{databaseSaveInFlight=null;}); return databaseSaveInFlight;
 }
 function libraryMetadataSnapshot(){const{assets,...metadata}=library;return metadata;}
-function scheduleAssetSave(assets){notifySemanticChanges(assets);for(const asset of Array.isArray(assets)?assets:[assets])if(asset?.id)pendingAssetSaves.set(asset.id,asset);scheduleDeltaFlush();}
+function scheduleAssetSave(assets){notifySemanticChanges(assets);const items=Array.isArray(assets)?assets:[assets];for(const asset of items)if(asset?.id)pendingAssetSaves.set(asset.id,asset);queueImmichTagSync(items);scheduleDeltaFlush();}
 function scheduleMetadataSave(){pendingMetadataSave=true;scheduleDeltaFlush();}
 function scheduleDeltaFlush(delay=60){clearTimeout(deltaSaveTimer);deltaSaveTimer=setTimeout(()=>{deltaSaveTimer=null;flushDeltaPersistence().catch(()=>{});},delay);}
 async function flushDeltaPersistence(){if(deltaSaveInFlight)return deltaSaveInFlight;deltaSaveInFlight=(async()=>{while(pendingAssetSaves.size||pendingMetadataSave){const assets=[];for(const[id,asset]of pendingAssetSaves){pendingAssetSaves.delete(id);assets.push(asset);if(assets.length>=250)break;}const metadata=pendingMetadataSave?libraryMetadataSnapshot():null;pendingMetadataSave=false;try{if(assets.length)await sendDatabaseRequest('upsert-assets',{assets},semanticMutationTarget(assets));if(metadata)await sendDatabaseRequest('save-library-metadata',metadata);if(pendingAssetSaves.size)await new Promise((resolve)=>setImmediate(resolve));}catch(error){for(const asset of assets)if(!pendingAssetSaves.has(asset.id))pendingAssetSaves.set(asset.id,asset);if(metadata)pendingMetadataSave=true;recordDiagnostic('error','Could not save incremental SQLite changes',error);scheduleDeltaFlush(500);throw error;}}})().finally(()=>{deltaSaveInFlight=null;});return deltaSaveInFlight;}
@@ -435,6 +439,17 @@ async function acquirePdfWorkerSlot(){ if(activePdfWorkers>=PDF_WORKER_LIMIT) aw
 function releasePdfWorkerSlot(){ activePdfWorkers=Math.max(0,activePdfWorkers-1); pdfWorkerWaiters.shift()?.(); }
 function scheduleSave() {
   scheduleMetadataSave();clearTimeout(saveTimer);saveTimer=setTimeout(async()=>{try{await flushDeltaPersistence();if(Date.now()-lastBackupAt>60*60*1000)await writeBackup();}catch{}},scanWorkActive()?2000:120);
+}
+
+function queueImmichTagSync(assets=[]){
+  for(const asset of assets)if(asset?.immichRemoteId&&!asset.sourceMissing){const known=new Set((asset.immichSyncedTags||[]).map(tag=>tag.toLowerCase()));if((asset.tags||[]).some(tag=>!known.has(tag.toLowerCase())))pendingImmichTagIds.add(asset.id);}
+  if(immichTagTimer||!pendingImmichTagIds.size||!immichService?.publicConfig().enabled)return;
+  immichTagTimer=setTimeout(async()=>{immichTagTimer=null;const id=pendingImmichTagIds.values().next().value;pendingImmichTagIds.delete(id);const asset=mainAssetIndex.get(id),owner=library;if(asset&&!asset.sourceMissing&&asset.immichAccountKey===immichService.accountKey()){const known=new Set((asset.immichSyncedTags||[]).map(tag=>tag.toLowerCase())),additions=(asset.tags||[]).filter(tag=>!known.has(tag.toLowerCase()));if(additions.length){try{await immichService.pushTags(asset,additions);if(library===owner&&mainAssetIndex.get(id)===asset){asset.immichSyncedTags=[...new Set([...(asset.immichSyncedTags||[]),...additions])];scheduleAssetSave(asset);}}catch(error){pendingImmichTagIds.add(id);recordDiagnostic('warning','Immich tag synchronization failed',error.message);if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('immich:tag-sync-error',{message:error.message});immichTagTimer=setTimeout(()=>{immichTagTimer=null;queueImmichTagSync([]);},30000);immichTagTimer.unref?.();}}}queueImmichTagSync([]);},100);immichTagTimer.unref?.();
+}
+async function syncImmichLibrary(){
+  if(immichSyncInFlight)return immichSyncInFlight;
+  const owner=library,portfolioId=activePortfolioId;
+  immichSyncInFlight=(async()=>{if(owner.loading)throw new Error('Wait for the portfolio to finish loading.');if(owner.loadError)throw new Error('The portfolio failed to load; Immich synchronization was not started.');const snapshot=await immichService.snapshot();if(library!==owner||activePortfolioId!==portfolioId||snapshot.accountKey!==immichService.accountKey())throw new Error('The portfolio or Immich account changed during synchronization.');const result=applyImmichSnapshot(owner,{...snapshot,cacheRoot:path.join(app.getPath('userData'),'immich-cache',snapshot.accountKey)});for(const asset of result.changed)mainAssetIndex.set(asset.id,asset);if(result.changed.length)await persistAssetBatch(result.changed);if(result.changed.length||result.metadataChanged){scheduleSave();broadcast();}queueImmichTagSync(owner.assets.filter(asset=>asset.immichAccountKey===snapshot.accountKey));return result;})().finally(()=>{immichSyncInFlight=null;});return immichSyncInFlight;
 }
 
 function portfolioDatabasePath(id) { return id === 'default' ? path.join(app.getPath('userData'), 'library.db') : path.join(app.getPath('userData'), 'portfolios', `${id}.db`); }
@@ -497,14 +512,14 @@ async function loadLibraryInWorker() {
       if (smokeTest) console.log('[smoke] library worker returned');
       if(activeLibraryLoadJob!==job||portfolioId!==activePortfolioId||targetDatabaseFile!==databaseFile||targetLibrary!==library){job.cancel();return;}
       if (result.library && Array.isArray(result.library.locations) && Array.isArray(result.library.assets)) {
-        const adoptStarted=performance.now();library={...result.library,loading:false};for(const location of library.locations){location.scanning=false;location.checking=false;location.rescanRequested=false;}const pathRepair=deduplicateAssetsByPath(library);if(pathRepair.changed){recordDiagnostic('warning','Collapsed duplicate file references from overlapping folders',{duplicatesRemoved:pathRepair.duplicatesRemoved});await persistLibrary(library);}performanceRecorder.record('main-library-adopt',{portfolioId:activePortfolioId,portfolioSize:library.assets.length,durationMs:performance.now()-adoptStarted});
+        const adoptStarted=performance.now();library={...result.library,loading:false};library.settings.immichEnabled=Boolean(immichService?.publicConfig().enabled);for(const location of library.locations){location.scanning=false;location.checking=false;location.rescanRequested=false;}const pathRepair=deduplicateAssetsByPath(library);if(pathRepair.changed){recordDiagnostic('warning','Collapsed duplicate file references from overlapping folders',{duplicatesRemoved:pathRepair.duplicatesRemoved});await persistLibrary(library);}performanceRecorder.record('main-library-adopt',{portfolioId:activePortfolioId,portfolioSize:library.assets.length,durationMs:performance.now()-adoptStarted});
         const indexStarted=performance.now();mainAssetIndex=new Map();mainAssetIndexOwner=library;for(let index=0;index<library.assets.length;index+=2000){for(const asset of library.assets.slice(index,index+2000))mainAssetIndex.set(asset.id,asset);if(index+2000<library.assets.length)await new Promise((next)=>setImmediate(next));if(activeLibraryLoadJob!==job||portfolioId!==activePortfolioId){job.cancel();return;}}performanceRecorder.record('main-asset-index',{portfolioId:activePortfolioId,portfolioSize:library.assets.length,durationMs:performance.now()-indexStarted});if(!(await reconcileConfiguredCollectionTagsCooperatively())){job.cancel();return;}
       } else if (!result.error) library = { ...libraryCore.migrateLibrary({}), loading: false };
       else {
         library = { ...libraryCore.migrateLibrary({}), loading: false, loadError: result.error.message || null };
         console.error('Could not load SQLite library:', result.error);
       }
-      for(const span of result.performance||[])performanceRecorder.record(span.name,{...span,portfolioId:activePortfolioId,portfolioSize:library.assets.length});const memory=process.memoryUsage();performanceRecorder.end(loadSpan,{portfolioSize:library.assets.length,heapUsedMb:memory.heapUsed/1024/1024,rssMb:memory.rss/1024/1024});finish();
+      for(const span of result.performance||[])performanceRecorder.record(span.name,{...span,portfolioId:activePortfolioId,portfolioSize:library.assets.length});const memory=process.memoryUsage();performanceRecorder.end(loadSpan,{portfolioSize:library.assets.length,heapUsedMb:memory.heapUsed/1024/1024,rssMb:memory.rss/1024/1024});finish();if(immichService?.publicConfig().enabled&&!library.loadError)schedulePortfolioBackground(()=>syncImmichLibrary().catch(error=>recordDiagnostic('warning','Immich synchronization failed',error.message)),1000);
     });
     worker.once('error', (error) => {
       if(settled)return;
@@ -1031,7 +1046,7 @@ async function warmCompatibilityVideoCache() {
 }
 
 function thumbnailWorkRequired(asset) {
-  if (asset.linkedYouTube || asset.permissionDenied) return false;
+  if (asset.immichRemoteId || asset.linkedYouTube || asset.permissionDenied) return false;
   const extension=path.extname(asset.path).toLowerCase(),heic=HEIC_IMAGE_EXTENSION_SET.has(extension),motion=asset.kind==='video'||ANIMATED_IMAGE_EXTENSIONS.has(extension),rawProxyRequired=rawCameraProxyRequired(asset,extension,RAW_IMAGE_EXTENSION_SET);
   if (asset.thumbnailFailedAt && asset.thumbnailFailedModified === asset.modified && !(asset.extension==='PDF'&&asset.thumbnailFailureVersion!==PDF_PREVIEW_VERSION) && !(heic&&asset.thumbnailFailureVersion!==HEIC_PREVIEW_VERSION) && !(motion&&asset.thumbnailFailureVersion!==MOTION_PREVIEW_VERSION)) return false;
   if (asset.kind === 'video') return !asset.thumbnailPath || !asset.width || !asset.height || !asset.duration;
@@ -1213,6 +1228,7 @@ async function registerProtocol() {
       } catch { return new Response('', { status: 403 }); }
     }
     if (isAssetLocked(asset)) return new Response('', { status: 403 });
+    if(asset.immichRemoteId){try{const image=await immichService.image(asset,wantsOriginal);return new Response(image.body,{headers:{'content-type':image.contentType,'content-length':String(image.body.length),'cache-control':'private, max-age=300'}});}catch{return new Response('',{status:503});}}
     if(!wantsOriginal)repairVisibleAlphaPreview(asset);
     let editedPreviewReady=false;if(!wantsOriginal&&wantsEdited&&asset.editedPath){editedPreviewReady=Boolean(asset.editedPreviewPath&&await pathAvailable(asset.editedPreviewPath));if(!editedPreviewReady)ensureEditedPreview(asset).catch((error)=>recordDiagnostic('warning','Edited preview generation failed',{id:asset.id,error:error.message}));}
     const wantsEditorBase=wantsOriginal&&requestUrl.searchParams.get('editorBase')==='1';let baseSource=null;if(wantsEditorBase){try{if(!editorBasePath(asset))return new Response('',{status:404});baseSource=await layeredEditorSource(asset);}catch{return new Response('',{status:404});}}
@@ -2019,6 +2035,9 @@ function createWindow() {
 }
 
 const registerIpcHandler=ipcMain.handle.bind(ipcMain);
+registerIpcHandler('immich:status',()=>immichService?.publicConfig()||{enabled:false,serverUrl:'',email:'',hasPassword:false});
+registerIpcHandler('immich:configure',async(event,options)=>{if(event.sender!==mainWindow?.webContents)return{ok:false,message:'Request rejected.'};try{const settings=await immichService.configure(options);if(!settings.enabled){library.settings.immichEnabled=false;scheduleSave();broadcast();return{ok:true,settings};}const result=await syncImmichLibrary();return{ok:true,settings,rootId:result.root,count:result.count};}catch(error){return{ok:false,message:error.message||'Immich connection failed.'};}});
+registerIpcHandler('immich:sync',async(event)=>{if(event.sender!==mainWindow?.webContents)return{ok:false,message:'Request rejected.'};try{const result=await syncImmichLibrary();return{ok:true,rootId:result.root,count:result.count};}catch(error){return{ok:false,message:error.message||'Immich synchronization failed.'};}});
 ipcMain.handle=(channel,handler)=>registerIpcHandler(channel,(event,...args)=>observability.run(channel,async()=>{try{return await handler(event,...args);}catch(error){const context={channel,senderId:event?.sender?.id,args:args.map((value)=>diagnosticValue(value).slice(0,2000))};writeFatalDiagnostic('ipc:handler',error,context);recordDiagnostic('error',`Unhandled IPC exception in ${channel}`,{error:diagnosticValue(error),...context});throw error;}}));
 ipcMain.on('diagnostics:fatal',(_event,payload)=>{writeFatalDiagnostic(payload?.source||'preload',payload?.message||'Unknown fatal error',payload?.context||'');recordDiagnostic('error',payload?.message||'Preload exception',payload?.context||'');});
 ipcMain.on('file-conflict:resolve',(event,payload={})=>{if(event.sender!==mainWindow?.webContents)return;pendingFileConflictPrompts.get(String(payload.requestId||''))?.finish(payload.decision,Boolean(payload.applyToAll));});
@@ -2836,6 +2855,8 @@ app.on('open-file',(event,filePath)=>{event.preventDefault();queuePigeonCollecti
 
 app.whenReady().then(async () => {
   initializeStoragePaths();
+  immichService=createImmichService({safeStorage,userData:app.getPath('userData')});await immichService.load().catch(error=>recordDiagnostic('warning','Could not load Immich settings',error.message));
+  const immichRefreshTimer=setInterval(()=>{if(immichService.publicConfig().enabled&&!library.loading&&!library.loadError)syncImmichLibrary().catch(error=>recordDiagnostic('warning','Immich synchronization failed',error.message));},5*60*1000);immichRefreshTimer.unref?.();
   pluginManager=createPluginManager({pluginsDir,bundledDir:path.join(app.getAppPath(),'electron','plugin-examples')});
   pluginManager.restoreEnabled().catch((error)=>recordDiagnostic('error','Plugin startup failed',error));
   if (!smokeTest) await loadPortfolioRegistry();

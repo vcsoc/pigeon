@@ -8,6 +8,10 @@ window.addEventListener('DOMContentLoaded',()=>{const target=document.getElement
 
 contextBridge.exposeInMainWorld('pigeon', {
   getLibrary: () => ipcRenderer.invoke('library:get'),
+  immichStatus: () => ipcRenderer.invoke('immich:status'),
+  immichConfigure: options => ipcRenderer.invoke('immich:configure', options),
+  immichSync: () => ipcRenderer.invoke('immich:sync'),
+  onImmichTagSyncError: callback => { const handler=(_event,payload)=>callback(payload);ipcRenderer.on('immich:tag-sync-error',handler);return()=>ipcRenderer.removeListener('immich:tag-sync-error',handler); },
   semanticStatus: () => ipcRenderer.invoke('semantic:status'),
   semanticSetup: () => ipcRenderer.invoke('semantic:setup'),
   semanticConfigure: input => ipcRenderer.invoke('semantic:configure', input),

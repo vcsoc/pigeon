@@ -1,0 +1,7 @@
+'use strict';
+const {spawn}=require('node:child_process');
+function command(args,input){return new Promise((resolve,reject)=>{let child;try{child=spawn('secret-tool',args,{stdio:['pipe','pipe','ignore']});}catch{return reject(new Error('System keyring is unavailable.'));}const chunks=[];let size=0,settled=false;const finish=(error,value)=>{if(settled)return;settled=true;clearTimeout(timer);error?reject(error):resolve(value);},timer=setTimeout(()=>{child.kill();finish(new Error('System keyring timed out.'));},4000);child.on('error',()=>finish(new Error('System keyring is unavailable.')));child.stdout.on('data',chunk=>{size+=chunk.length;if(size>65536){child.kill();finish(new Error('System keyring returned invalid credentials.'));}else chunks.push(chunk);});child.on('close',code=>code===0?finish(null,Buffer.concat(chunks).toString('utf8').replace(/\n$/,'')):finish(new Error('System keyring is unavailable or locked.')));child.stdin.on('error',()=>{});child.stdin.end(input||'');});}
+function attrs(id){if(!/^[0-9a-f]{64}$/.test(id))throw new Error('Invalid keyring identifier.');return['application','pigeon','service','immich','account',id];}
+async function store(id,password){await command(['store','--label=Pigeon Immich',...attrs(id)],password);}
+async function lookup(id){const value=await command(['lookup',...attrs(id)]);if(!value)throw new Error('Immich credentials are missing from the system keyring.');return value;}
+module.exports={store,lookup};
