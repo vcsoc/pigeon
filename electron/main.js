@@ -2541,6 +2541,7 @@ ipcMain.handle('trash:empty', async (_event, request = {}) => {
 });
 ipcMain.handle('library:import-url',async(_event,payload)=>typeof payload==='string'?importUrlWithThread(payload):importUrlWithThread(payload?.url,payload?.options));
 ipcMain.handle('clipboard:write-text', (_event, value) => { clipboard.writeText(String(value || '').slice(0, 32768)); return true; });
+ipcMain.handle('clipboard:read-text', event => { if(event.sender!==mainWindow?.webContents)throw new Error('Clipboard request rejected.');return clipboard.readText().slice(0,32768); });
 ipcMain.handle('clipboard:copy-assets',async(_event,ids=[])=>{const paths=[...new Set(ids.map((id)=>library.assets.find((asset)=>asset.id===id)).filter((asset)=>asset&&!asset.sourceMissing&&!asset.sourcePending).map((asset)=>asset.path))];if(!paths.length)return{copied:0};if(process.platform==='win32'){const encoded=Buffer.from(JSON.stringify(paths),'utf8').toString('base64'),script=`Add-Type -AssemblyName System.Windows.Forms; $paths=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encoded}'))|ConvertFrom-Json; $files=New-Object System.Collections.Specialized.StringCollection; foreach($p in $paths){[void]$files.Add([string]$p)}; [Windows.Forms.Clipboard]::SetFileDropList($files)`;await withTimeout(new Promise((resolve,reject)=>execFile('powershell.exe',['-NoProfile','-STA','-NonInteractive','-Command',script],{windowsHide:true},(error)=>error?reject(error):resolve())),8000,'Clipboard copy timed out');}else{clipboard.writeText(paths.join('\n'));}return{copied:paths.length};});
 ipcMain.handle('clipboard:paste-assets',async()=>{let paths=[];if(process.platform==='win32'){const script="Add-Type -AssemblyName System.Windows.Forms; if([Windows.Forms.Clipboard]::ContainsFileDropList()){[Windows.Forms.Clipboard]::GetFileDropList()|ConvertTo-Json -Compress}";const output=await execFileText('powershell.exe',['-NoProfile','-STA','-NonInteractive','-Command',script],8000);if(output)try{const parsed=JSON.parse(output);paths=Array.isArray(parsed)?parsed:[parsed];}catch{}}if(paths.length)return importDroppedFiles(paths);const image=clipboard.readImage();if(!image.isEmpty()){const temporary=path.join(app.getPath('temp'),`pigeon-clipboard-${Date.now()}.png`);await fsp.writeFile(temporary,image.toPNG());try{return await importDroppedFiles([temporary]);}finally{await fsp.rm(temporary,{force:true});}}return{imported:0,path:null};});
 ipcMain.handle('library:import-clipboard', async () => {
@@ -2824,7 +2825,7 @@ ipcMain.handle('window:toggle-always-on-top', () => {
   mainWindow.setAlwaysOnTop(pinned);
   return pinned;
 });
-ipcMain.handle('window:close', () => mainWindow?.close());
+ipcMain.handle('window:close', (event) => BrowserWindow.fromWebContents(event.sender)?.close());
 ipcMain.on('app:quit', (event) => { if(event.sender===mainWindow?.webContents)app.quit(); });
 
 async function handleProtocolUrl(value) {
@@ -2853,6 +2854,16 @@ app.on('second-instance', (_event, argv) => {
 app.on('open-url', (event, value) => { event.preventDefault(); pendingProtocolUrls.push(value); });
 app.on('open-file',(event,filePath)=>{event.preventDefault();queuePigeonCollection(filePath);});
 
+require('./portfolio-manager').installPortfolioManager({
+  app, BrowserWindow, ipcMain, getMainWindow: () => mainWindow,
+  listPortfolios: () => portfolios.map(p => ({...p, database:p.database || portfolioDatabasePath(p.id)})),
+  getActivePortfolioId: () => activePortfolioId, notify: () => broadcastSidebar()
+});
+require('./immich-transfers').installImmichTransfers({
+  registerIpcHandler, authorizedSender: event => event.sender === mainWindow?.webContents,
+  getOwner: autoImportOwner, isOwnerActive: autoImportOwnerActive, getService: () => immichService,
+  isAssetLocked, indexFile: indexAutoImportFile, saveAssets: persistAssetBatch, broadcast
+});
 app.whenReady().then(async () => {
   initializeStoragePaths();
   immichService=createImmichService({safeStorage,userData:app.getPath('userData')});await immichService.load().catch(error=>recordDiagnostic('warning','Could not load Immich settings',error.message));

@@ -39,7 +39,8 @@ function createImmichClient({serverUrl,apiKey,accessToken,fetchImpl=fetch,timeou
   async function assetInfo(assetId){const asset=await request(`/assets/${validId(assetId)}`);if(!asset?.id)throw new Error('Immich returned invalid asset details.');return asset;}
   async function thumbnail(assetId){return request(`/assets/${validId(assetId)}/thumbnail?size=preview`,{binary:true});}
   async function original(assetId){return request(`/assets/${validId(assetId)}/original`,{binary:true,maxBytes:256*1024*1024});}
-  return Object.freeze({serverUrl:base,listImages,listTags,upsertTags,addExistingTag,assetInfo,thumbnail,original});
+  const transfers=require('./immich-transfer-http').createTransferClient({base,authorization,fetchImpl});
+  return Object.freeze({serverUrl:base,listImages,listTags,upsertTags,addExistingTag,assetInfo,thumbnail,original,uploadVerified:transfers.upload,downloadVerified:transfers.download});
 }
 async function loginImmich({serverUrl,email,password,fetchImpl=fetch,timeoutMs=DEFAULT_TIMEOUT_MS}={}){
   const base=normalizeServerUrl(serverUrl),user=String(email||'').trim(),secret=String(password||'');if(!user||!secret)throw new Error('Immich email and password are required.');

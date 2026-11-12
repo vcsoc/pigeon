@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost"><title>Portfolio Manager</title><link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="portfolio-manager.css"><script src="portfolio-manager-theme.js"></script><script src="icons.js"></script></head>
+<body>
+  <aside class="portfolios-sidebar">
+    <header><div class="manager-brand"><img src="../pigeon-logo.png" alt=""><span class="eyebrow">PIGEON</span></div><h1>Portfolio Manager</h1><p>Independent libraries for your references.</p></header>
+    <label class="search"><span>Find a portfolio</span><input id="portfolio-search" type="search" placeholder="Search portfolios" autocomplete="off"></label>
+    <nav id="portfolio-list" aria-label="Portfolios"></nav>
+    <footer><button id="create-portfolio" class="primary">+ New portfolio</button><button id="add-existing">Add existing portfolio...</button><small id="edition">Pigeon</small></footer>
+  </aside>
+  <main>
+    <header class="detail-header"><div><span class="eyebrow">PORTFOLIO OVERVIEW</span><h2 id="portfolio-name">Portfolio overview</h2><p id="portfolio-state">Choose a portfolio to explore.</p></div><div class="header-actions"><button id="refresh" title="Refresh statistics">Refresh</button><button id="close-manager" title="Close portfolio manager">Close</button></div></header>
+    <p id="manager-status" role="status" aria-live="polite"></p>
+    <section id="portfolio-detail" aria-busy="false">
+      <div class="metrics"><article><span>Indexed files</span><strong id="file-count">--</strong></article><article><span>Referenced size</span><strong id="total-size">--</strong></article><article><span>Source locations</span><strong id="source-count">--</strong></article><article><span>Collections</span><strong id="collection-count">--</strong></article></div>
+      <section class="chart-card activity-card"><header><div><span class="eyebrow">LIBRARY ACTIVITY</span><h3>Indexing activity</h3><p>Files added to the index each day, in UTC.</p></div><label>Year <select id="activity-year" aria-label="Activity year"></select></label></header><div id="heatmap" class="heatmap" role="img" aria-label="Daily indexing activity"></div><footer><span id="activity-summary">No dated activity yet</span><span class="heatmap-key">Less <i></i><i></i><i></i><i></i><i></i> More</span></footer></section>
+      <section class="chart-card type-card"><header><div><span class="eyebrow">FILE TYPES</span><h3>Files by type</h3><p>File counts, not storage usage.</p></div></header><div class="type-layout"><div id="type-pie" class="type-pie" role="img" aria-label="File count by type"><div><strong id="pie-count">0</strong><span>files</span></div></div><table><caption class="sr-only">File counts by type</caption><thead><tr><th>Type</th><th>Files</th><th>Share</th></tr></thead><tbody id="type-legend"></tbody></table></div><p id="privacy-note" class="privacy-note">Trash is excluded. Source files remain where they are.</p></section>
+      <footer class="portfolio-actions"><div><button id="rename-portfolio">Rename</button><button id="remove-portfolio" class="danger">Remove...</button></div><button id="open-portfolio" class="primary">Open portfolio</button></footer>
+    </section>
+  </main>
+  <dialog id="portfolio-prompt"><form method="dialog"><span class="eyebrow">PORTFOLIO MANAGER</span><h2 id="prompt-title"></h2><p id="prompt-message"></p><label id="prompt-label">Portfolio name<input id="prompt-name" maxlength="160" autocomplete="off"></label><footer><button value="cancel" formnovalidate>Cancel</button><button id="prompt-confirm" class="primary" value="confirm">Continue</button></footer></form></dialog>
+  <script src="portfolio-statistics.js"></script><script src="portfolio-manager-host.js"></script><script src="portfolio-manager.js"></script>
+</body></html>

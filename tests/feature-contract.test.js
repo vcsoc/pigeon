@@ -7,6 +7,8 @@ const sharp = require('sharp');
 
 const root = path.join(__dirname, '..');
 const html = fs.readFileSync(path.join(root, 'src', 'index.html'), 'utf8');
+const portfolioManagerHtml=fs.readFileSync(path.join(root,'src','portfolio-manager.html'),'utf8');
+const portfolioManagerHost=fs.readFileSync(path.join(root,'src','portfolio-manager.js'),'utf8');
 const preload = fs.readFileSync(path.join(root, 'electron', 'preload.js'), 'utf8');
 const main = fs.readFileSync(path.join(root, 'electron', 'main.js'), 'utf8');
 const mediaStream = fs.readFileSync(path.join(root,'electron','media-stream.js'),'utf8');
@@ -38,7 +40,7 @@ const assetIndexesSource=fs.readFileSync(path.join(root,'src','asset-indexes.js'
 const fileTypesSource = fs.readFileSync(path.join(root, 'electron', 'file-types.js'), 'utf8');
 
 test('UI exposes collection, smart-folder, batch, trash, media, metadata and editing surfaces', () => {
-  for (const id of ['collection-list', 'smart-folder-list', 'batch-bar', 'duplicates-count', 'trash-count', 'inspector-video', 'inspector-audio', 'sidebar-resizer', 'inspector-resizer', 'batch-stack', 'batch-unstack', 'settings-dialog', 'text-entry-dialog', 'smart-folder-dialog', 'smart-folder-name', 'smart-folder-rules', 'favorite-shortcut', 'portfolio-switcher', 'portfolio-switcher-search', 'portfolio-switcher-list', 'portfolio-select', 'switch-portfolio', 'new-portfolio', 'rename-portfolio', 'delete-portfolio', 'encrypt-locked-folders', 'confirm-folder-moves', 'rotate-left', 'rotate-right', 'tag-suggestions', 'tag-autocomplete', 'tag-assignment-dialog', 'batch-tag-input', 'viewer-crop-overlay', 'map-view', 'location-map', 'map-search-input', 'map-globe-mode', 'map-street-mode', 'map-save', 'location-shortcut', 'duplicate-controls', 'duplicate-similarity', 'show-all-duplicate-groups', 'thumbnail-title-line-1', 'thumbnail-title-line-2', 'thumbnail-title-line-3', 'tag-browser', 'media-viewer', 'viewer-video', 'asset-histogram', 'annotation-view']) {
+  for (const id of ['collection-list', 'smart-folder-list', 'batch-bar', 'duplicates-count', 'trash-count', 'inspector-video', 'inspector-audio', 'sidebar-resizer', 'inspector-resizer', 'batch-stack', 'batch-unstack', 'settings-dialog', 'text-entry-dialog', 'smart-folder-dialog', 'smart-folder-name', 'smart-folder-rules', 'favorite-shortcut', 'portfolio-switcher', 'portfolio-switcher-search', 'portfolio-switcher-list', 'encrypt-locked-folders', 'confirm-folder-moves', 'rotate-left', 'rotate-right', 'tag-suggestions', 'tag-autocomplete', 'tag-assignment-dialog', 'batch-tag-input', 'viewer-crop-overlay', 'map-view', 'location-map', 'map-search-input', 'map-globe-mode', 'map-street-mode', 'map-save', 'location-shortcut', 'duplicate-controls', 'duplicate-similarity', 'show-all-duplicate-groups', 'thumbnail-title-line-1', 'thumbnail-title-line-2', 'thumbnail-title-line-3', 'tag-browser', 'media-viewer', 'viewer-video', 'asset-histogram', 'annotation-view']) {
     assert.match(html, new RegExp(`id="${id}"`), `missing ${id}`);
   }
 });
@@ -154,7 +156,7 @@ test('portfolio loading withholds locked assets and paints before authorized str
 });
 
 test('portfolio registry recovery and adding existing databases are wired',()=>{
-  assert.match(main,/portfolioRegistrySave=Promise\.resolve/);assert.match(main,/async function discoverPortfolioDatabases/);assert.match(main,/portfolios\.json\.bak|`\$\{portfolioRegistryFile\}\.bak`/);assert.match(main,/await handle\.sync\(\)/);assert.match(main,/portfolio:add-existing/);assert.match(main,/portfolio\.managed!==false/);assert.match(preload,/addExistingPortfolio/);assert.match(html,/id="add-existing-portfolio"/);assert.match(renderer,/addExistingPortfolio\(\)/);
+  assert.match(main,/portfolioRegistrySave=Promise\.resolve/);assert.match(main,/async function discoverPortfolioDatabases/);assert.match(main,/portfolios\.json\.bak|`\$\{portfolioRegistryFile\}\.bak`/);assert.match(main,/await handle\.sync\(\)/);assert.match(main,/portfolio:add-existing/);assert.match(main,/portfolio\.managed!==false/);assert.match(preload,/addExistingPortfolio/);assert.match(portfolioManagerHtml,/id="add-existing"/);assert.match(portfolioManagerHost,/addExistingPortfolio/);assert.doesNotMatch(html,/data-preference-content="portfolios"/);
 });
 
 test('appearance tree colors, hierarchical action destinations, custom F2 and faster magnifier are wired',()=>{
