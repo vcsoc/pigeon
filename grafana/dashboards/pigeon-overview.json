@@ -1,0 +1,188 @@
+{
+  "uid": "pigeon-overview",
+  "title": "Pigeon - Overview",
+  "tags": [
+    "pigeon",
+    "opentelemetry"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Pigeon memory",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (kind) (pigeon_process_memory_bytes{service_name=\"pigeon-desktop\"})",
+          "legendFormat": "{{kind}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {},
+      "description": "Main Electron process RSS and used JavaScript heap."
+    },
+    {
+      "id": 2,
+      "title": "Diagnostics per minute",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (severity) (rate(pigeon_diagnostics_total{service_name=\"pigeon-desktop\"}[5m])) * 60",
+          "legendFormat": "{{severity}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {},
+      "description": "Diagnostic counts by severity. Individual messages are intentionally not exported."
+    },
+    {
+      "id": 3,
+      "title": "Recorded operations per minute",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (operation) (rate(pigeon_operation_duration_milliseconds_count{service_name=\"pigeon-desktop\"}[5m])) * 60",
+          "legendFormat": "{{operation}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {},
+      "description": "Only the bounded set of instrumented performance operations is shown."
+    },
+    {
+      "id": 4,
+      "title": "Operation p95 duration",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, operation) (rate(pigeon_operation_duration_milliseconds_bucket{service_name=\"pigeon-desktop\"}[5m])))",
+          "legendFormat": "{{operation}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "options": {},
+      "description": "Approximate p95 from OTLP histogram buckets; idle or rare operations may show no data."
+    },
+    {
+      "id": 5,
+      "title": "Recent diagnostics",
+      "type": "logs",
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 24,
+        "h": 9
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{service_name=\"pigeon-desktop\"}",
+          "queryType": "range",
+          "maxLines": 200
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending"
+      },
+      "description": "Pigeon sends severity and generic diagnostic text only, not private file names or diagnostic details."
+    }
+  ],
+  "links": [
+    {
+      "title": "Pigeon operations & traces",
+      "type": "link",
+      "url": "/d/pigeon-operations/pigeon-operations-and-traces",
+      "targetBlank": false,
+      "includeVars": true,
+      "keepTime": true
+    }
+  ]
+}

@@ -96,7 +96,14 @@
             <h1 id="view-title">All</h1>
             <span id="view-count" class="view-count">0 items</span>
           </div>
-          <div class="toolbar-center"></div>
+          <div class="toolbar-center">
+            <label class="search-box">
+              <span>⌕</span>
+              <input id="search-input" type="search" placeholder="Search current view" title="Search names, paths, notes and tags in the current view" aria-label="Search current view" autocomplete="off" />
+              <button type="button" id="semantic-sample-button" class="search-camera" title="Search by sample file" aria-label="Search by sample file">▣</button>
+            </label>
+            <button type="button" id="semantic-search-button" class="icon-button" title="Semantic search: descriptions and sample files" aria-label="Semantic search">✦</button>
+          </div>
           <div class="toolbar-right">
             <div class="toolbar-zoom-group"><button id="zoom-set-default" class="zoom-set-default hidden" type="button" title="Use this size as the portfolio default">Set Default</button><button id="zoom-out" class="zoom-step" type="button" title="Smaller thumbnails" aria-label="Smaller thumbnails">−</button><input id="zoom-slider" class="toolbar-zoom" type="range" min="72" max="520" step="8" value="240" title="Thumbnail size" /><button id="zoom-in" class="zoom-step" type="button" title="Larger thumbnails" aria-label="Larger thumbnails">＋</button></div>
             <button id="refresh-button" class="icon-button" type="button" title="Refresh source status and rescan" aria-label="Refresh source status and rescan">⇄</button>
@@ -107,13 +114,7 @@
             <button id="order-by-button" class="icon-button" title="Order items" aria-haspopup="true" aria-expanded="false">⇅</button>
             <button id="inspector-toggle" class="icon-button" title="Toggle inspector">▣</button>
             <button id="filter-button" class="icon-button selected funnel-button" title="Toggle filters">▽</button>
-            <label class="search-box">
-              <span>⌕</span>
-              <input id="search-input" type="search" placeholder="Search" autocomplete="off" />
-              <button type="button" id="semantic-sample-button" class="search-camera" title="Search by sample file" aria-label="Search by sample file">▣</button>
-            </label>
             <button type="button" id="knowledge-graph-toggle" class="icon-button" title="Show portfolio knowledge graph" aria-label="Toggle knowledge graph" aria-expanded="false" aria-controls="knowledge-graph-panel">♧</button>
-            <button type="button" id="semantic-search-button" class="icon-button" title="Semantic search: descriptions and sample files" aria-label="Semantic search">✦</button>
             <button id="pin-button" class="icon-button" title="Keep Pigeon on top">⌖</button>
             <div id="window-controls" class="window-controls" aria-label="Window controls">
               <button id="window-minimize" class="window-control" title="Minimize" aria-label="Minimize"><span class="minimize-glyph"></span></button>
@@ -349,7 +350,7 @@
     </dialog>
     <dialog id="smart-folder-dialog" class="settings-dialog smart-folder-dialog">
       <header><strong>New Smart Folder</strong><button id="close-smart-folder-dialog">×</button></header>
-      <div class="settings-content"><label for="smart-folder-name">Smart Folder Name</label><input id="smart-folder-name" class="text-field" autocomplete="off" /><p>Smart Folder will automatically collect items that meet these rules.</p><div id="smart-folder-inherited-rules" class="smart-folder-inherited-rules hidden"></div><div class="smart-local-rules-label">Local rules</div><div class="smart-rule-mode"><select id="smart-folder-match"><option value="all">all</option><option value="any">any</option></select><span>of the following local rules are true</span><button id="add-smart-rule" title="Add local rule">＋</button></div><div id="smart-folder-rules" class="smart-folder-rules"></div><datalist id="smart-collection-suggestions"></datalist><div id="smart-folder-found" class="smart-folder-found">Found 0 items</div><footer><button id="cancel-smart-folder">Cancel</button><button id="create-smart-folder" class="primary-button">Create</button></footer></div>
+      <div class="settings-content"><label for="smart-folder-name">Smart Folder Name</label><input id="smart-folder-name" class="text-field" autocomplete="off" /><p>Smart Folder will automatically collect items that meet these rules.</p><div id="smart-folder-inherited-rules" class="smart-folder-inherited-rules hidden"></div><div class="smart-local-rules-label">Local rules</div><div class="smart-rule-mode"><select id="smart-folder-match"><option value="all">all</option><option value="any">any</option></select><span>of the following local rules are true</span><button id="add-smart-rule" title="Add local rule">＋</button></div><p class="smart-rule-match-help">All requires every rule to match. Any includes an item when even one rule matches.</p><div id="smart-folder-rules" class="smart-folder-rules"></div><datalist id="smart-collection-suggestions"></datalist><div id="smart-folder-found" class="smart-folder-found">Found 0 items</div><footer><button id="cancel-smart-folder">Cancel</button><button id="create-smart-folder" class="primary-button">Create</button></footer></div>
     </dialog>
     <dialog id="settings-dialog" class="settings-dialog preferences-dialog">
       <div class="preferences-shell">
@@ -431,6 +432,7 @@
   <script src="privacy-effects.js"></script>
   <script src="thumbnail-memory-cache.js"></script>
   <script src="sidebar-location-order.js"></script>
+  <script src="folder-tree-move.js"></script>
   <script src="renderer.js"></script>
     <script src="auto-tag-editor.js"></script>
     <script src="semantic-select.js"></script>

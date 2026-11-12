@@ -1,0 +1,8 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os'),{createFixtures}=require('./fixtures.cjs'),{launch}=require('./driver.cjs');process.env.PIGEON_E2E_HEADLESS='1';
+(async()=>{const root=await fs.mkdtemp(path.join(os.tmpdir(),'pigeon-folder-immediate-')),fixture=await createFixtures(root,{count:8,coldCount:0}),report=path.join(root,'report');await fs.mkdir(report);let app;try{
+  app=await launch(fixture.profile,report);await app.wait("document.querySelector('#startup-splash').classList.contains('hidden')&&!state.library.assetStreamPending");
+  await app.wait("folderTreeCache.get('cached-root')?.folders.some(f=>f.path==='section-0/branch-0')&&folderTreeCache.has('cold-root')",15000);
+  const result=await app.evaluate(`(async()=>{const moved=await window.pigeon.movePhysicalFolder('cached-root','section-0/branch-0','cold-root','');applyPhysicalFolderMove(moved,'cached-root','section-0/branch-0');const source=folderTreeCache.get('cached-root').folders.map(f=>f.path),destination=folderTreeCache.get('cold-root').folders.map(f=>f.path);return {moved:moved.moved,source,destination,visible:!!document.querySelector('.location-item[data-location-id="cold-root"] [data-subfolder="branch-0"]')};})()`);
+  assert.equal(result.moved,true);assert.equal(result.source.includes('section-0/branch-0'),false);assert.ok(result.destination.includes('branch-0'));assert.equal(result.visible,true,JSON.stringify(result));assert.deepEqual(app.errors,[]);console.log('Moved folder appears immediately in destination',JSON.stringify(result));
+}finally{await app?.close();}})().catch(error=>{console.error(error);process.exitCode=1;});

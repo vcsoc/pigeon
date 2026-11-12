@@ -1420,7 +1420,7 @@ test('nested sidebar folders retain a fixed aligned count column',()=>{
 test('collection navigation applies its saved thumbnail size before revealing new cards',()=>{
   assert.match(renderer,/changed=Number\(\$\('#zoom-slider'\)\.value\)!==value;setThumbnailZoom\(value,\{persist:false,render:false\}\);return changed/);
   assert.match(renderer,/elements\.grid\.classList\.toggle\('navigation-sizing',restoreScopedThumbnailSize\(\)\)/);
-  assert.match(renderer,/renderGrid\(\);elements\.grid\.classList\.remove\('navigation-sizing'\)/);
+  assert.match(renderer,/renderGrid\(\{preserveCards:true\}\);elements\.grid\.classList\.remove\('navigation-sizing'\)/);
   assert.match(styles,/\.asset-grid\.navigation-sizing \{ visibility:hidden; \}/);
 });
 

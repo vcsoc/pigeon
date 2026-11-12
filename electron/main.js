@@ -1,4 +1,6 @@
 const { app, BrowserWindow, dialog, ipcMain, protocol, shell, clipboard, desktopCapturer, crashReporter, utilityProcess, screen, nativeImage, net, powerMonitor } = require('electron');
+const {createObservability}=require('./observability');
+const observability=createObservability({version:app.getVersion(),disabled:process.argv.includes('--smoke-test')||Boolean(process.env.PIGEON_E2E_PROFILE)});
 const fsp = require('node:fs/promises');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -150,12 +152,13 @@ function recordDiagnostic(level, message, context = null) {
   const entry = { id: crypto.randomUUID(), timestamp: Date.now(), level, portfolioId: activePortfolioId, message: diagnosticValue(message), context: context ? diagnosticValue(context) : '' };
   diagnosticEntries.push(entry); if (diagnosticEntries.length > 1000) diagnosticEntries = diagnosticEntries.slice(-1000);
   persistDiagnosticEntry(entry);
+  try { observability.diagnostic(level); } catch { /* Telemetry must not affect diagnostics. */ }
   try { if (rendererIpcReady && mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) mainWindow.webContents.send('diagnostics:entry', entry); } catch { rendererIpcReady=false; }
   return entry;
 }
 const persistedPerformanceNames=new Set(['sqlite-open','sqlite-read-metadata','sqlite-read-locations','sqlite-read-assets','sqlite-read-collections','sqlite-read-smart-folders','sqlite-migrate-library','sqlite-load-and-migrate','library-worker-loaded','library-worker-transfer','main-asset-index','main-library-adopt','asset-stream','first-metadata-chunk-sent','first-batch-frame-ack','folder-tree-projection','renderer:first-asset-chunk','renderer:first-grid-paint','renderer:asset-stream-complete']);
 function recordPerformanceDiagnostic(entry){const key=`${entry.name}:${entry.portfolioId||'none'}`,now=Date.now(),state=performanceDiagnosticBackoff.get(key)||{delay:30000,nextAt:0,suppressed:0,peakDurationMs:0};if(now<state.nextAt){state.suppressed+=1;state.peakDurationMs=Math.max(state.peakDurationMs,Number(entry.durationMs)||0);performanceDiagnosticBackoff.set(key,state);return;}const context=state.suppressed?{...entry,suppressedCount:state.suppressed,peakDurationMs:Math.max(state.peakDurationMs,Number(entry.durationMs)||0),backoffMs:state.delay}:entry;recordDiagnostic('info',state.suppressed?`Performance span summary: ${entry.name}`:`Performance span: ${entry.name}`,context);state.nextAt=now+state.delay;state.delay=Math.min(5*60*1000,state.delay*2);state.suppressed=0;state.peakDurationMs=0;performanceDiagnosticBackoff.set(key,state);}
-performanceRecorder=createPerformanceRecorder({onRecord:(entry)=>{if(persistedPerformanceNames.has(entry.name)||(entry.durationMs>=8&&/^renderer:phase:/.test(entry.name))||(entry.durationMs>=100&&/^(renderer:long-task|renderer:filter-sort|asset-stream|visibility-delta)/.test(entry.name)))recordPerformanceDiagnostic(entry);}});
+performanceRecorder=createPerformanceRecorder({onRecord:(entry)=>{try{observability.performance(entry);}catch{}if(persistedPerformanceNames.has(entry.name)||(entry.durationMs>=8&&/^renderer:phase:/.test(entry.name))||(entry.durationMs>=100&&/^(renderer:long-task|renderer:filter-sort|asset-stream|visibility-delta)/.test(entry.name)))recordPerformanceDiagnostic(entry);}});
 console.error = (...values) => { originalConsoleError(...values); recordDiagnostic('error', values.map(diagnosticValue).join(' ')); };
 console.warn = (...values) => { originalConsoleWarn(...values); recordDiagnostic('warning', values.map(diagnosticValue).join(' ')); };
 process.on('uncaughtExceptionMonitor',(error,origin)=>writeFatalDiagnostic('main:uncaughtExceptionMonitor',error,origin));
@@ -2016,7 +2019,7 @@ function createWindow() {
 }
 
 const registerIpcHandler=ipcMain.handle.bind(ipcMain);
-ipcMain.handle=(channel,handler)=>registerIpcHandler(channel,async(event,...args)=>{try{return await handler(event,...args);}catch(error){const context={channel,senderId:event?.sender?.id,args:args.map((value)=>diagnosticValue(value).slice(0,2000))};writeFatalDiagnostic('ipc:handler',error,context);recordDiagnostic('error',`Unhandled IPC exception in ${channel}`,{error:diagnosticValue(error),...context});throw error;}});
+ipcMain.handle=(channel,handler)=>registerIpcHandler(channel,(event,...args)=>observability.run(channel,async()=>{try{return await handler(event,...args);}catch(error){const context={channel,senderId:event?.sender?.id,args:args.map((value)=>diagnosticValue(value).slice(0,2000))};writeFatalDiagnostic('ipc:handler',error,context);recordDiagnostic('error',`Unhandled IPC exception in ${channel}`,{error:diagnosticValue(error),...context});throw error;}}));
 ipcMain.on('diagnostics:fatal',(_event,payload)=>{writeFatalDiagnostic(payload?.source||'preload',payload?.message||'Unknown fatal error',payload?.context||'');recordDiagnostic('error',payload?.message||'Preload exception',payload?.context||'');});
 ipcMain.on('file-conflict:resolve',(event,payload={})=>{if(event.sender!==mainWindow?.webContents)return;pendingFileConflictPrompts.get(String(payload.requestId||''))?.finish(payload.decision,Boolean(payload.applyToAll));});
 ipcMain.handle('app:info', () => ({ name: 'Pigeon', version: app.getVersion(), repository: 'https://github.com/vcsoc/pigeon' }));
@@ -2885,8 +2888,9 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-let semanticShutdownComplete=false;
+let semanticShutdownComplete=false,observabilityShutdownComplete=false,observabilityShutdownStarted=false;
 app.on('before-quit', (event) => {
+  if(!observabilityShutdownComplete){event.preventDefault();if(!observabilityShutdownStarted){observabilityShutdownStarted=true;Promise.race([observability.shutdown(),new Promise(resolve=>setTimeout(resolve,1500))]).finally(()=>{observabilityShutdownComplete=true;app.quit();});}return;}
   if(semanticService&&!semanticShutdownComplete){event.preventDefault();app.isQuitting=true;semanticService.close().catch(error=>recordDiagnostic('warning','Semantic shutdown cleanup',error.message)).finally(()=>{semanticShutdownComplete=true;app.quit();});return;}
   app.isQuitting = true;
   for (const watcher of watchers.values()) watcher.close();
